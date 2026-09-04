@@ -2,7 +2,8 @@
 
 금융 거래의 최종 책임을 갖는 Spring Boot 프로젝트입니다.
 
-현재는 토스증권 OAuth 인증 연결까지 구현되어 있습니다. 시세·계좌·주문 기능은 아직 없습니다.
+현재는 토스증권 OAuth 인증과 종목 현재가 조회까지 구현되어 있습니다.
+계좌·보유 종목·주문 기능은 아직 없습니다.
 
 ## 담당 범위
 
@@ -48,6 +49,33 @@ RUN_TOSS_LIVE_TEST=true ./mvnw -Dtest=TossAuthLiveTests test
 ```
 
 실제 클라이언트 비밀키와 발급된 액세스 토큰은 로그에 출력하지 않습니다.
+
+## 현재가 조회
+
+서버를 실행한 뒤 종목 코드를 URL에 넣어 현재가를 조회합니다.
+삼성전자 종목 코드는 `005930`입니다.
+
+```bash
+curl http://localhost:8080/api/stocks/005930/price
+```
+
+응답에는 종목 코드, 숫자 형태의 현재가, 통화와 시세 기록 시각이 포함됩니다.
+
+```json
+{
+  "symbol": "005930",
+  "price": 72000,
+  "currency": "KRW",
+  "timestamp": "2026-09-04T09:30:00.123+09:00"
+}
+```
+
+평소 자동 테스트는 가짜 토스증권 서버를 사용하므로 실제 토큰을 발급하지 않습니다.
+실제 현재가 조회 테스트는 아래 환경변수를 지정했을 때만 실행됩니다.
+
+```bash
+RUN_TOSS_LIVE_TEST=true ./mvnw -Dtest=TossPriceLiveTests test
+```
 
 ## PostgreSQL 프로필
 
