@@ -2,8 +2,8 @@
 
 금융 거래의 최종 책임을 갖는 Spring Boot 프로젝트입니다.
 
-현재는 토스증권 OAuth 인증과 종목 현재가 조회까지 구현되어 있습니다.
-계좌·보유 종목·주문 기능은 아직 없습니다.
+현재는 토스증권 OAuth 인증, 종목 현재가 조회와 계좌 목록 조회까지 구현되어 있습니다.
+보유 종목·잔고·주문 기능은 아직 없습니다.
 
 ## 담당 범위
 
@@ -75,6 +75,35 @@ curl http://localhost:8080/api/stocks/005930/price
 
 ```bash
 RUN_TOSS_LIVE_TEST=true ./mvnw -Dtest=TossPriceLiveTests test
+```
+
+## 계좌 목록 조회
+
+계좌 식별값은 환경변수에 직접 저장하지 않고 토스증권 계좌 목록 API에서 받아옵니다.
+서버를 실행한 뒤 다음 주소로 사용 가능한 계좌를 조회합니다.
+
+```bash
+curl http://localhost:8080/api/accounts
+```
+
+실제 계좌번호는 노출하지 않고 끝 4자리만 남겨 반환합니다.
+`accountSeq`는 다음 단계에서 보유주식과 잔고를 조회할 때 사용합니다.
+
+```json
+[
+  {
+    "accountSeq": 1,
+    "maskedAccountNumber": "*******8901",
+    "accountType": "BROKERAGE"
+  }
+]
+```
+
+실제 계좌 목록 테스트는 아래 환경변수를 지정했을 때만 실행됩니다.
+테스트 결과에는 실제 계좌번호를 출력하지 않습니다.
+
+```bash
+RUN_TOSS_LIVE_TEST=true ./mvnw -Dtest=TossAccountLiveTests test
 ```
 
 ## PostgreSQL 프로필
