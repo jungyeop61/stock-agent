@@ -2,8 +2,8 @@
 
 금융 거래의 최종 책임을 갖는 Spring Boot 프로젝트입니다.
 
-현재는 토스증권 OAuth 인증, 종목 현재가, 계좌 목록과 보유주식 평가 조회까지 구현되어 있습니다.
-매수 가능 금액과 주문 기능은 아직 없습니다.
+현재는 토스증권 OAuth 인증, 종목 현재가, 계좌 목록, 보유주식 평가와 매수 가능 금액 조회까지 구현되어 있습니다.
+매도 가능 수량, 수수료와 주문 기능은 아직 없습니다.
 
 ## 담당 범위
 
@@ -162,6 +162,42 @@ curl http://localhost:8080/api/accounts/1/holdings
 
 ```bash
 RUN_TOSS_LIVE_TEST=true ./mvnw -Dtest=TossHoldingsLiveTests test
+```
+
+## 원화와 달러 매수 가능 금액 조회
+
+계좌 목록에서 받은 `accountSeq`와 조회할 통화를 지정합니다.
+다음 명령의 `1`은 설명용 계좌 식별값입니다.
+
+원화 매수 가능 금액을 조회합니다.
+
+```bash
+curl "http://localhost:8080/api/accounts/1/buying-power?currency=KRW"
+```
+
+달러 매수 가능 금액은 같은 주소에 `USD`를 지정합니다.
+
+```bash
+curl "http://localhost:8080/api/accounts/1/buying-power?currency=USD"
+```
+
+```json
+{
+  "accountSeq": 1,
+  "currency": "KRW",
+  "cashBuyingPower": 5000000
+}
+```
+
+`cashBuyingPower`는 계좌 총자산이 아니라 미수 없이 순수 현금으로 매수할 수 있는 금액입니다.
+원화는 원 단위 정수이고 달러는 소수점이 포함될 수 있으므로 모두 `BigDecimal`로 처리합니다.
+우리 서버는 `KRW`와 `USD`만 허용하며 소문자로 입력해도 대문자로 바꿉니다.
+
+실제 연동 테스트는 계좌 목록에서 `accountSeq`를 선택한 뒤 원화와 달러를 모두 조회합니다.
+테스트 결과에는 실제 매수 가능 금액을 출력하지 않습니다.
+
+```bash
+RUN_TOSS_LIVE_TEST=true ./mvnw -Dtest=TossBuyingPowerLiveTests test
 ```
 
 ## PostgreSQL 프로필
