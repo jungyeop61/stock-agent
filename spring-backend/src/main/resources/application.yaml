@@ -1,6 +1,10 @@
 spring:
   application:
     name: jusika-spring-backend
+  config:
+    import:
+      - optional:file:../.env[.properties]
+      - optional:file:.env[.properties]
   datasource:
     url: jdbc:h2:mem:jusika;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1
     username: sa
@@ -29,3 +33,9 @@ management:
 jusika:
   broker:
     mode: mock
+  toss:
+    base-url: ${TOSSINVEST_BASE_URL:https://openapi.tossinvest.com}
+    client-id: ${TOSSINVEST_CLIENT_ID:}
+    client-secret: ${TOSSINVEST_CLIENT_SECRET:}
+    connect-timeout: 3s
+    read-timeout: 5s
