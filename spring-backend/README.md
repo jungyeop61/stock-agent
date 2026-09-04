@@ -2,8 +2,8 @@
 
 금융 거래의 최종 책임을 갖는 Spring Boot 프로젝트입니다.
 
-현재는 토스증권 OAuth 인증, 종목 현재가, 계좌 목록, 보유주식 평가, 매수 가능 금액과 매도 가능 수량 조회까지 구현되어 있습니다.
-수수료와 주문 기능은 아직 없습니다.
+현재는 토스증권 OAuth 인증, 종목 현재가, 계좌 목록, 보유주식 평가, 매수 가능 금액, 매도 가능 수량과 매매 수수료 조회까지 구현되어 있습니다.
+실제 주문 기능은 아직 없습니다.
 
 ## 담당 범위
 
@@ -226,6 +226,46 @@ curl http://localhost:8080/api/accounts/1/stocks/005930/sellable-quantity
 
 ```bash
 RUN_TOSS_LIVE_TEST=true ./mvnw -Dtest=TossSellableQuantityLiveTests test
+```
+
+## 국내와 미국 시장의 매매 수수료 조회
+
+계좌 목록에서 받은 `accountSeq`를 URL에 넣어 계좌에 실제 적용되는 시장별 수수료율을 조회합니다.
+다음 명령의 `1`은 설명용 계좌 식별값입니다.
+
+```bash
+curl http://localhost:8080/api/accounts/1/commissions
+```
+
+```json
+{
+  "accountSeq": 1,
+  "commissions": [
+    {
+      "marketCountry": "KR",
+      "commissionRate": 0.00015,
+      "startDate": "2026-01-01",
+      "endDate": "2026-12-31"
+    },
+    {
+      "marketCountry": "US",
+      "commissionRate": 0.001,
+      "startDate": null,
+      "endDate": null
+    }
+  ]
+}
+```
+
+`commissionRate`는 퍼센트 숫자가 아니라 매매 금액에 곱하는 소수 비율입니다.
+예를 들어 `0.00015`는 `0.015%`를 뜻하며, 오차 없는 계산을 위해 `BigDecimal`로 처리합니다.
+`startDate`는 해외주식 등 적용 시작일이 없으면 `null`이고, `endDate`는 무기한 적용이면 `null`입니다.
+
+실제 연동 테스트는 계좌 목록에서 `accountSeq`를 자동으로 선택한 뒤 국내와 미국 시장의 수수료를 조회합니다.
+테스트 결과에는 실제 수수료율과 적용 기간을 출력하지 않습니다.
+
+```bash
+RUN_TOSS_LIVE_TEST=true ./mvnw -Dtest=TossCommissionsLiveTests test
 ```
 
 ## PostgreSQL 프로필
