@@ -32,6 +32,8 @@ public class OrderPreviewService {
 	private final TossBuyingPowerClient buyingPowerClient;
 	private final TossSellableQuantityClient sellableQuantityClient;
 	private final TossCommissionsClient commissionsClient;
+	private final OrderPreviewStore previewStore;
+	private final OrderPreviewProperties properties;
 	private final Clock clock;
 
 	/**
@@ -41,6 +43,8 @@ public class OrderPreviewService {
 	 * @param buyingPowerClient 통화별 매수 가능 금액 조회 클라이언트
 	 * @param sellableQuantityClient 종목별 매도 가능 수량 조회 클라이언트
 	 * @param commissionsClient 계좌의 시장별 수수료 조회 클라이언트
+	 * @param previewStore 계산을 마친 미리보기와 승인 상태를 보관할 저장소
+	 * @param properties 미리보기 승인 유효시간 설정
 	 * @param clock 미리보기 생성 시각을 기록할 시스템 시계
 	 */
 	public OrderPreviewService(
@@ -48,11 +52,15 @@ public class OrderPreviewService {
 			TossBuyingPowerClient buyingPowerClient,
 			TossSellableQuantityClient sellableQuantityClient,
 			TossCommissionsClient commissionsClient,
+			OrderPreviewStore previewStore,
+			OrderPreviewProperties properties,
 			Clock clock) {
 		this.priceClient = priceClient;
 		this.buyingPowerClient = buyingPowerClient;
 		this.sellableQuantityClient = sellableQuantityClient;
 		this.commissionsClient = commissionsClient;
+		this.previewStore = previewStore;
+		this.properties = properties;
 		this.clock = clock;
 	}
 
@@ -92,9 +100,11 @@ public class OrderPreviewService {
 			validateBuyingPower(request.accountSeq(), market.currency(), estimatedAmountAfterCommission);
 		}
 
-		return new OrderPreviewResponse(
+		OffsetDateTime createdAt = OffsetDateTime.now(clock);
+		OrderPreviewResponse preview = new OrderPreviewResponse(
 				UUID.randomUUID().toString(),
-				OffsetDateTime.now(clock),
+				createdAt,
+				createdAt.plus(properties.expiration()),
 				request.accountSeq(),
 				stockPrice.symbol(),
 				request.side(),
@@ -111,7 +121,69 @@ public class OrderPreviewService {
 				estimatedAmountAfterCommission,
 				request.side() == OrderSide.SELL,
 				requiresHighValueConfirmation(market.currency(), estimatedOrderAmount),
-				true);
+				true,
+				OrderPreviewStatus.PENDING_APPROVAL,
+				null);
+		return previewStore.save(preview);
+	}
+
+	/**
+	 * 저장된 주문 내용을 수정하지 않고 유효한 승인 대기 미리보기만 한 번 승인합니다.
+	 * 이 함수는 토스증권 주문 생성 API를 호출하지 않습니다.
+	 *
+	 * @param previewId 승인할 주문 미리보기 식별값
+	 * @return 데이터베이스에 승인 시각이 기록된 주문 미리보기
+	 * @throws OrderPreviewException 식별값 형식이 올바르지 않은 경우
+	 * @throws OrderPreviewNotFoundException 저장된 미리보기를 찾을 수 없는 경우
+	 * @throws OrderPreviewExpiredException 승인 유효시간이 지난 경우
+	 * @throws OrderPreviewStateException 이미 승인되거나 사용된 경우
+	 */
+	public OrderPreviewResponse approvePreview(String previewId) {
+		validatePreviewId(previewId);
+		OffsetDateTime approvedAt = OffsetDateTime.now(clock);
+
+		previewStore.expirePending(previewId, approvedAt);
+		if (previewStore.approvePending(previewId, approvedAt)) {
+			return findStoredPreview(previewId);
+		}
+
+		OrderPreviewResponse preview = findStoredPreview(previewId);
+		switch (preview.status()) {
+			case EXPIRED -> throw new OrderPreviewExpiredException(
+					"주문 미리보기의 승인 시간이 지났습니다. 새 미리보기를 만들어 주세요.");
+			case APPROVED -> throw new OrderPreviewStateException("이미 승인한 주문 미리보기입니다.");
+			case CONSUMED -> throw new OrderPreviewStateException("이미 주문에 사용한 미리보기입니다.");
+			case PENDING_APPROVAL -> throw new OrderPreviewStateException(
+					"주문 미리보기 상태가 변경되어 승인하지 못했습니다. 다시 확인해 주세요.");
+		}
+		throw new IllegalStateException("처리할 수 없는 주문 미리보기 상태입니다.");
+	}
+
+	/**
+	 * 승인 URL에 들어온 미리보기 식별값이 표준 UUID 문자열인지 확인합니다.
+	 *
+	 * @param previewId 검사할 미리보기 식별값
+	 */
+	private void validatePreviewId(String previewId) {
+		if (previewId == null) {
+			throw new OrderPreviewException("주문 미리보기 식별값이 필요합니다.");
+		}
+		try {
+			UUID.fromString(previewId);
+		} catch (IllegalArgumentException exception) {
+			throw new OrderPreviewException("주문 미리보기 식별값 형식이 올바르지 않습니다.");
+		}
+	}
+
+	/**
+	 * 저장소에서 미리보기를 읽고 없으면 찾을 수 없음 오류를 발생시킵니다.
+	 *
+	 * @param previewId 조회할 미리보기 식별값
+	 * @return 데이터베이스에 저장된 주문 미리보기
+	 */
+	private OrderPreviewResponse findStoredPreview(String previewId) {
+		return previewStore.findById(previewId)
+				.orElseThrow(() -> new OrderPreviewNotFoundException("주문 미리보기를 찾을 수 없습니다."));
 	}
 
 	/**

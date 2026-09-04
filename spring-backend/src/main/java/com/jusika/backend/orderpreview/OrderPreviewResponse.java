@@ -8,6 +8,7 @@ import java.time.OffsetDateTime;
  *
  * @param previewId 화면과 음성 안내에서 미리보기를 구분할 임시 식별값
  * @param createdAt 미리보기를 만든 시각
+ * @param expiresAt 미리보기를 승인할 수 있는 마지막 시각
  * @param accountSeq 검증한 계좌 식별값
  * @param symbol 검증한 종목 코드
  * @param side 매수 또는 매도 방향
@@ -25,10 +26,13 @@ import java.time.OffsetDateTime;
  * @param sellTaxExcluded 매도 세금이 예상 금액 계산에서 제외되었는지 여부
  * @param requiresHighValueConfirmation 국내 1억원 이상 주문이라 추가 확인이 필요한지 여부
  * @param orderReady 입력값과 계좌의 금액 또는 수량 검증을 통과했는지 여부
+ * @param status 미리보기의 현재 승인 처리 상태
+ * @param approvedAt 사용자가 미리보기를 승인한 시각이며 아직 승인하지 않았으면 null
  */
 public record OrderPreviewResponse(
 		String previewId,
 		OffsetDateTime createdAt,
+		OffsetDateTime expiresAt,
 		long accountSeq,
 		String symbol,
 		OrderSide side,
@@ -45,5 +49,7 @@ public record OrderPreviewResponse(
 		BigDecimal estimatedAmountAfterCommission,
 		boolean sellTaxExcluded,
 		boolean requiresHighValueConfirmation,
-		boolean orderReady) {
+		boolean orderReady,
+		OrderPreviewStatus status,
+		OffsetDateTime approvedAt) {
 }

@@ -31,6 +31,8 @@ management:
         enabled: true
 
 jusika:
+  order-preview:
+    expiration: ${ORDER_PREVIEW_EXPIRATION:2m}
   broker:
     mode: mock
   toss:

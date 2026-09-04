@@ -2,8 +2,9 @@
 
 금융 거래의 최종 책임을 갖는 Spring Boot 프로젝트입니다.
 
-현재는 토스증권 OAuth 인증, 종목 현재가, 계좌 목록, 보유주식 평가, 매수 가능 금액, 매도 가능 수량, 매매 수수료 조회와 수량 기반 주문 미리보기까지 구현되어 있습니다.
-사용자 승인과 실제 주문 전송 기능은 아직 없습니다.
+현재는 토스증권 OAuth 인증, 종목 현재가, 계좌 목록, 보유주식 평가, 매수 가능 금액, 매도 가능 수량과 매매 수수료 조회가 구현되어 있습니다.
+수량 기반 주문 미리보기는 데이터베이스 저장, 만료, 사용자 승인과 중복 승인 차단까지 구현되어 있습니다.
+실제 주문 전송 기능은 아직 없습니다.
 
 ## 담당 범위
 
@@ -290,6 +291,7 @@ curl -X POST http://localhost:8080/api/orders/preview \
 {
   "previewId": "임시-미리보기-식별값",
   "createdAt": "2026-09-04T20:00:00Z",
+  "expiresAt": "2026-09-04T20:02:00Z",
   "accountSeq": 1,
   "symbol": "005930",
   "side": "BUY",
@@ -306,7 +308,9 @@ curl -X POST http://localhost:8080/api/orders/preview \
   "estimatedAmountAfterCommission": 70010.5,
   "sellTaxExcluded": false,
   "requiresHighValueConfirmation": false,
-  "orderReady": true
+  "orderReady": true,
+  "status": "PENDING_APPROVAL",
+  "approvedAt": null
 }
 ```
 
@@ -325,10 +329,32 @@ curl -X POST http://localhost:8080/api/orders/preview \
 - 미국 지정가는 1달러 미만이면 소수점 4자리, 1달러 이상이면 소수점 2자리까지 허용합니다.
 - 국내 주문금액이 1억원 이상이면 `requiresHighValueConfirmation`이 `true`가 됩니다.
 
-`previewId`는 현재 미리보기 응답을 구분하기 위한 임시 식별값입니다.
-아직 서버에 저장되거나 실제 주문 승인에 사용되지 않으며, 다음 단계에서 저장·만료·승인 검증을 구현합니다.
+`previewId`는 데이터베이스에 저장된 미리보기를 구분하는 UUID 식별값입니다.
+기본 승인 유효시간은 생성 시각부터 2분이며 `.env`의 `ORDER_PREVIEW_EXPIRATION`으로 바꿀 수 있습니다.
+로컬 기본 H2 데이터베이스의 내용은 서버를 종료하면 사라지고, `postgres` 프로필에서는 PostgreSQL에 유지됩니다.
 `orderReady`는 조회 시점의 입력 형식과 계좌 금액 또는 수량 검사를 통과했다는 뜻이며 증권사의 최종 주문 접수를 보장하지 않습니다.
 호가 단위, 주문 가능 시간, 종목 거래 제한과 미리보기 이후의 가격·잔고 변동은 실제 주문 직전에 다시 검사해야 합니다.
+
+## 주문 미리보기 승인
+
+미리보기 응답에서 받은 `previewId`만 URL에 넣어 승인합니다.
+승인 요청은 주문 수량이나 가격을 본문으로 받지 않으므로 저장된 주문 내용을 바꿀 수 없습니다.
+
+```bash
+curl -X POST http://localhost:8080/api/orders/previews/미리보기-식별값/approve
+```
+
+성공하면 저장된 미리보기 전체가 다시 반환되고 `status`는 `APPROVED`, `approvedAt`은 승인 시각이 됩니다.
+이번 단계의 승인은 서버 데이터베이스 상태만 변경하며 토스증권 주문 생성 API를 호출하지 않습니다.
+
+다음 상태 규칙을 적용합니다.
+
+- 처음 만든 미리보기는 `PENDING_APPROVAL` 상태입니다.
+- 유효시간 안에 한 번만 `APPROVED`로 변경할 수 있습니다.
+- 유효시간이 지나면 `EXPIRED`로 변경되며 HTTP 410을 반환합니다.
+- 같은 미리보기를 다시 승인하면 HTTP 409를 반환합니다.
+- 존재하지 않는 미리보기는 HTTP 404를 반환합니다.
+- 이후 실제 주문에 사용된 상태를 구분하기 위해 `CONSUMED` 상태도 준비했지만, 아직 실제 주문 전송에는 연결하지 않았습니다.
 
 실제 연동 테스트는 매도 가능한 보유 종목을 자동으로 선택해 읽기 전용 미리보기까지만 생성합니다.
 토스증권 주문 생성 API는 호출하지 않으며 실제 종목과 금융값도 출력하지 않습니다.

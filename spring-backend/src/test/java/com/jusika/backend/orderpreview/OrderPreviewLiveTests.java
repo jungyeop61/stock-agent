@@ -70,6 +70,9 @@ class OrderPreviewLiveTests {
 		assertThat(response.orderType()).isEqualTo(OrderType.MARKET);
 		assertThat(response.quantity()).isEqualByComparingTo(target.quantity());
 		assertThat(response.orderReady()).isTrue();
+		assertThat(response.status()).isEqualTo(OrderPreviewStatus.PENDING_APPROVAL);
+		assertThat(response.expiresAt()).isAfter(response.createdAt());
+		assertThat(response.approvedAt()).isNull();
 		assertThat(response.sellTaxExcluded()).isTrue();
 		assertThat(response.estimatedOrderAmount()).isGreaterThan(BigDecimal.ZERO);
 	}

@@ -5,11 +5,15 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.math.BigDecimal;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -38,6 +42,7 @@ class OrderPreviewServiceTests {
 	private FakeBuyingPowerClient buyingPowerClient;
 	private FakeSellableQuantityClient sellableQuantityClient;
 	private FakeCommissionsClient commissionsClient;
+	private FakeOrderPreviewStore previewStore;
 
 	private OrderPreviewService orderPreviewService;
 
@@ -50,12 +55,15 @@ class OrderPreviewServiceTests {
 		buyingPowerClient = new FakeBuyingPowerClient();
 		sellableQuantityClient = new FakeSellableQuantityClient();
 		commissionsClient = new FakeCommissionsClient();
+		previewStore = new FakeOrderPreviewStore();
 		Clock clock = Clock.fixed(FIXED_INSTANT, ZoneOffset.UTC);
 		orderPreviewService = new OrderPreviewService(
 				priceClient,
 				buyingPowerClient,
 				sellableQuantityClient,
 				commissionsClient,
+				previewStore,
+				new OrderPreviewProperties(Duration.ofMinutes(2)),
 				clock);
 	}
 
@@ -77,6 +85,7 @@ class OrderPreviewServiceTests {
 
 		미리보기_식별값이_UUID인지_확인한다(response.previewId());
 		assertThat(response.createdAt()).isEqualTo(OffsetDateTime.ofInstant(FIXED_INSTANT, ZoneOffset.UTC));
+		assertThat(response.expiresAt()).isEqualTo(response.createdAt().plusMinutes(2));
 		assertThat(response.symbol()).isEqualTo("005930");
 		assertThat(response.currency()).isEqualTo("KRW");
 		assertThat(response.marketCountry()).isEqualTo("KR");
@@ -88,6 +97,9 @@ class OrderPreviewServiceTests {
 		assertThat(response.sellTaxExcluded()).isFalse();
 		assertThat(response.requiresHighValueConfirmation()).isFalse();
 		assertThat(response.orderReady()).isTrue();
+		assertThat(response.status()).isEqualTo(OrderPreviewStatus.PENDING_APPROVAL);
+		assertThat(response.approvedAt()).isNull();
+		assertThat(previewStore.findById(response.previewId())).contains(response);
 		assertThat(sellableQuantityClient.callCount).isZero();
 	}
 
@@ -136,6 +148,101 @@ class OrderPreviewServiceTests {
 
 		assertThat(response.estimatedOrderAmount()).isEqualByComparingTo("100000000");
 		assertThat(response.requiresHighValueConfirmation()).isTrue();
+	}
+
+	/**
+	 * 저장된 주문 내용은 바꾸지 않고 상태와 승인 시각만 한 번 기록하는지 검사합니다.
+	 */
+	@Test
+	@DisplayName("승인 가능한 주문 미리보기의 상태만 승인으로 변경한다")
+	void 승인_가능한_주문_미리보기의_상태만_승인으로_변경한다() {
+		국내_현재가를_준비한다();
+		시장_수수료를_준비한다("KR", "0.00015");
+		buyingPowerClient.response =
+				new BuyingPowerResponse(ACCOUNT_SEQ, "KRW", new BigDecimal("100000"));
+		OrderPreviewResponse pending = orderPreviewService.createPreview(new OrderPreviewRequest(
+				ACCOUNT_SEQ, "005930", OrderSide.BUY, OrderType.LIMIT,
+				BigDecimal.ONE, new BigDecimal("70000")));
+
+		OrderPreviewResponse approved = orderPreviewService.approvePreview(pending.previewId());
+
+		assertThat(approved.status()).isEqualTo(OrderPreviewStatus.APPROVED);
+		assertThat(approved.approvedAt()).isEqualTo(pending.createdAt());
+		assertThat(approved.previewId()).isEqualTo(pending.previewId());
+		assertThat(approved.accountSeq()).isEqualTo(pending.accountSeq());
+		assertThat(approved.symbol()).isEqualTo(pending.symbol());
+		assertThat(approved.quantity()).isEqualByComparingTo(pending.quantity());
+		assertThat(approved.calculationPrice()).isEqualByComparingTo(pending.calculationPrice());
+		assertThat(approved.estimatedAmountAfterCommission())
+				.isEqualByComparingTo(pending.estimatedAmountAfterCommission());
+	}
+
+	/**
+	 * 같은 미리보기를 다시 승인하려 하면 중복 승인으로 거절하는지 검사합니다.
+	 */
+	@Test
+	@DisplayName("이미 승인한 주문 미리보기의 중복 승인을 거절한다")
+	void 이미_승인한_주문_미리보기의_중복_승인을_거절한다() {
+		국내_현재가를_준비한다();
+		시장_수수료를_준비한다("KR", "0.00015");
+		buyingPowerClient.response =
+				new BuyingPowerResponse(ACCOUNT_SEQ, "KRW", new BigDecimal("100000"));
+		OrderPreviewResponse pending = orderPreviewService.createPreview(new OrderPreviewRequest(
+				ACCOUNT_SEQ, "005930", OrderSide.BUY, OrderType.LIMIT,
+				BigDecimal.ONE, new BigDecimal("70000")));
+		orderPreviewService.approvePreview(pending.previewId());
+
+		assertThatThrownBy(() -> orderPreviewService.approvePreview(pending.previewId()))
+				.isInstanceOf(OrderPreviewStateException.class)
+				.hasMessage("이미 승인한 주문 미리보기입니다.");
+	}
+
+	/**
+	 * 미리보기 유효시간이 지난 뒤에는 승인하지 않고 만료 상태로 바꾸는지 검사합니다.
+	 */
+	@Test
+	@DisplayName("유효시간이 지난 주문 미리보기의 승인을 거절한다")
+	void 유효시간이_지난_주문_미리보기의_승인을_거절한다() {
+		국내_현재가를_준비한다();
+		시장_수수료를_준비한다("KR", "0.00015");
+		buyingPowerClient.response =
+				new BuyingPowerResponse(ACCOUNT_SEQ, "KRW", new BigDecimal("100000"));
+		OrderPreviewResponse pending = orderPreviewService.createPreview(new OrderPreviewRequest(
+				ACCOUNT_SEQ, "005930", OrderSide.BUY, OrderType.LIMIT,
+				BigDecimal.ONE, new BigDecimal("70000")));
+		orderPreviewService = 미리보기_서비스를_현재시각으로_다시_만든다(FIXED_INSTANT.plusSeconds(121));
+
+		assertThatThrownBy(() -> orderPreviewService.approvePreview(pending.previewId()))
+				.isInstanceOf(OrderPreviewExpiredException.class)
+				.hasMessage("주문 미리보기의 승인 시간이 지났습니다. 새 미리보기를 만들어 주세요.");
+		assertThat(previewStore.findById(pending.previewId()))
+				.get()
+				.extracting(OrderPreviewResponse::status)
+				.isEqualTo(OrderPreviewStatus.EXPIRED);
+	}
+
+	/**
+	 * 올바른 UUID라도 저장된 미리보기가 없으면 찾을 수 없음으로 처리하는지 검사합니다.
+	 */
+	@Test
+	@DisplayName("존재하지 않는 주문 미리보기의 승인을 거절한다")
+	void 존재하지_않는_주문_미리보기의_승인을_거절한다() {
+		String missingPreviewId = UUID.randomUUID().toString();
+
+		assertThatThrownBy(() -> orderPreviewService.approvePreview(missingPreviewId))
+				.isInstanceOf(OrderPreviewNotFoundException.class)
+				.hasMessage("주문 미리보기를 찾을 수 없습니다.");
+	}
+
+	/**
+	 * 승인 URL에 UUID가 아닌 문자열이 들어오면 저장소를 조회하지 않고 거절하는지 검사합니다.
+	 */
+	@Test
+	@DisplayName("형식이 잘못된 주문 미리보기 식별값을 거절한다")
+	void 형식이_잘못된_주문_미리보기_식별값을_거절한다() {
+		assertThatThrownBy(() -> orderPreviewService.approvePreview("not-a-uuid"))
+				.isInstanceOf(OrderPreviewException.class)
+				.hasMessage("주문 미리보기 식별값 형식이 올바르지 않습니다.");
 	}
 
 	/**
@@ -338,6 +445,23 @@ class OrderPreviewServiceTests {
 	}
 
 	/**
+	 * 같은 가짜 조회 기능과 저장소를 유지한 채 승인 판단에 사용할 현재 시각만 바꿉니다.
+	 *
+	 * @param instant 새로 적용할 현재 시각
+	 * @return 바뀐 시각을 사용하는 주문 미리보기 서비스
+	 */
+	private OrderPreviewService 미리보기_서비스를_현재시각으로_다시_만든다(Instant instant) {
+		return new OrderPreviewService(
+				priceClient,
+				buyingPowerClient,
+				sellableQuantityClient,
+				commissionsClient,
+				previewStore,
+				new OrderPreviewProperties(Duration.ofMinutes(2)),
+				Clock.fixed(instant, ZoneOffset.UTC));
+	}
+
+	/**
 	 * 테스트에서 준비한 현재가만 반환하고 실제 토스증권 서버는 호출하지 않습니다.
 	 */
 	private static final class FakePriceClient extends TossPriceClient {
@@ -460,6 +584,112 @@ class OrderPreviewServiceTests {
 				throw new AssertionError("테스트 수수료 응답이 준비되지 않았습니다.");
 			}
 			return response;
+		}
+	}
+
+	/**
+	 * 테스트 메모리 안에서 미리보기 저장과 조건부 상태 변경을 흉내 냅니다.
+	 */
+	private static final class FakeOrderPreviewStore implements OrderPreviewStore {
+
+		private final Map<String, OrderPreviewResponse> previews = new HashMap<>();
+
+		/**
+		 * 미리보기 전체 내용을 식별값으로 보관합니다.
+		 *
+		 * @param preview 저장할 주문 미리보기
+		 * @return 저장된 주문 미리보기
+		 */
+		@Override
+		public OrderPreviewResponse save(OrderPreviewResponse preview) {
+			previews.put(preview.previewId(), preview);
+			return preview;
+		}
+
+		/**
+		 * 승인 대기 중이고 만료 전인 미리보기만 승인 상태로 변경합니다.
+		 *
+		 * @param previewId 승인할 미리보기 식별값
+		 * @param approvedAt 승인 시각
+		 * @return 이번 호출이 상태를 변경했으면 true
+		 */
+		@Override
+		public boolean approvePending(String previewId, OffsetDateTime approvedAt) {
+			OrderPreviewResponse preview = previews.get(previewId);
+			if (preview == null
+					|| preview.status() != OrderPreviewStatus.PENDING_APPROVAL
+					|| !preview.expiresAt().isAfter(approvedAt)) {
+				return false;
+			}
+			previews.put(previewId, 상태를_변경한다(preview, OrderPreviewStatus.APPROVED, approvedAt));
+			return true;
+		}
+
+		/**
+		 * 승인 대기 중이고 유효시간이 지난 미리보기만 만료 상태로 변경합니다.
+		 *
+		 * @param previewId 만료 여부를 반영할 미리보기 식별값
+		 * @param now 현재 시각
+		 * @return 이번 호출이 상태를 변경했으면 true
+		 */
+		@Override
+		public boolean expirePending(String previewId, OffsetDateTime now) {
+			OrderPreviewResponse preview = previews.get(previewId);
+			if (preview == null
+					|| preview.status() != OrderPreviewStatus.PENDING_APPROVAL
+					|| preview.expiresAt().isAfter(now)) {
+				return false;
+			}
+			previews.put(previewId, 상태를_변경한다(preview, OrderPreviewStatus.EXPIRED, null));
+			return true;
+		}
+
+		/**
+		 * 식별값으로 테스트 메모리에 저장된 미리보기를 조회합니다.
+		 *
+		 * @param previewId 조회할 미리보기 식별값
+		 * @return 저장된 미리보기이며 없으면 빈 값
+		 */
+		@Override
+		public Optional<OrderPreviewResponse> findById(String previewId) {
+			return Optional.ofNullable(previews.get(previewId));
+		}
+
+		/**
+		 * 주문 계산 내용은 그대로 두고 상태와 승인 시각만 바꾼 복사본을 만듭니다.
+		 *
+		 * @param preview 원본 주문 미리보기
+		 * @param status 새로 적용할 상태
+		 * @param approvedAt 승인 시각이며 승인 상태가 아니면 null
+		 * @return 상태만 바뀐 주문 미리보기
+		 */
+		private OrderPreviewResponse 상태를_변경한다(
+				OrderPreviewResponse preview,
+				OrderPreviewStatus status,
+				OffsetDateTime approvedAt) {
+			return new OrderPreviewResponse(
+					preview.previewId(),
+					preview.createdAt(),
+					preview.expiresAt(),
+					preview.accountSeq(),
+					preview.symbol(),
+					preview.side(),
+					preview.orderType(),
+					preview.quantity(),
+					preview.requestedPrice(),
+					preview.referencePrice(),
+					preview.calculationPrice(),
+					preview.currency(),
+					preview.marketCountry(),
+					preview.commissionRate(),
+					preview.estimatedOrderAmount(),
+					preview.estimatedCommission(),
+					preview.estimatedAmountAfterCommission(),
+					preview.sellTaxExcluded(),
+					preview.requiresHighValueConfirmation(),
+					preview.orderReady(),
+					status,
+					approvedAt);
 		}
 	}
 }
