@@ -2,8 +2,8 @@
 
 금융 거래의 최종 책임을 갖는 Spring Boot 프로젝트입니다.
 
-현재는 토스증권 OAuth 인증, 종목 현재가 조회와 계좌 목록 조회까지 구현되어 있습니다.
-보유 종목·잔고·주문 기능은 아직 없습니다.
+현재는 토스증권 OAuth 인증, 종목 현재가, 계좌 목록과 보유주식 평가 조회까지 구현되어 있습니다.
+매수 가능 금액과 주문 기능은 아직 없습니다.
 
 ## 담당 범위
 
@@ -104,6 +104,64 @@ curl http://localhost:8080/api/accounts
 
 ```bash
 RUN_TOSS_LIVE_TEST=true ./mvnw -Dtest=TossAccountLiveTests test
+```
+
+## 보유주식과 평가손익 조회
+
+먼저 계좌 목록에서 받은 `accountSeq`를 URL에 넣어 보유주식을 조회합니다.
+다음 명령의 `1`은 설명용 계좌 식별값이며, 코드나 환경변수에 고정하지 않습니다.
+
+```bash
+curl http://localhost:8080/api/accounts/1/holdings
+```
+
+응답에는 통화별 투자원금·평가금액·손익과 개별 보유 종목이 포함됩니다.
+원화와 달러는 환율로 임의 합산하지 않고 각각 반환합니다.
+수익률은 `0.1077`이 `10.77%`를 의미하는 소수비율입니다.
+
+```json
+{
+  "accountSeq": 1,
+  "totalPurchaseAmount": {
+    "krw": 6500000,
+    "usd": null
+  },
+  "marketValue": {
+    "amount": {"krw": 7200000, "usd": null},
+    "amountAfterCost": {"krw": 7050000, "usd": null}
+  },
+  "profitLoss": {
+    "amount": {"krw": 700000, "usd": null},
+    "amountAfterCost": {"krw": 550000, "usd": null},
+    "rate": 0.1077,
+    "rateAfterCost": 0.0846
+  },
+  "dailyProfitLoss": {
+    "amount": {"krw": 100000, "usd": null},
+    "rate": 0.0141
+  },
+  "items": [
+    {
+      "symbol": "005930",
+      "name": "삼성전자",
+      "marketCountry": "KR",
+      "currency": "KRW",
+      "quantity": 100,
+      "lastPrice": 72000,
+      "averagePurchasePrice": 65000
+    }
+  ]
+}
+```
+
+위 JSON은 주요 필드만 보여주는 설명용 예시입니다.
+실제 응답의 개별 종목에는 평가금액, 손익, 일간손익, 예상 수수료와 세금도 포함됩니다.
+이 조회 결과는 보유주식 평가 정보이며 주문에 사용할 수 있는 현금과는 다릅니다.
+
+실제 보유주식 테스트는 계좌 목록에서 `accountSeq`를 선택한 뒤 실행되며 금융값을 출력하지 않습니다.
+
+```bash
+RUN_TOSS_LIVE_TEST=true ./mvnw -Dtest=TossHoldingsLiveTests test
 ```
 
 ## PostgreSQL 프로필
