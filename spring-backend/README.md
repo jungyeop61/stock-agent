@@ -2,8 +2,8 @@
 
 금융 거래의 최종 책임을 갖는 Spring Boot 프로젝트입니다.
 
-현재는 토스증권 OAuth 인증, 종목 현재가, 계좌 목록, 보유주식 평가, 매수 가능 금액, 매도 가능 수량과 매매 수수료 조회까지 구현되어 있습니다.
-실제 주문 기능은 아직 없습니다.
+현재는 토스증권 OAuth 인증, 종목 현재가, 계좌 목록, 보유주식 평가, 매수 가능 금액, 매도 가능 수량, 매매 수수료 조회와 수량 기반 주문 미리보기까지 구현되어 있습니다.
+사용자 승인과 실제 주문 전송 기능은 아직 없습니다.
 
 ## 담당 범위
 
@@ -266,6 +266,75 @@ curl http://localhost:8080/api/accounts/1/commissions
 
 ```bash
 RUN_TOSS_LIVE_TEST=true ./mvnw -Dtest=TossCommissionsLiveTests test
+```
+
+## 수량 기반 주문 미리보기
+
+주문 미리보기는 현재가, 매수 가능 금액 또는 매도 가능 수량, 계좌 수수료를 조회해 주문 가능 여부와 예상 금액을 계산합니다.
+이 기능은 토스증권 주문 생성 API를 호출하지 않으므로 실제 매수나 매도가 발생하지 않습니다.
+
+```bash
+curl -X POST http://localhost:8080/api/orders/preview \
+  -H "Content-Type: application/json" \
+  -d '{
+    "accountSeq": 1,
+    "symbol": "005930",
+    "side": "BUY",
+    "orderType": "LIMIT",
+    "quantity": 1,
+    "price": 70000
+  }'
+```
+
+```json
+{
+  "previewId": "임시-미리보기-식별값",
+  "createdAt": "2026-09-04T20:00:00Z",
+  "accountSeq": 1,
+  "symbol": "005930",
+  "side": "BUY",
+  "orderType": "LIMIT",
+  "quantity": 1,
+  "requestedPrice": 70000,
+  "referencePrice": 72000,
+  "calculationPrice": 70000,
+  "currency": "KRW",
+  "marketCountry": "KR",
+  "commissionRate": 0.00015,
+  "estimatedOrderAmount": 70000,
+  "estimatedCommission": 10.5,
+  "estimatedAmountAfterCommission": 70010.5,
+  "sellTaxExcluded": false,
+  "requiresHighValueConfirmation": false,
+  "orderReady": true
+}
+```
+
+지정가는 입력 가격으로 계산하고 시장가는 조회 시점의 현재가로 계산합니다.
+시장가는 실제 체결 가격이 달라질 수 있으므로 미리보기 금액은 보장된 금액이 아닙니다.
+매도 미리보기의 `estimatedAmountAfterCommission`에는 예상 수수료만 반영하며 매도 세금은 포함하지 않습니다.
+이 경우 `sellTaxExcluded`가 `true`로 반환됩니다.
+
+수량 기반 주문은 토스증권 실제 주문 규칙과 동일하게 다음 형식을 검사합니다.
+
+- 국내 주식과 일반 미국 주식 주문은 양의 정수 수량만 허용합니다.
+- 미국 주식 시장가 매도만 소수점 6자리까지 허용합니다.
+- 미국 주식 소수점 매수는 이번 단계에 포함하지 않았으며 이후 금액 주문으로 구현합니다.
+- 지정가는 가격이 필수이고 시장가는 가격을 입력할 수 없습니다.
+- 국내 지정가는 원 단위 정수여야 합니다.
+- 미국 지정가는 1달러 미만이면 소수점 4자리, 1달러 이상이면 소수점 2자리까지 허용합니다.
+- 국내 주문금액이 1억원 이상이면 `requiresHighValueConfirmation`이 `true`가 됩니다.
+
+`previewId`는 현재 미리보기 응답을 구분하기 위한 임시 식별값입니다.
+아직 서버에 저장되거나 실제 주문 승인에 사용되지 않으며, 다음 단계에서 저장·만료·승인 검증을 구현합니다.
+`orderReady`는 조회 시점의 입력 형식과 계좌 금액 또는 수량 검사를 통과했다는 뜻이며 증권사의 최종 주문 접수를 보장하지 않습니다.
+호가 단위, 주문 가능 시간, 종목 거래 제한과 미리보기 이후의 가격·잔고 변동은 실제 주문 직전에 다시 검사해야 합니다.
+
+실제 연동 테스트는 매도 가능한 보유 종목을 자동으로 선택해 읽기 전용 미리보기까지만 생성합니다.
+토스증권 주문 생성 API는 호출하지 않으며 실제 종목과 금융값도 출력하지 않습니다.
+
+```bash
+RUN_TOSS_LIVE_TEST=true ./mvnw -Dtest=OrderPreviewLiveTests test
 ```
 
 ## PostgreSQL 프로필
