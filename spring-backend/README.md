@@ -2,8 +2,8 @@
 
 금융 거래의 최종 책임을 갖는 Spring Boot 프로젝트입니다.
 
-현재는 토스증권 OAuth 인증, 종목 현재가, 계좌 목록, 보유주식 평가와 매수 가능 금액 조회까지 구현되어 있습니다.
-매도 가능 수량, 수수료와 주문 기능은 아직 없습니다.
+현재는 토스증권 OAuth 인증, 종목 현재가, 계좌 목록, 보유주식 평가, 매수 가능 금액과 매도 가능 수량 조회까지 구현되어 있습니다.
+수수료와 주문 기능은 아직 없습니다.
 
 ## 담당 범위
 
@@ -198,6 +198,34 @@ curl "http://localhost:8080/api/accounts/1/buying-power?currency=USD"
 
 ```bash
 RUN_TOSS_LIVE_TEST=true ./mvnw -Dtest=TossBuyingPowerLiveTests test
+```
+
+## 종목별 매도 가능 수량 조회
+
+계좌 목록에서 받은 `accountSeq`와 보유주식에서 확인한 종목 코드를 URL에 넣습니다.
+다음 명령의 `1`과 `005930`은 각각 설명용 계좌 식별값과 삼성전자 종목 코드입니다.
+
+```bash
+curl http://localhost:8080/api/accounts/1/stocks/005930/sellable-quantity
+```
+
+```json
+{
+  "accountSeq": 1,
+  "symbol": "005930",
+  "sellableQuantity": 80
+}
+```
+
+`sellableQuantity`는 단순 보유 수량이 아니라 기존 미체결 매도 주문 등을 반영해 지금 새 매도 주문에 사용할 수 있는 수량입니다.
+국내 주식은 정수 단위이고 미국 주식은 소수 단위가 가능하므로 `BigDecimal`로 처리합니다.
+영문 종목 코드는 대문자로 정규화하며 허용되지 않은 문자가 있으면 토스증권을 호출하기 전에 차단합니다.
+
+실제 연동 테스트는 계좌 목록과 보유주식을 차례로 조회해 첫 보유 종목을 자동으로 선택합니다.
+테스트 결과에는 실제 종목이나 보유 수량을 출력하지 않습니다.
+
+```bash
+RUN_TOSS_LIVE_TEST=true ./mvnw -Dtest=TossSellableQuantityLiveTests test
 ```
 
 ## PostgreSQL 프로필
