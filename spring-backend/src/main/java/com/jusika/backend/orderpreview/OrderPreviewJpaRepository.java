@@ -52,4 +52,24 @@ interface OrderPreviewJpaRepository extends JpaRepository<OrderPreviewEntity, St
 	int expirePending(
 			@Param("previewId") String previewId,
 			@Param("now") OffsetDateTime now);
+
+	/**
+	 * 승인된 미리보기 한 행만 주문에 사용된 상태로 변경합니다.
+	 *
+	 * @param previewId 사용 처리할 미리보기 식별값
+	 * @param consumedAt 주문 실행이 시작된 시각
+	 * @return 상태가 변경된 행의 수
+	 */
+	@Modifying(clearAutomatically = true, flushAutomatically = true)
+	@Query("""
+			update OrderPreviewEntity preview
+			set preview.status = com.jusika.backend.orderpreview.OrderPreviewStatus.CONSUMED,
+				preview.consumedAt = :consumedAt,
+				preview.version = preview.version + 1
+			where preview.previewId = :previewId
+				and preview.status = com.jusika.backend.orderpreview.OrderPreviewStatus.APPROVED
+			""")
+	int consumeApproved(
+			@Param("previewId") String previewId,
+			@Param("consumedAt") OffsetDateTime consumedAt);
 }

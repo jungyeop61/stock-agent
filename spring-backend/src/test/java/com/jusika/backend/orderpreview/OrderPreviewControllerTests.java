@@ -71,6 +71,23 @@ class OrderPreviewControllerTests {
 	}
 
 	/**
+	 * 모의 실행 API가 승인되지 않은 미리보기와 잘못된 식별값을 주문 조회 전에 차단하는지 검사합니다.
+	 */
+	@Test
+	@DisplayName("모의 실행 API는 승인 상태와 식별값을 먼저 검사한다")
+	void 모의_실행_API는_승인_상태와_식별값을_먼저_검사한다() throws Exception {
+		OffsetDateTime now = OffsetDateTime.now();
+		OrderPreviewResponse pending = 승인_대기_미리보기를_만든다(
+				now.minusSeconds(10), now.plusMinutes(1));
+		previewStore.save(pending);
+
+		mockMvc.perform(post("/api/orders/previews/{previewId}/execute", pending.previewId()))
+				.andExpect(status().isConflict());
+		mockMvc.perform(post("/api/orders/previews/{previewId}/execute", "잘못된-식별값"))
+				.andExpect(status().isBadRequest());
+	}
+
+	/**
 	 * 승인 API 검증에 사용할 주문 계산 결과와 승인 대기 상태를 만듭니다.
 	 *
 	 * @param createdAt 미리보기 생성 시각

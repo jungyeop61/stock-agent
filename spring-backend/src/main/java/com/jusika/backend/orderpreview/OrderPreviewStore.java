@@ -35,6 +35,15 @@ public interface OrderPreviewStore {
 	boolean expirePending(String previewId, OffsetDateTime now);
 
 	/**
+	 * 승인된 미리보기를 주문 실행에 한 번만 사용한 상태로 변경합니다.
+	 *
+	 * @param previewId 사용 처리할 미리보기 식별값
+	 * @param consumedAt 주문 실행이 시작된 시각
+	 * @return 이번 호출이 실제로 사용 상태를 변경했으면 true
+	 */
+	boolean consumeApproved(String previewId, OffsetDateTime consumedAt);
+
+	/**
 	 * 식별값에 해당하는 저장된 미리보기를 조회합니다.
 	 *
 	 * @param previewId 조회할 미리보기 식별값

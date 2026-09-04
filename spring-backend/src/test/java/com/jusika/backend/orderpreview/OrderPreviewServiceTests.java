@@ -645,6 +645,23 @@ class OrderPreviewServiceTests {
 		}
 
 		/**
+		 * 승인된 미리보기를 테스트 메모리에서 사용 완료 상태로 변경합니다.
+		 *
+		 * @param previewId 사용 처리할 미리보기 식별값
+		 * @param consumedAt 주문 실행이 시작된 시각
+		 * @return 이번 호출이 상태를 변경했으면 true
+		 */
+		@Override
+		public boolean consumeApproved(String previewId, OffsetDateTime consumedAt) {
+			OrderPreviewResponse preview = previews.get(previewId);
+			if (preview == null || preview.status() != OrderPreviewStatus.APPROVED) {
+				return false;
+			}
+			previews.put(previewId, 상태를_변경한다(preview, OrderPreviewStatus.CONSUMED, preview.approvedAt()));
+			return true;
+		}
+
+		/**
 		 * 식별값으로 테스트 메모리에 저장된 미리보기를 조회합니다.
 		 *
 		 * @param previewId 조회할 미리보기 식별값

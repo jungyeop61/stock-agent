@@ -6,6 +6,9 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.jusika.backend.orderexecution.OrderExecutionResponse;
+import com.jusika.backend.orderexecution.OrderExecutionService;
+
 /**
  * 실제 주문을 보내지 않고 주문 가능 여부와 예상 금액을 확인할 HTTP 주소를 제공합니다.
  */
@@ -14,14 +17,19 @@ import org.springframework.web.bind.annotation.RestController;
 public class OrderPreviewController {
 
 	private final OrderPreviewService orderPreviewService;
+	private final OrderExecutionService orderExecutionService;
 
 	/**
 	 * 주문 검증과 예상 계산을 담당하는 서비스를 전달받습니다.
 	 *
 	 * @param orderPreviewService 주문 미리보기 서비스
+	 * @param orderExecutionService 승인된 미리보기의 안전한 주문 실행 서비스
 	 */
-	public OrderPreviewController(OrderPreviewService orderPreviewService) {
+	public OrderPreviewController(
+			OrderPreviewService orderPreviewService,
+			OrderExecutionService orderExecutionService) {
 		this.orderPreviewService = orderPreviewService;
+		this.orderExecutionService = orderExecutionService;
 	}
 
 	/**
@@ -45,5 +53,17 @@ public class OrderPreviewController {
 	@PostMapping("/previews/{previewId}/approve")
 	public OrderPreviewResponse approvePreview(@PathVariable String previewId) {
 		return orderPreviewService.approvePreview(previewId);
+	}
+
+	/**
+	 * 승인된 미리보기를 최종 재검증한 뒤 현재 설정된 주문 모드에서 한 번만 실행합니다.
+	 * 기본 mock 모드에서는 실제 토스증권 주문을 전송하지 않습니다.
+	 *
+	 * @param previewId 실행할 주문 미리보기 식별값
+	 * @return 저장된 주문 실행 상태와 모의 또는 증권사 주문 식별값
+	 */
+	@PostMapping("/previews/{previewId}/execute")
+	public OrderExecutionResponse executePreview(@PathVariable String previewId) {
+		return orderExecutionService.executeApprovedPreview(previewId);
 	}
 }

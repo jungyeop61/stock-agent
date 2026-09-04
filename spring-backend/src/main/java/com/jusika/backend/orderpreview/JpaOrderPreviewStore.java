@@ -62,6 +62,19 @@ class JpaOrderPreviewStore implements OrderPreviewStore {
 	}
 
 	/**
+	 * 승인된 미리보기를 조건부 갱신해 한 주문 실행에서만 사용할 수 있게 합니다.
+	 *
+	 * @param previewId 사용 처리할 미리보기 식별값
+	 * @param consumedAt 주문 실행이 시작된 시각
+	 * @return 이번 호출이 상태를 변경했으면 true
+	 */
+	@Override
+	@Transactional
+	public boolean consumeApproved(String previewId, OffsetDateTime consumedAt) {
+		return repository.consumeApproved(previewId, consumedAt) == 1;
+	}
+
+	/**
 	 * 식별값에 해당하는 저장 행을 API 응답 형태로 반환합니다.
 	 *
 	 * @param previewId 조회할 미리보기 식별값

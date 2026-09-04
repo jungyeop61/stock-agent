@@ -67,6 +67,29 @@ class OrderPreviewPersistenceTests {
 	}
 
 	/**
+	 * 승인된 미리보기는 주문 실행에서 한 번만 사용 완료 상태로 바뀌는지 검사합니다.
+	 */
+	@Test
+	@DisplayName("승인된 주문 미리보기를 데이터베이스에서 한 번만 사용 처리한다")
+	void 승인된_주문_미리보기를_데이터베이스에서_한_번만_사용_처리한다() {
+		OffsetDateTime createdAt = OffsetDateTime.of(2026, 9, 4, 20, 30, 0, 0, ZoneOffset.ofHours(9));
+		OrderPreviewResponse pending = 승인_대기_미리보기를_만든다(createdAt, createdAt.plusMinutes(2));
+		previewStore.save(pending);
+		previewStore.approvePending(pending.previewId(), createdAt.plusSeconds(10));
+
+		boolean firstConsumption = previewStore.consumeApproved(
+				pending.previewId(), createdAt.plusSeconds(20));
+		boolean secondConsumption = previewStore.consumeApproved(
+				pending.previewId(), createdAt.plusSeconds(21));
+		OrderPreviewResponse stored = previewStore.findById(pending.previewId()).orElseThrow();
+
+		assertThat(firstConsumption).isTrue();
+		assertThat(secondConsumption).isFalse();
+		assertThat(stored.status()).isEqualTo(OrderPreviewStatus.CONSUMED);
+		assertThat(stored.approvedAt()).isEqualTo(createdAt.plusSeconds(10));
+	}
+
+	/**
 	 * 데이터베이스 검증에 사용할 승인 대기 주문 미리보기 전체 값을 만듭니다.
 	 *
 	 * @param createdAt 생성 시각
