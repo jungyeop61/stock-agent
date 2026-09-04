@@ -1,0 +1,53 @@
+# 주식아
+
+시각장애 사용자가 화면 조작 없이 음성으로 주식 계좌를 조회하고 주문할 수 있도록 만드는 음성 우선 금융 에이전트입니다.
+
+현재는 **1차 환경 설정 단계**입니다. 기능 코드와 테스트 코드는 아직 작성하지 않습니다.
+
+## 저장소 구조
+
+- `spring-backend/`: 금융 검증, 위험 정책, 감사 로그, 주문 미리보기와 증권사 연동을 담당할 스프링 프로젝트입니다.
+- `python-agent/`: 음성 명령 해석, 구조화된 의도 추출, LangGraph 대화 흐름을 담당할 파이썬 프로젝트입니다.
+- `android/`: 음성 우선 Android 앱을 둘 예정입니다.
+- `infra/`: 로컬 및 클라우드 배포 설정을 둘 예정입니다.
+- `docs/`: 아키텍처와 API 문서를 둘 예정입니다.
+
+실제 증권사 주문 API는 스프링 백엔드만 호출할 수 있습니다. 파이썬 에이전트는 명령을 해석하고 주문 미리보기를 요청할 수 있지만 실제 증권사 주문을 직접 실행해서는 안 됩니다.
+
+## 현재 개발 환경
+
+- 스프링 백엔드: Java 21 대상, Spring Boot, Maven Wrapper
+- 파이썬 에이전트: Python 3.12 이상, FastAPI, LangGraph
+- 로컬 기본 데이터베이스: H2
+- 통합 개발 데이터베이스: PostgreSQL
+
+비밀키는 Git에 저장하지 않습니다. 필요한 환경변수 이름은 루트의 `.env.example`에서 확인할 수 있습니다.
+
+## 환경 준비 순서
+
+PostgreSQL 개발 환경을 시작합니다.
+
+```bash
+export PATH="$HOME/.docker/bin:$PATH"
+docker compose up -d postgres
+```
+
+Docker Desktop 설치 직후 `docker` 명령을 찾지 못할 때는 위의 첫 번째 명령으로 경로를 현재 터미널에 반영합니다.
+
+스프링 백엔드 의존성과 설정을 확인합니다.
+
+```bash
+cd spring-backend
+./mvnw validate
+```
+
+파이썬 에이전트 가상환경과 의존성을 준비합니다.
+
+```bash
+cd python-agent
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements-dev.txt
+```
+
+이 단계에는 실행할 애플리케이션 기능이 없습니다.

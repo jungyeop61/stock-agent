@@ -1,0 +1,31 @@
+spring:
+  application:
+    name: jusika-spring-backend
+  datasource:
+    url: jdbc:h2:mem:jusika;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1
+    username: sa
+    password:
+    driver-class-name: org.h2.Driver
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: none
+  flyway:
+    enabled: true
+
+server:
+  port: ${SPRING_SERVER_PORT:8080}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+jusika:
+  broker:
+    mode: mock

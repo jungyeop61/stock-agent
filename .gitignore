@@ -1,0 +1,66 @@
+# macOS
+.DS_Store
+
+# Project planning source kept outside Git for now
+Jusika_Project_Plan.docx
+
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.jks
+*.keystore
+local.properties
+application-local.properties
+application-local.yml
+application-local.yaml
+
+# Java and Spring
+**/target/
+**/build/
+*.class
+*.jar
+!**/.mvn/wrapper/maven-wrapper.jar
+*.mv.db
+*.trace.db
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyd
+.venv/
+venv/
+.python-version
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+dist/
+*.egg-info/
+
+# IDEs and editors
+.idea/
+.vscode/
+*.iws
+*.iml
+*.ipr
+.classpath
+.project
+.settings/
+.factorypath
+.apt_generated/
+.springBeans
+.sts4-cache/
+nbproject/private/
+nbbuild/
+nbdist/
+.nb-gradle/
+
+# Logs and temporary files
+*.log
+*.tmp
+*.swp
+*~
