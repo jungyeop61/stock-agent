@@ -12,6 +12,7 @@ import org.springframework.web.client.RestClientResponseException;
 
 import com.jusika.backend.order.AmountOrderSubmissionRequest;
 import com.jusika.backend.order.OrderCreationResponse;
+import com.jusika.backend.order.OrderOperationResponse;
 import com.jusika.backend.order.OrderTimeInForce;
 import com.jusika.backend.order.QuantityOrderSubmissionRequest;
 import com.jusika.backend.orderpreview.OrderSide;
@@ -20,10 +21,11 @@ import com.jusika.backend.toss.auth.TossAccessTokenProvider;
 import com.jusika.backend.toss.order.TossOrderApiRequests.AmountRequest;
 import com.jusika.backend.toss.order.TossOrderApiRequests.QuantityRequest;
 import com.jusika.backend.toss.order.TossOrderApiResponse.TossOrderResult;
+import com.jusika.backend.toss.order.TossOrderOperationApiResponse.TossOrderOperationResult;
 
 /**
- * 토스증권 주문 생성 API의 요청 형식과 응답을 담당합니다.
- * 이 객체를 호출하면 실제 주문이 전송되므로 승인·재검증 서비스에서만 사용해야 합니다.
+ * 토스증권 주문 생성·취소 API의 요청 형식과 응답을 담당합니다.
+ * 이 객체를 호출하면 실제 주문이 생성되거나 취소되므로 승인·재검증 서비스에서만 사용해야 합니다.
  */
 @Component
 public class TossOrderClient {
@@ -114,6 +116,53 @@ public class TossOrderClient {
 				orderAmount,
 				request.confirmHighValueOrder());
 		return submitOrder(accountSeq, apiRequest, clientOrderId);
+	}
+
+	/**
+	 * 토스증권 주문 식별값으로 아직 체결되지 않은 주문의 취소를 요청합니다.
+	 * 현재 안전 취소 서비스에는 연결하지 않았으므로 이 메서드는 자동 실행되지 않습니다.
+	 *
+	 * @param accountSeq 취소할 주문의 계좌 식별값
+	 * @param orderId 취소할 토스증권 주문 식별값
+	 * @return 토스증권이 취소 대상으로 확인한 주문 식별값
+	 * @throws TossOrderException 요청 형식, 인증, 통신 또는 응답이 올바르지 않은 경우
+	 */
+	public OrderOperationResponse cancelOrder(long accountSeq, String orderId) {
+		validateAccountSeq(accountSeq);
+		String validatedOrderId = validateOrderId(orderId);
+		String accessToken = getAccessTokenBeforeSubmission();
+		try {
+			TossOrderOperationApiResponse response = restClient.post()
+					.uri("/api/v1/orders/{orderId}/cancel", validatedOrderId)
+					.contentType(MediaType.APPLICATION_JSON)
+					.header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+					.header(ACCOUNT_HEADER, Long.toString(accountSeq))
+					.body(new Object())
+					.retrieve()
+					.body(TossOrderOperationApiResponse.class);
+			return convertOperationResponse(response, validatedOrderId);
+		} catch (RestClientResponseException exception) {
+			int status = exception.getStatusCode().value();
+			throw new TossOrderException(
+					"토스증권 주문 취소에 실패했습니다. HTTP 상태: " + status,
+					status,
+					status >= 500);
+		} catch (TossOrderException exception) {
+			throw exception;
+		} catch (RuntimeException exception) {
+			throw new TossOrderException("토스증권 주문 취소 결과를 확인하지 못했습니다.", null, true);
+		}
+	}
+
+	/** 주문 취소 성공 응답이 요청한 원주문과 정확히 일치하는지 검사합니다. */
+	private OrderOperationResponse convertOperationResponse(
+			TossOrderOperationApiResponse response, String requestedOrderId) {
+		TossOrderOperationResult result = response == null ? null : response.result();
+		if (result == null || result.orderId() == null || result.orderId().isBlank()
+				|| !requestedOrderId.equals(result.orderId())) {
+			throw new TossOrderException("토스증권 주문 취소 응답 형식이 올바르지 않습니다.", null, true);
+		}
+		return new OrderOperationResponse(result.orderId());
 	}
 
 	/**
@@ -210,6 +259,16 @@ public class TossOrderClient {
 		if (accountSeq <= 0) {
 			throw new TossOrderException("계좌 식별값은 1 이상이어야 합니다.");
 		}
+	}
+
+	/** 주문 식별값의 길이와 공백·제어문자 포함 여부를 검사합니다. */
+	private String validateOrderId(String orderId) {
+		if (orderId == null || orderId.isBlank() || orderId.length() > 512
+				|| orderId.chars().anyMatch(Character::isWhitespace)
+				|| orderId.chars().anyMatch(Character::isISOControl)) {
+			throw new TossOrderException("주문 식별값 형식이 올바르지 않습니다.");
+		}
+		return orderId;
 	}
 
 	/**

@@ -29,6 +29,7 @@ import org.springframework.web.client.RestClient;
 
 import com.jusika.backend.order.AmountOrderSubmissionRequest;
 import com.jusika.backend.order.OrderCreationResponse;
+import com.jusika.backend.order.OrderOperationResponse;
 import com.jusika.backend.order.OrderTimeInForce;
 import com.jusika.backend.order.QuantityOrderSubmissionRequest;
 import com.jusika.backend.orderpreview.OrderSide;
@@ -45,7 +46,7 @@ class TossOrderClientTests {
 	private static final String BASE_URL = "https://toss.example";
 	private static final String ACCESS_TOKEN = "노출되면-안되는-테스트-토큰";
 	private static final String CLIENT_ORDER_ID = "order-20260904-001";
-	private static final String ORDER_ID = "노출되면-안되는-주문-식별값";
+	private static final String ORDER_ID = "private-test-order-id";
 	private static final long ACCOUNT_SEQ = 1L;
 
 	private MockRestServiceServer server;
@@ -465,6 +466,72 @@ class TossOrderClientTests {
 		assertThat(response.toString()).doesNotContain(ORDER_ID, CLIENT_ORDER_ID);
 		assertThat(rawResponse.toString()).doesNotContain(ORDER_ID, CLIENT_ORDER_ID);
 		assertThat(rawResponse.result().toString()).doesNotContain(ORDER_ID, CLIENT_ORDER_ID);
+		server.verify();
+	}
+
+	/** 취소 요청이 공식 경로와 인증·계좌 헤더를 사용하고 같은 주문번호를 반환하는지 검사합니다. */
+	@Test
+	@DisplayName("주문 취소 요청을 공식 경로로 전송하고 주문번호를 검증한다")
+	void 주문_취소_요청을_공식_경로로_전송하고_주문번호를_검증한다() {
+		정상_토큰_발급_응답을_준비한다();
+		server.expect(requestTo(BASE_URL + "/api/v1/orders/" + ORDER_ID + "/cancel"))
+				.andExpect(method(HttpMethod.POST))
+				.andExpect(header(HttpHeaders.AUTHORIZATION, "Bearer " + ACCESS_TOKEN))
+				.andExpect(header("X-Tossinvest-Account", Long.toString(ACCOUNT_SEQ)))
+				.andRespond(withSuccess(
+						"{\"result\":{\"orderId\":\"" + ORDER_ID + "\"}}",
+						MediaType.APPLICATION_JSON));
+
+		OrderOperationResponse response = orderClient.cancelOrder(ACCOUNT_SEQ, ORDER_ID);
+
+		assertThat(response.orderId()).isEqualTo(ORDER_ID);
+		server.verify();
+	}
+
+	/** 공백이 든 주문번호는 인증과 취소 전송 전에 차단하는지 검사합니다. */
+	@Test
+	@DisplayName("잘못된 주문번호는 취소 전송 전에 차단한다")
+	void 잘못된_주문번호는_취소_전송_전에_차단한다() {
+		assertThatThrownBy(() -> orderClient.cancelOrder(ACCOUNT_SEQ, "bad order"))
+				.isInstanceOf(TossOrderException.class)
+				.hasMessage("주문 식별값 형식이 올바르지 않습니다.");
+		server.verify();
+	}
+
+	/** 이미 처리된 주문에 대한 HTTP 409는 취소 실패가 확정된 상태인지 검사합니다. */
+	@Test
+	@DisplayName("HTTP 409 취소 거절은 결과가 확정된 실패로 처리한다")
+	void HTTP_409_취소_거절은_결과가_확정된_실패로_처리한다() {
+		정상_토큰_발급_응답을_준비한다();
+		server.expect(requestTo(BASE_URL + "/api/v1/orders/" + ORDER_ID + "/cancel"))
+				.andRespond(withStatus(HttpStatus.CONFLICT));
+
+		assertThatThrownBy(() -> orderClient.cancelOrder(ACCOUNT_SEQ, ORDER_ID))
+				.isInstanceOfSatisfying(TossOrderException.class, exception -> {
+					assertThat(exception.getHttpStatus()).isEqualTo(409);
+					assertThat(exception.isSubmissionStateUnknown()).isFalse();
+				});
+		server.verify();
+	}
+
+	/** HTTP 500이나 요청과 다른 성공 주문번호는 취소 결과 불명으로 분류하는지 검사합니다. */
+	@Test
+	@DisplayName("불확실한 취소 응답은 자동 재시도할 수 없는 결과 불명으로 처리한다")
+	void 불확실한_취소_응답은_자동_재시도할_수_없는_결과_불명으로_처리한다() {
+		정상_토큰_발급_응답을_준비한다();
+		server.expect(requestTo(BASE_URL + "/api/v1/orders/" + ORDER_ID + "/cancel"))
+				.andRespond(withStatus(HttpStatus.INTERNAL_SERVER_ERROR));
+		server.expect(requestTo(BASE_URL + "/api/v1/orders/" + ORDER_ID + "/cancel"))
+				.andRespond(withSuccess(
+						"{\"result\":{\"orderId\":\"different-order\"}}",
+						MediaType.APPLICATION_JSON));
+		assertThatThrownBy(() -> orderClient.cancelOrder(ACCOUNT_SEQ, ORDER_ID))
+				.isInstanceOfSatisfying(TossOrderException.class,
+						exception -> assertThat(exception.isSubmissionStateUnknown()).isTrue());
+
+		assertThatThrownBy(() -> orderClient.cancelOrder(ACCOUNT_SEQ, ORDER_ID))
+				.isInstanceOfSatisfying(TossOrderException.class,
+						exception -> assertThat(exception.isSubmissionStateUnknown()).isTrue());
 		server.verify();
 	}
 
