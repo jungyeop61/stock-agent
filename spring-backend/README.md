@@ -484,6 +484,14 @@ curl --get "http://localhost:8080/api/accounts/1/orders" \
 ./mvnw -Dtest=TossOrderListClientTests test
 ```
 
+실제 연동 테스트는 계좌 목록에서 첫 계좌 식별값을 선택해 진행 중 주문과 종료 주문을 읽기 전용으로 조회합니다.
+테스트 결과에는 주문 식별값·종목·수량·가격·금액을 출력하지 않습니다.
+새 액세스 토큰 발급으로 기존 토큰이 무효화될 수 있으므로 사용자가 명시적으로 실행할 때만 동작합니다.
+
+```bash
+RUN_TOSS_LIVE_TEST=true ./mvnw -Dtest=TossOrderListLiveTests test
+```
+
 ## 토스증권 주문 상세와 체결 상태 조회
 
 계좌 목록에서 받은 `accountSeq`와 토스증권 주문 생성 응답의 `orderId`로 한 주문을 조회합니다.
