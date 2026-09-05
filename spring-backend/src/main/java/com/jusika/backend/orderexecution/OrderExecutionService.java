@@ -132,6 +132,19 @@ public class OrderExecutionService {
 	}
 
 	/**
+	 * 실행 식별값으로 데이터베이스에 저장된 주문 실행 기록을 읽기 전용으로 조회합니다.
+	 *
+	 * @param executionId 우리 서버가 만든 주문 실행 식별값
+	 * @return 저장된 주문 실행 기록
+	 */
+	public OrderExecutionResponse getExecution(String executionId) {
+		validateExecutionId(executionId);
+		return executionStore.findById(executionId)
+				.orElseThrow(() -> new OrderExecutionNotFoundException(
+						"주문 실행 기록을 찾을 수 없습니다."));
+	}
+
+	/**
 	 * 주문 제출 결과를 접수·거절·불명 상태로 나눠 데이터베이스에 기록합니다.
 	 *
 	 * @param executionId 상태를 변경할 주문 실행 식별값
@@ -339,6 +352,22 @@ public class OrderExecutionService {
 			UUID.fromString(previewId);
 		} catch (IllegalArgumentException exception) {
 			throw new OrderPreviewException("주문 미리보기 식별값 형식이 올바르지 않습니다.");
+		}
+	}
+
+	/**
+	 * 주문 실행 식별값이 표준 UUID 문자열인지 확인합니다.
+	 *
+	 * @param executionId 검사할 주문 실행 식별값
+	 */
+	private void validateExecutionId(String executionId) {
+		if (executionId == null) {
+			throw new OrderExecutionRequestException("주문 실행 식별값이 필요합니다.");
+		}
+		try {
+			UUID.fromString(executionId);
+		} catch (IllegalArgumentException exception) {
+			throw new OrderExecutionRequestException("주문 실행 식별값 형식이 올바르지 않습니다.");
 		}
 	}
 

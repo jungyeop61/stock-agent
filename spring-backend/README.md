@@ -4,6 +4,7 @@
 
 현재는 토스증권 OAuth 인증, 종목 현재가, 계좌 목록, 보유주식 평가, 매수 가능 금액, 매도 가능 수량과 매매 수수료 조회가 구현되어 있습니다.
 수량 기반 주문 미리보기는 데이터베이스 저장, 만료, 사용자 승인, 최종 재검증과 중복 실행 차단까지 구현되어 있습니다.
+토스증권 주문 상세와 누적 체결 결과를 읽기 전용으로 조회하고, 우리 데이터베이스의 주문 실행 기록도 조회할 수 있습니다.
 토스증권 주문 생성 클라이언트는 수량 주문과 미국 주식 금액 주문 형식 및 멱등성 처리를 구현했습니다.
 승인된 미리보기의 실행 API는 `MOCK` 모의 주문 경계에만 연결되어 있어 실제 주문을 실행할 수는 없습니다.
 
@@ -416,6 +417,48 @@ curl -X POST http://localhost:8080/api/orders/previews/미리보기-식별값/ex
 ```bash
 ./mvnw -Dtest=OrderExecutionServiceTests test
 ./mvnw -Dtest=OrderExecutionPersistenceTests test
+```
+
+## 저장된 주문 실행 기록 조회
+
+모의 실행 API가 반환한 `executionId`로 우리 데이터베이스의 실행 기록을 조회합니다.
+이 주소는 토스증권을 호출하지 않고 저장된 상태도 변경하지 않습니다.
+
+```bash
+curl http://localhost:8080/api/orders/executions/실행-식별값
+```
+
+존재하지 않는 실행 식별값은 HTTP 404, UUID 형식이 아닌 값은 HTTP 400을 반환합니다.
+
+## 토스증권 주문 상세와 체결 상태 조회
+
+계좌 목록에서 받은 `accountSeq`와 토스증권 주문 생성 응답의 `orderId`로 한 주문을 조회합니다.
+읽기 전용 `GET` 요청만 사용하므로 주문 생성·정정·취소가 발생하지 않습니다.
+
+```bash
+curl http://localhost:8080/api/accounts/1/orders/토스증권-주문-식별값
+```
+
+응답에는 다음 정보가 포함됩니다.
+
+- 주문 종목, 매수·매도 방향, 호가 유형과 유효 조건
+- 토스증권 원본 주문 상태와 우리 서버가 해석한 상태
+- 주문 수량·가격·통화와 주문 시각
+- 누적 체결 수량, 평균 체결가, 체결금액, 수수료와 세금
+- 마지막 체결 시각과 결제 예정일
+
+지원하는 주문 상태는 `PENDING`, `PENDING_CANCEL`, `PENDING_REPLACE`, `PARTIAL_FILLED`, `FILLED`, `CANCELED`, `REJECTED`, `CANCEL_REJECTED`, `REPLACE_REJECTED`, `REPLACED`입니다.
+토스증권이 새로운 상태 코드를 추가하더라도 서버가 중단되지 않도록 `status`는 `UNKNOWN`으로 반환하고 `brokerStatusCode`에는 원본 코드를 보존합니다.
+
+주문 상세 조회는 `orderId`만 지원합니다.
+토스증권 공식 명세에는 `clientOrderId`로 주문을 직접 검색하는 기능이 없습니다.
+따라서 응답을 받지 못한 `UNKNOWN` 주문은 현재 자동 복구하지 않습니다.
+향후 실제 주문 연결 단계에서는 주문 생성 후 10분 안에 저장된 주문 내용과 동일한 `clientOrderId`로 정확히 같은 요청을 다시 보내 기존 `orderId`를 회수한 다음 상세 조회를 수행해야 합니다.
+
+가짜 토스증권 서버로 주문 상세 변환과 오류 처리를 검사합니다.
+
+```bash
+./mvnw -Dtest=TossOrderHistoryClientTests test
 ```
 
 ## 토스증권 주문 생성 클라이언트
