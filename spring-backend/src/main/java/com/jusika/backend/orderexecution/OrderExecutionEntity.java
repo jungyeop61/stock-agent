@@ -41,6 +41,9 @@ class OrderExecutionEntity {
 	@Column(name = "failure_type", length = 32)
 	private OrderExecutionFailureType failureType;
 
+	@Column(name = "request_fingerprint", length = 64)
+	private String requestFingerprint;
+
 	@Column(name = "created_at", nullable = false)
 	private OffsetDateTime createdAt;
 
@@ -49,6 +52,9 @@ class OrderExecutionEntity {
 
 	@Column(name = "submitted_at")
 	private OffsetDateTime submittedAt;
+
+	@Column(name = "recovery_attempted_at")
+	private OffsetDateTime recoveryAttemptedAt;
 
 	@Column(name = "completed_at")
 	private OffsetDateTime completedAt;
@@ -67,8 +73,9 @@ class OrderExecutionEntity {
 	 * 실행 준비 상태의 모든 식별값과 생성 시각을 새 저장 객체에 기록합니다.
 	 *
 	 * @param response 저장할 실행 준비 응답
+	 * @param requestFingerprint 계좌와 최초 주문 본문을 함께 계산한 변경 감지용 지문
 	 */
-	private OrderExecutionEntity(OrderExecutionResponse response) {
+	private OrderExecutionEntity(OrderExecutionResponse response, String requestFingerprint) {
 		this.executionId = response.executionId();
 		this.previewId = response.previewId();
 		this.clientOrderId = response.clientOrderId();
@@ -76,9 +83,11 @@ class OrderExecutionEntity {
 		this.status = response.status();
 		this.brokerOrderId = response.brokerOrderId();
 		this.failureType = response.failureType();
+		this.requestFingerprint = requestFingerprint;
 		this.createdAt = response.createdAt();
 		this.updatedAt = response.updatedAt();
 		this.submittedAt = response.submittedAt();
+		this.recoveryAttemptedAt = response.recoveryAttemptedAt();
 		this.completedAt = response.completedAt();
 	}
 
@@ -86,10 +95,11 @@ class OrderExecutionEntity {
 	 * 실행 준비 응답을 데이터베이스 저장 객체로 변환합니다.
 	 *
 	 * @param response 저장할 실행 준비 응답
+	 * @param requestFingerprint 계좌와 최초 주문 본문을 함께 계산한 변경 감지용 지문
 	 * @return 주문 실행 저장 객체
 	 */
-	static OrderExecutionEntity from(OrderExecutionResponse response) {
-		return new OrderExecutionEntity(response);
+	static OrderExecutionEntity from(OrderExecutionResponse response, String requestFingerprint) {
+		return new OrderExecutionEntity(response, requestFingerprint);
 	}
 
 	/**
@@ -109,6 +119,16 @@ class OrderExecutionEntity {
 				createdAt,
 				updatedAt,
 				submittedAt,
+				recoveryAttemptedAt,
 				completedAt);
+	}
+
+	/**
+	 * 안전 복구 검증에만 사용할 최초 요청 지문을 반환합니다.
+	 *
+	 * @return 외부 API에는 공개하지 않는 요청 지문
+	 */
+	String requestFingerprint() {
+		return requestFingerprint;
 	}
 }

@@ -41,6 +41,7 @@ public class OrderExecutionService {
 	private final OrderPreviewStore previewStore;
 	private final OrderExecutionStore executionStore;
 	private final OrderSubmissionGateway submissionGateway;
+	private final OrderRequestFingerprint requestFingerprint;
 	private final TossPriceClient priceClient;
 	private final TossBuyingPowerClient buyingPowerClient;
 	private final TossSellableQuantityClient sellableQuantityClient;
@@ -53,6 +54,7 @@ public class OrderExecutionService {
 	 * @param previewStore 승인된 주문 미리보기 저장소
 	 * @param executionStore 중복 실행을 막고 상태를 기록할 저장소
 	 * @param submissionGateway 현재 설정된 모의 또는 실제 주문 제출 경계
+	 * @param requestFingerprint 최초 제출 주문의 변경 감지용 지문 계산기
 	 * @param priceClient 최종 현재가 조회 클라이언트
 	 * @param buyingPowerClient 최종 매수 가능 금액 조회 클라이언트
 	 * @param sellableQuantityClient 최종 매도 가능 수량 조회 클라이언트
@@ -63,6 +65,7 @@ public class OrderExecutionService {
 			OrderPreviewStore previewStore,
 			OrderExecutionStore executionStore,
 			OrderSubmissionGateway submissionGateway,
+			OrderRequestFingerprint requestFingerprint,
 			TossPriceClient priceClient,
 			TossBuyingPowerClient buyingPowerClient,
 			TossSellableQuantityClient sellableQuantityClient,
@@ -71,6 +74,7 @@ public class OrderExecutionService {
 		this.previewStore = previewStore;
 		this.executionStore = executionStore;
 		this.submissionGateway = submissionGateway;
+		this.requestFingerprint = requestFingerprint;
 		this.priceClient = priceClient;
 		this.buyingPowerClient = buyingPowerClient;
 		this.sellableQuantityClient = sellableQuantityClient;
@@ -105,9 +109,20 @@ public class OrderExecutionService {
 				startedAt,
 				startedAt,
 				null,
+				null,
 				null);
 
-		if (!executionStore.claim(prepared)) {
+		QuantityOrderSubmissionRequest request = new QuantityOrderSubmissionRequest(
+				clientOrderId,
+				preview.symbol(),
+				preview.side(),
+				preview.orderType(),
+				OrderTimeInForce.DAY,
+				preview.quantity(),
+				preview.requestedPrice(),
+				preview.requiresHighValueConfirmation());
+		String fingerprint = requestFingerprint.calculate(preview.accountSeq(), request);
+		if (!executionStore.claim(prepared, fingerprint)) {
 			throw new OrderExecutionConflictException("이미 실행했거나 실행 중인 주문 미리보기입니다.");
 		}
 		if (!previewStore.consumeApproved(previewId, startedAt)) {
@@ -119,15 +134,6 @@ public class OrderExecutionService {
 			throw new OrderExecutionSubmissionException("주문 실행 상태를 제출 중으로 변경하지 못했습니다.");
 		}
 
-		QuantityOrderSubmissionRequest request = new QuantityOrderSubmissionRequest(
-				clientOrderId,
-				preview.symbol(),
-				preview.side(),
-				preview.orderType(),
-				OrderTimeInForce.DAY,
-				preview.quantity(),
-				preview.requestedPrice(),
-				preview.requiresHighValueConfirmation());
 		return submitAndRecord(executionId, clientOrderId, preview.accountSeq(), request);
 	}
 

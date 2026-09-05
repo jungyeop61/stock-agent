@@ -6,5 +6,6 @@ package com.jusika.backend.orderexecution;
 public enum OrderExecutionFailureType {
 	BROKER_REJECTED,
 	SUBMISSION_UNKNOWN,
+	RECOVERY_UNKNOWN,
 	INTERNAL_STATE
 }

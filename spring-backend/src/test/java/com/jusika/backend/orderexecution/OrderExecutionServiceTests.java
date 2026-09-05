@@ -69,6 +69,7 @@ class OrderExecutionServiceTests {
 				previewStore,
 				executionStore,
 				submissionGateway,
+				new OrderRequestFingerprint(),
 				priceClient,
 				buyingPowerClient,
 				sellableQuantityClient,
@@ -374,14 +375,16 @@ class OrderExecutionServiceTests {
 
 		private final Map<String, OrderExecutionResponse> executions = new HashMap<>();
 		private final Map<String, String> executionIdsByPreview = new HashMap<>();
+		private final Map<String, String> fingerprints = new HashMap<>();
 
 		/** 미리보기에 기존 실행이 없을 때만 준비 기록을 저장합니다. */
 		@Override
-		public boolean claim(OrderExecutionResponse execution) {
+		public boolean claim(OrderExecutionResponse execution, String requestFingerprint) {
 			if (executionIdsByPreview.containsKey(execution.previewId())) {
 				return false;
 			}
 			executions.put(execution.executionId(), execution);
+			fingerprints.put(execution.executionId(), requestFingerprint);
 			executionIdsByPreview.put(execution.previewId(), execution.executionId());
 			return true;
 		}
@@ -429,6 +432,37 @@ class OrderExecutionServiceTests {
 					null, OrderExecutionFailureType.SUBMISSION_UNKNOWN, null, null);
 		}
 
+		/** 실행 식별값으로 테스트 복구 후보와 요청 지문을 조회합니다. */
+		@Override
+		public Optional<OrderExecutionRecoveryCandidate> findRecoveryCandidateById(String executionId) {
+			return findById(executionId).map(execution -> new OrderExecutionRecoveryCandidate(
+					execution, fingerprints.get(executionId)));
+		}
+
+		/** 이 실행 서비스 테스트에서는 복구권을 사용하지 않습니다. */
+		@Override
+		public boolean claimRecovery(
+				String executionId,
+				OffsetDateTime submittedAfter,
+				OffsetDateTime recoveryStartedAt) {
+			return false;
+		}
+
+		/** 이 실행 서비스 테스트에서는 복구 접수 상태를 사용하지 않습니다. */
+		@Override
+		public boolean markRecovered(
+				String executionId,
+				String brokerOrderId,
+				OffsetDateTime completedAt) {
+			return false;
+		}
+
+		/** 이 실행 서비스 테스트에서는 복구 결과 불명 상태를 사용하지 않습니다. */
+		@Override
+		public boolean markRecoveryUnknown(String executionId, OffsetDateTime failedAt) {
+			return false;
+		}
+
 		/** 실행 식별값으로 테스트 실행 기록을 조회합니다. */
 		@Override
 		public Optional<OrderExecutionResponse> findById(String executionId) {
@@ -461,7 +495,8 @@ class OrderExecutionServiceTests {
 					current.executionId(), current.previewId(), current.clientOrderId(),
 					current.brokerMode(), status, brokerOrderId, failureType,
 					current.createdAt(), updatedAt,
-					submittedAt != null ? submittedAt : current.submittedAt(), completedAt));
+					submittedAt != null ? submittedAt : current.submittedAt(),
+					current.recoveryAttemptedAt(), completedAt));
 			return true;
 		}
 	}
@@ -560,6 +595,14 @@ class OrderExecutionServiceTests {
 				throw failure;
 			}
 			return new OrderCreationResponse("fake-" + request.clientOrderId(), request.clientOrderId());
+		}
+
+		/** 복구 테스트가 아닌 이 대역에서는 일반 제출과 같은 모의 결과를 반환합니다. */
+		@Override
+		public OrderCreationResponse recoverQuantityOrder(
+				long accountSeq,
+				QuantityOrderSubmissionRequest request) {
+			return submitQuantityOrder(accountSeq, request);
 		}
 
 		/** 테스트 제출 경계가 모의 모드임을 반환합니다. */

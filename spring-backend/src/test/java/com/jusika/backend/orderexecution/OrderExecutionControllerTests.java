@@ -1,11 +1,13 @@
 package com.jusika.backend.orderexecution;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.UUID;
 
 import org.junit.jupiter.api.DisplayName;
@@ -20,6 +22,8 @@ import com.jusika.backend.orderpreview.OrderPreviewStatus;
 import com.jusika.backend.orderpreview.OrderPreviewStore;
 import com.jusika.backend.orderpreview.OrderSide;
 import com.jusika.backend.orderpreview.OrderType;
+import com.jusika.backend.order.OrderTimeInForce;
+import com.jusika.backend.order.QuantityOrderSubmissionRequest;
 
 /**
  * 우리 데이터베이스의 주문 실행 기록 조회 HTTP 주소와 오류 상태를 검사합니다.
@@ -37,6 +41,9 @@ class OrderExecutionControllerTests {
 	@Autowired
 	private OrderExecutionStore executionStore;
 
+	@Autowired
+	private OrderRequestFingerprint requestFingerprint;
+
 	/**
 	 * 저장된 주문 실행 기록을 외부 증권사 호출이나 상태 변경 없이 그대로 반환하는지 검사합니다.
 	 */
@@ -47,8 +54,8 @@ class OrderExecutionControllerTests {
 		OrderPreviewResponse preview = 승인된_미리보기를_저장한다(now);
 		OrderExecutionResponse execution = new OrderExecutionResponse(
 				UUID.randomUUID().toString(), preview.previewId(), UUID.randomUUID().toString(),
-				"MOCK", OrderExecutionStatus.PREPARED, null, null, now, now, null, null);
-		executionStore.claim(execution);
+				"MOCK", OrderExecutionStatus.PREPARED, null, null, now, now, null, null, null);
+		executionStore.claim(execution, "a".repeat(64));
 
 		mockMvc.perform(get("/api/orders/executions/{executionId}", execution.executionId()))
 				.andExpect(status().isOk())
@@ -69,6 +76,39 @@ class OrderExecutionControllerTests {
 				.andExpect(status().isNotFound());
 		mockMvc.perform(get("/api/orders/executions/{executionId}", "잘못된-식별값"))
 				.andExpect(status().isBadRequest());
+	}
+
+	/**
+	 * 결과 불명 모의 주문을 HTTP 주소에서 같은 주문 내용으로 한 번 복구하는지 검사합니다.
+	 */
+	@Test
+	@DisplayName("결과 불명 모의 주문을 복구 API로 접수 상태로 만든다")
+	void 결과_불명_모의_주문을_복구_API로_접수_상태로_만든다() throws Exception {
+		OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+		OrderPreviewResponse savedPreview = 승인된_미리보기를_저장한다(now.minusMinutes(1));
+		OrderPreviewResponse preview = previewStore.findById(savedPreview.previewId()).orElseThrow();
+		OrderExecutionResponse execution = new OrderExecutionResponse(
+				UUID.randomUUID().toString(), preview.previewId(), UUID.randomUUID().toString(),
+				"MOCK", OrderExecutionStatus.PREPARED, null, null,
+				now.minusSeconds(3), now.minusSeconds(3), null, null, null);
+		QuantityOrderSubmissionRequest request = new QuantityOrderSubmissionRequest(
+				execution.clientOrderId(), preview.symbol(), preview.side(), preview.orderType(),
+				OrderTimeInForce.DAY, preview.quantity(), preview.requestedPrice(),
+				preview.requiresHighValueConfirmation());
+		executionStore.claim(
+				execution, requestFingerprint.calculate(preview.accountSeq(), request));
+		executionStore.markSubmitting(execution.executionId(), now.minusSeconds(2));
+		executionStore.markUnknown(execution.executionId(), now.minusSeconds(1));
+
+		mockMvc.perform(post(
+				"/api/orders/executions/{executionId}/recover", execution.executionId()))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.executionId").value(execution.executionId()))
+				.andExpect(jsonPath("$.status").value("ACCEPTED"))
+				.andExpect(jsonPath("$.failureType").isEmpty())
+				.andExpect(jsonPath("$.brokerOrderId").value(
+						"mock-" + execution.clientOrderId()))
+				.andExpect(jsonPath("$.recoveryAttemptedAt").isNotEmpty());
 	}
 
 	/**

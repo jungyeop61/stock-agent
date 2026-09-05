@@ -104,4 +104,79 @@ interface OrderExecutionJpaRepository extends JpaRepository<OrderExecutionEntity
 			@Param("failureType") OrderExecutionFailureType failureType,
 			@Param("updatedAt") OffsetDateTime updatedAt,
 			@Param("completedAt") OffsetDateTime completedAt);
+
+	/**
+	 * 최초 제출 결과가 불명확하고 공식 멱등성 유효시간 안인 실행만 복구 중으로 선점합니다.
+	 *
+	 * @param executionId 변경할 주문 실행 식별값
+	 * @param submittedAfter 제출 시각이 반드시 이 시각보다 나중이어야 하는 하한선
+	 * @param recoveryStartedAt 복구 시작 시각이자 미래 제출 기록을 거르는 상한선
+	 * @return 상태가 변경된 행의 수
+	 */
+	@Modifying(clearAutomatically = true, flushAutomatically = true)
+	@Query("""
+			update OrderExecutionEntity execution
+			set execution.status = com.jusika.backend.orderexecution.OrderExecutionStatus.RECOVERING,
+				execution.recoveryAttemptedAt = :recoveryStartedAt,
+				execution.updatedAt = :recoveryStartedAt,
+				execution.version = execution.version + 1
+			where execution.executionId = :executionId
+				and execution.status = com.jusika.backend.orderexecution.OrderExecutionStatus.UNKNOWN
+				and execution.failureType = com.jusika.backend.orderexecution.OrderExecutionFailureType.SUBMISSION_UNKNOWN
+				and execution.brokerOrderId is null
+				and execution.completedAt is null
+				and execution.requestFingerprint is not null
+				and execution.submittedAt > :submittedAfter
+				and execution.submittedAt <= :recoveryStartedAt
+			""")
+	int claimRecovery(
+			@Param("executionId") String executionId,
+			@Param("submittedAfter") OffsetDateTime submittedAfter,
+			@Param("recoveryStartedAt") OffsetDateTime recoveryStartedAt);
+
+	/**
+	 * 복구 중인 실행에 회수한 증권사 주문번호를 저장하고 접수 상태로 변경합니다.
+	 *
+	 * @param executionId 변경할 주문 실행 식별값
+	 * @param brokerOrderId 복구 응답으로 회수한 증권사 주문 식별값
+	 * @param completedAt 접수를 확인한 시각
+	 * @return 상태가 변경된 행의 수
+	 */
+	@Modifying(clearAutomatically = true, flushAutomatically = true)
+	@Query("""
+			update OrderExecutionEntity execution
+			set execution.status = com.jusika.backend.orderexecution.OrderExecutionStatus.ACCEPTED,
+				execution.brokerOrderId = :brokerOrderId,
+				execution.failureType = null,
+				execution.completedAt = :completedAt,
+				execution.updatedAt = :completedAt,
+				execution.version = execution.version + 1
+			where execution.executionId = :executionId
+				and execution.status = com.jusika.backend.orderexecution.OrderExecutionStatus.RECOVERING
+			""")
+	int markRecovered(
+			@Param("executionId") String executionId,
+			@Param("brokerOrderId") String brokerOrderId,
+			@Param("completedAt") OffsetDateTime completedAt);
+
+	/**
+	 * 복구 응답도 확정할 수 없는 실행을 재복구 불가 상태로 변경합니다.
+	 *
+	 * @param executionId 변경할 주문 실행 식별값
+	 * @param failedAt 복구 결과를 확정하지 못한 시각
+	 * @return 상태가 변경된 행의 수
+	 */
+	@Modifying(clearAutomatically = true, flushAutomatically = true)
+	@Query("""
+			update OrderExecutionEntity execution
+			set execution.status = com.jusika.backend.orderexecution.OrderExecutionStatus.UNKNOWN,
+				execution.failureType = com.jusika.backend.orderexecution.OrderExecutionFailureType.RECOVERY_UNKNOWN,
+				execution.updatedAt = :failedAt,
+				execution.version = execution.version + 1
+			where execution.executionId = :executionId
+				and execution.status = com.jusika.backend.orderexecution.OrderExecutionStatus.RECOVERING
+			""")
+	int markRecoveryUnknown(
+			@Param("executionId") String executionId,
+			@Param("failedAt") OffsetDateTime failedAt);
 }

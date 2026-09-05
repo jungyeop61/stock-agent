@@ -28,6 +28,20 @@ class MockOrderSubmissionGateway implements OrderSubmissionGateway {
 	}
 
 	/**
+	 * 네트워크 호출 없이 최초 제출과 같은 결정적인 모의 주문번호를 다시 반환합니다.
+	 *
+	 * @param accountSeq 최초 주문에 사용한 계좌 식별값
+	 * @param request 최초 제출과 완전히 동일한 수량 기반 주문
+	 * @return 기존 모의 주문번호를 나타내는 주문 생성 결과
+	 */
+	@Override
+	public OrderCreationResponse recoverQuantityOrder(
+			long accountSeq,
+			QuantityOrderSubmissionRequest request) {
+		return new OrderCreationResponse("mock-" + request.clientOrderId(), request.clientOrderId());
+	}
+
+	/**
 	 * 이 구현이 실제 주문을 보내지 않는 모의 모드임을 반환합니다.
 	 *
 	 * @return 모의 주문을 뜻하는 MOCK

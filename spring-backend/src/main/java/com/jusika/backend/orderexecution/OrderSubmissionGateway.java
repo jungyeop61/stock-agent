@@ -18,6 +18,15 @@ public interface OrderSubmissionGateway {
 	OrderCreationResponse submitQuantityOrder(long accountSeq, QuantityOrderSubmissionRequest request);
 
 	/**
+	 * 결과 불명 주문을 최초 본문과 동일한 멱등성 식별값으로 한 번만 복구합니다.
+	 *
+	 * @param accountSeq 최초 주문에 사용한 계좌 식별값
+	 * @param request 최초 제출과 완전히 동일한 수량 기반 주문
+	 * @return 기존 주문이 있었다면 그 주문의 식별값을 담은 응답
+	 */
+	OrderCreationResponse recoverQuantityOrder(long accountSeq, QuantityOrderSubmissionRequest request);
+
+	/**
 	 * 현재 주문 제출 구현이 사용하는 안전 모드 이름을 반환합니다.
 	 *
 	 * @return 예를 들어 MOCK과 같은 주문 제출 모드

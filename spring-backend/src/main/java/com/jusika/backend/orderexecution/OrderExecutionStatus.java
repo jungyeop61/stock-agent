@@ -6,6 +6,7 @@ package com.jusika.backend.orderexecution;
 public enum OrderExecutionStatus {
 	PREPARED,
 	SUBMITTING,
+	RECOVERING,
 	ACCEPTED,
 	REJECTED,
 	UNKNOWN
