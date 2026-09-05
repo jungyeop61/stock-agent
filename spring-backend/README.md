@@ -4,7 +4,7 @@
 
 현재는 토스증권 OAuth 인증, 종목 현재가, 계좌 목록, 보유주식 평가, 매수 가능 금액, 매도 가능 수량과 매매 수수료 조회가 구현되어 있습니다.
 수량 기반 주문 미리보기는 데이터베이스 저장, 만료, 사용자 승인, 최종 재검증과 중복 실행 차단까지 구현되어 있습니다.
-토스증권 주문 상세와 누적 체결 결과를 읽기 전용으로 조회하고, 우리 데이터베이스의 주문 실행 기록도 조회할 수 있습니다.
+토스증권의 진행 중·종료 주문 목록과 주문 상세·누적 체결 결과를 읽기 전용으로 조회하고, 우리 데이터베이스의 주문 실행 기록도 조회할 수 있습니다.
 토스증권 주문 생성 클라이언트는 수량 주문과 미국 주식 금액 주문 형식 및 멱등성 처리를 구현했습니다.
 승인된 미리보기의 실행 API는 `MOCK` 모의 주문 경계에만 연결되어 있어 실제 주문을 실행할 수는 없습니다.
 
@@ -429,6 +429,60 @@ curl http://localhost:8080/api/orders/executions/실행-식별값
 ```
 
 존재하지 않는 실행 식별값은 HTTP 404, UUID 형식이 아닌 값은 HTTP 400을 반환합니다.
+
+## 토스증권 주문 목록 조회
+
+계좌 목록에서 받은 `accountSeq`와 필수 상태값으로 주문 목록을 조회합니다.
+이 기능은 토스증권의 읽기 전용 `GET` 요청만 사용하므로 주문 생성·정정·취소가 발생하지 않습니다.
+
+진행 중 주문을 전체 종목과 전체 기간에서 조회합니다.
+
+```bash
+curl "http://localhost:8080/api/accounts/1/orders?status=OPEN"
+```
+
+진행 중 주문을 종목과 한국 날짜 기준 주문 생성일로 필터링할 수 있습니다.
+
+```bash
+curl "http://localhost:8080/api/accounts/1/orders?status=OPEN&symbol=AAPL&from=2026-03-01&to=2026-03-31"
+```
+
+종료된 주문은 기본 20건, 최대 100건 단위로 조회합니다.
+
+```bash
+curl "http://localhost:8080/api/accounts/1/orders?status=CLOSED&limit=20"
+```
+
+`hasNext`가 `true`이면 응답의 `nextCursor`를 변경하지 않고 다음 요청에 전달합니다.
+커서에 URL 특수문자가 들어갈 수 있으므로 `curl`에서는 다음처럼 자동 인코딩하는 방식이 안전합니다.
+
+```bash
+curl --get "http://localhost:8080/api/accounts/1/orders" \
+  --data-urlencode "status=CLOSED" \
+  --data-urlencode "limit=20" \
+  --data-urlencode "cursor=응답에서-받은-nextCursor"
+```
+
+목록 상태와 페이지 규칙은 다음과 같습니다.
+
+- `OPEN`: `PENDING`, `PARTIAL_FILLED`, `PENDING_CANCEL`, `PENDING_REPLACE` 등 진행 중 주문을 전량 반환합니다.
+- `OPEN`에서는 잘린 목록으로 오해하지 않도록 `cursor`와 `limit` 입력을 허용하지 않습니다.
+- `CLOSED`: 체결·취소·거부·정정 완료 등 종료된 주문을 커서 기반 페이지로 반환합니다.
+- `symbol`은 선택값이며 영문 종목은 대문자로 정규화합니다.
+- `from`과 `to`는 선택값이며 양 끝 날짜를 모두 포함합니다.
+- 시작일이 종료일보다 늦거나 페이지 크기가 1~100 범위를 벗어나면 HTTP 400을 반환합니다.
+
+응답의 `orders` 각 항목에는 주문 상세 조회와 같은 주문·누적 체결 필드가 들어 있습니다.
+`nextCursor`와 `hasNext`는 다음 종료 주문 페이지의 존재 여부를 나타냅니다.
+
+주문 목록에는 `clientOrderId`가 포함되지 않으므로 결과 불명 주문을 목록의 비슷한 주문과 자동 연결하지 않습니다.
+결과 불명 주문의 안전 복구는 이후 단계에서 저장된 동일 주문 본문과 동일한 `clientOrderId`를 10분 이내에 재전송하는 방식으로 별도 구현합니다.
+
+가짜 토스증권 서버로 목록 필터·페이지·응답 검증을 검사합니다.
+
+```bash
+./mvnw -Dtest=TossOrderListClientTests test
+```
 
 ## 토스증권 주문 상세와 체결 상태 조회
 
