@@ -12,6 +12,7 @@ import org.springframework.web.client.RestClientResponseException;
 
 import com.jusika.backend.order.AmountOrderSubmissionRequest;
 import com.jusika.backend.order.OrderCreationResponse;
+import com.jusika.backend.order.OrderModificationSubmissionRequest;
 import com.jusika.backend.order.OrderOperationResponse;
 import com.jusika.backend.order.OrderTimeInForce;
 import com.jusika.backend.order.QuantityOrderSubmissionRequest;
@@ -20,6 +21,7 @@ import com.jusika.backend.orderpreview.OrderType;
 import com.jusika.backend.toss.auth.TossAccessTokenProvider;
 import com.jusika.backend.toss.order.TossOrderApiRequests.AmountRequest;
 import com.jusika.backend.toss.order.TossOrderApiRequests.QuantityRequest;
+import com.jusika.backend.toss.order.TossOrderApiRequests.ModificationRequest;
 import com.jusika.backend.toss.order.TossOrderApiResponse.TossOrderResult;
 import com.jusika.backend.toss.order.TossOrderOperationApiResponse.TossOrderOperationResult;
 
@@ -124,7 +126,7 @@ public class TossOrderClient {
 	 *
 	 * @param accountSeq 취소할 주문의 계좌 식별값
 	 * @param orderId 취소할 토스증권 주문 식별값
-	 * @return 토스증권이 취소 대상으로 확인한 주문 식별값
+	 * @return 취소 접수로 새로 발급된 토스증권 주문 식별값
 	 * @throws TossOrderException 요청 형식, 인증, 통신 또는 응답이 올바르지 않은 경우
 	 */
 	public OrderOperationResponse cancelOrder(long accountSeq, String orderId) {
@@ -140,7 +142,7 @@ public class TossOrderClient {
 					.body(new Object())
 					.retrieve()
 					.body(TossOrderOperationApiResponse.class);
-			return convertOperationResponse(response, validatedOrderId);
+			return convertOperationResponse(response, validatedOrderId, "취소");
 		} catch (RestClientResponseException exception) {
 			int status = exception.getStatusCode().value();
 			throw new TossOrderException(
@@ -154,13 +156,81 @@ public class TossOrderClient {
 		}
 	}
 
-	/** 주문 취소 성공 응답이 요청한 원주문과 정확히 일치하는지 검사합니다. */
+	/**
+	 * 국내 주식의 유형·수량·가격 또는 미국 주식의 유형·가격을 정정합니다.
+	 * 현재 정정 서비스에는 연결하지 않았으므로 이 메서드는 자동 실행되지 않습니다.
+	 *
+	 * @param accountSeq 정정할 주문의 계좌 식별값
+	 * @param orderId 정정할 토스증권 원주문 식별값
+	 * @param request 최종 검증을 마친 정정 내용
+	 * @return 정정 접수로 새로 발급된 토스증권 주문 식별값
+	 */
+	public OrderOperationResponse modifyOrder(
+			long accountSeq, String orderId, OrderModificationSubmissionRequest request) {
+		validateAccountSeq(accountSeq);
+		String validatedOrderId = validateOrderId(orderId);
+		if (request == null) throw new TossOrderException("주문 정정 요청이 필요합니다.");
+		validateOrderType(request.orderType());
+
+		String quantity;
+		if ("KRW".equals(request.currency())) {
+			quantity = validatePositiveDecimal(request.quantity(), "정정 수량");
+			if (normalizedScale(request.quantity()) > 0) {
+				throw new TossOrderException("국내 주식 정정 수량은 정수여야 합니다.");
+			}
+		} else if ("USD".equals(request.currency())) {
+			if (request.quantity() != null) {
+				throw new TossOrderException("미국 주식 주문 정정은 수량을 보낼 수 없습니다.");
+			}
+			quantity = null;
+		} else {
+			throw new TossOrderException("지원하지 않는 정정 주문 통화입니다.");
+		}
+		String price = validatePrice(request.price(), request.orderType());
+		if (price != null) validateModificationPriceScale(request.price(), request.currency());
+
+		ModificationRequest apiRequest = new ModificationRequest(
+				request.orderType(), quantity, price, request.confirmHighValueOrder());
+		return submitOrderOperation(
+				accountSeq, validatedOrderId, "/api/v1/orders/{orderId}/modify", apiRequest,
+				"정정");
+	}
+
+	/** 인증과 계좌 헤더를 넣어 정정 요청을 보내고 새 주문번호를 검증합니다. */
+	private OrderOperationResponse submitOrderOperation(
+			long accountSeq, String originalOrderId, String path, Object body, String operationName) {
+		String accessToken = getAccessTokenBeforeSubmission();
+		try {
+			TossOrderOperationApiResponse response = restClient.post()
+					.uri(path, originalOrderId)
+					.contentType(MediaType.APPLICATION_JSON)
+					.header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+					.header(ACCOUNT_HEADER, Long.toString(accountSeq))
+					.body(body)
+					.retrieve()
+					.body(TossOrderOperationApiResponse.class);
+			return convertOperationResponse(response, originalOrderId, operationName);
+		} catch (RestClientResponseException exception) {
+			int status = exception.getStatusCode().value();
+			throw new TossOrderException(
+					"토스증권 주문 " + operationName + "에 실패했습니다. HTTP 상태: " + status,
+					status, status >= 500);
+		} catch (TossOrderException exception) {
+			throw exception;
+		} catch (RuntimeException exception) {
+			throw new TossOrderException(
+					"토스증권 주문 " + operationName + " 결과를 확인하지 못했습니다.", null, true);
+		}
+	}
+
+	/** 정정·취소 성공 응답에 원주문과 다른 새 주문번호가 있는지 검사합니다. */
 	private OrderOperationResponse convertOperationResponse(
-			TossOrderOperationApiResponse response, String requestedOrderId) {
+			TossOrderOperationApiResponse response, String requestedOrderId, String operationName) {
 		TossOrderOperationResult result = response == null ? null : response.result();
 		if (result == null || result.orderId() == null || result.orderId().isBlank()
-				|| !requestedOrderId.equals(result.orderId())) {
-			throw new TossOrderException("토스증권 주문 취소 응답 형식이 올바르지 않습니다.", null, true);
+				|| requestedOrderId.equals(result.orderId())) {
+			throw new TossOrderException(
+					"토스증권 주문 " + operationName + " 응답 형식이 올바르지 않습니다.", null, true);
 		}
 		return new OrderOperationResponse(result.orderId());
 	}
@@ -415,5 +485,19 @@ public class TossOrderClient {
 	 */
 	private int normalizedScale(BigDecimal value) {
 		return Math.max(value.stripTrailingZeros().scale(), 0);
+	}
+
+	/** 국내 원 단위와 미국 달러 가격 소수 자릿수 규칙을 검사합니다. */
+	private void validateModificationPriceScale(BigDecimal price, String currency) {
+		int scale = normalizedScale(price);
+		if ("KRW".equals(currency) && scale > 0) {
+			throw new TossOrderException("국내 주식 정정 지정가는 원 단위 정수여야 합니다.");
+		}
+		if ("USD".equals(currency)) {
+			int maxScale = price.compareTo(BigDecimal.ONE) < 0 ? 4 : 2;
+			if (scale > maxScale) {
+				throw new TossOrderException("미국 주식 정정 지정가의 소수 자릿수가 너무 많습니다.");
+			}
+		}
 	}
 }

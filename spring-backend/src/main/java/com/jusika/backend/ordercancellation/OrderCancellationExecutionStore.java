@@ -16,7 +16,7 @@ interface OrderCancellationExecutionStore {
 	boolean markPreparationFailed(String executionId, OffsetDateTime failedAt);
 
 	/** 증권사 취소 접수를 확인한 상태로 변경합니다. */
-	boolean markAccepted(String executionId, OffsetDateTime completedAt);
+	boolean markAccepted(String executionId, String operationOrderId, OffsetDateTime completedAt);
 
 	/** 증권사의 확정 거절 상태로 변경합니다. */
 	boolean markRejected(String executionId, OffsetDateTime failedAt);

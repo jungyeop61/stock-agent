@@ -1,4 +1,4 @@
-package com.jusika.backend.ordercancellation;
+package com.jusika.backend.ordermodification;
 
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -12,24 +12,21 @@ import org.springframework.data.repository.query.Param;
 import com.jusika.backend.orderexecution.OrderExecutionFailureType;
 import com.jusika.backend.orderexecution.OrderExecutionStatus;
 
-/** 취소 실행 행의 중복 방지 잠금과 조건부 상태 변경을 수행합니다. */
-interface OrderCancellationExecutionJpaRepository
-		extends JpaRepository<OrderCancellationExecutionEntity, String> {
-
-	/** 같은 원주문을 가리키는 모든 취소 미리보기 행을 잠급니다. */
-	@Query(value = "SELECT preview_id FROM order_cancellation_previews WHERE order_id = :orderId FOR UPDATE", nativeQuery = true)
+/** 정정 실행 행의 원주문 잠금과 조건부 상태 변경을 수행합니다. */
+interface OrderModificationExecutionJpaRepository
+		extends JpaRepository<OrderModificationExecutionEntity, String> {
+	/** 같은 원주문을 가리키는 정정 미리보기를 모두 잠급니다. */
+	@Query(value = "SELECT preview_id FROM order_modification_previews WHERE original_order_id = :orderId FOR UPDATE", nativeQuery = true)
 	List<String> lockPreviewsByOrderId(@Param("orderId") String orderId);
+	/** 미리보기의 기존 정정 실행을 조회합니다. */
+	Optional<OrderModificationExecutionEntity> findByPreviewId(String previewId);
+	/** 원주문의 기존 정정 실행을 조회합니다. */
+	Optional<OrderModificationExecutionEntity> findByOriginalOrderId(String originalOrderId);
 
-	/** 미리보기로 기존 취소 실행을 조회합니다. */
-	Optional<OrderCancellationExecutionEntity> findByPreviewId(String previewId);
-
-	/** 원주문으로 기존 취소 실행을 조회합니다. */
-	Optional<OrderCancellationExecutionEntity> findByOrderId(String orderId);
-
-	/** 준비 상태의 취소 실행만 제출 중 상태로 변경합니다. */
+	/** 준비 상태의 정정 실행만 제출 중으로 변경합니다. */
 	@Modifying(clearAutomatically = true, flushAutomatically = true)
 	@Query("""
-			update OrderCancellationExecutionEntity execution
+			update OrderModificationExecutionEntity execution
 			set execution.status = com.jusika.backend.orderexecution.OrderExecutionStatus.SUBMITTING,
 				execution.submittedAt = :submittedAt,
 				execution.updatedAt = :submittedAt,
@@ -40,10 +37,10 @@ interface OrderCancellationExecutionJpaRepository
 	int markSubmitting(@Param("executionId") String executionId,
 			@Param("submittedAt") OffsetDateTime submittedAt);
 
-	/** 제출 중인 취소 실행에 새 주문번호를 기록하고 접수 상태로 변경합니다. */
+	/** 제출 중인 정정 실행에 새 주문번호를 기록하고 접수 상태로 변경합니다. */
 	@Modifying(clearAutomatically = true, flushAutomatically = true)
 	@Query("""
-			update OrderCancellationExecutionEntity execution
+			update OrderModificationExecutionEntity execution
 			set execution.status = com.jusika.backend.orderexecution.OrderExecutionStatus.ACCEPTED,
 				execution.operationOrderId = :operationOrderId,
 				execution.completedAt = :completedAt,
@@ -56,10 +53,10 @@ interface OrderCancellationExecutionJpaRepository
 			@Param("operationOrderId") String operationOrderId,
 			@Param("completedAt") OffsetDateTime completedAt);
 
-	/** 예상 상태의 취소 실행을 실패 또는 결과 불명 상태로 변경합니다. */
+	/** 예상 상태의 정정 실행을 거절 또는 결과 불명 상태로 변경합니다. */
 	@Modifying(clearAutomatically = true, flushAutomatically = true)
 	@Query("""
-			update OrderCancellationExecutionEntity execution
+			update OrderModificationExecutionEntity execution
 			set execution.status = :status,
 				execution.failureType = :failureType,
 				execution.completedAt = :completedAt,

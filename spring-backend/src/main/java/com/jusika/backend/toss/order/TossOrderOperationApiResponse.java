@@ -9,7 +9,7 @@ record TossOrderOperationApiResponse(TossOrderOperationResult result) {
 		return "TossOrderOperationApiResponse[result=***]";
 	}
 
-	/** 토스증권이 작업 대상으로 확인한 주문 식별값을 담습니다. */
+	/** 토스증권이 정정 또는 취소 접수로 새로 발급한 주문 식별값을 담습니다. */
 	record TossOrderOperationResult(String orderId) {
 
 		/** 로그에 주문 식별값이 노출되지 않도록 가린 설명을 반환합니다. */

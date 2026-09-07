@@ -46,12 +46,15 @@ class OrderCancellationPersistenceTests {
 		assertThat(executionStore.claim(first)).isTrue();
 		assertThat(executionStore.claim(duplicate)).isFalse();
 		assertThat(executionStore.markSubmitting(first.executionId(), createdAt.plusSeconds(5))).isTrue();
-		assertThat(executionStore.markAccepted(first.executionId(), createdAt.plusSeconds(6))).isTrue();
-		assertThat(executionStore.markAccepted(first.executionId(), createdAt.plusSeconds(7))).isFalse();
+		assertThat(executionStore.markAccepted(
+				first.executionId(), "new-cancel-order", createdAt.plusSeconds(6))).isTrue();
+		assertThat(executionStore.markAccepted(
+				first.executionId(), "other-cancel-order", createdAt.plusSeconds(7))).isFalse();
 
 		OrderCancellationExecutionResponse stored = executionStore
 				.findByOrderId(orderId).orElseThrow();
 		assertThat(stored.status()).isEqualTo(OrderExecutionStatus.ACCEPTED);
+		assertThat(stored.operationOrderId()).isEqualTo("new-cancel-order");
 		assertThat(stored.submittedAt()).isEqualTo(createdAt.plusSeconds(5));
 		assertThat(stored.completedAt()).isEqualTo(createdAt.plusSeconds(6));
 		assertThat(previewStore.findById(firstPreview.previewId()).orElseThrow().status())
@@ -73,7 +76,7 @@ class OrderCancellationPersistenceTests {
 	private OrderCancellationExecutionResponse 실행_준비_기록을_만든다(
 			String previewId, String orderId, OffsetDateTime createdAt) {
 		return new OrderCancellationExecutionResponse(
-				UUID.randomUUID().toString(), previewId, orderId, "MOCK",
+				UUID.randomUUID().toString(), previewId, orderId, null, "MOCK",
 				OrderExecutionStatus.PREPARED, null, createdAt, createdAt, null, null);
 	}
 }

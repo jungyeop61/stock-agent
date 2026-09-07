@@ -30,6 +30,7 @@ import org.springframework.web.client.RestClient;
 import com.jusika.backend.order.AmountOrderSubmissionRequest;
 import com.jusika.backend.order.OrderCreationResponse;
 import com.jusika.backend.order.OrderOperationResponse;
+import com.jusika.backend.order.OrderModificationSubmissionRequest;
 import com.jusika.backend.order.OrderTimeInForce;
 import com.jusika.backend.order.QuantityOrderSubmissionRequest;
 import com.jusika.backend.orderpreview.OrderSide;
@@ -47,6 +48,7 @@ class TossOrderClientTests {
 	private static final String ACCESS_TOKEN = "노출되면-안되는-테스트-토큰";
 	private static final String CLIENT_ORDER_ID = "order-20260904-001";
 	private static final String ORDER_ID = "private-test-order-id";
+	private static final String OPERATION_ORDER_ID = "new-private-test-order-id";
 	private static final long ACCOUNT_SEQ = 1L;
 
 	private MockRestServiceServer server;
@@ -479,12 +481,12 @@ class TossOrderClientTests {
 				.andExpect(header(HttpHeaders.AUTHORIZATION, "Bearer " + ACCESS_TOKEN))
 				.andExpect(header("X-Tossinvest-Account", Long.toString(ACCOUNT_SEQ)))
 				.andRespond(withSuccess(
-						"{\"result\":{\"orderId\":\"" + ORDER_ID + "\"}}",
+						"{\"result\":{\"orderId\":\"" + OPERATION_ORDER_ID + "\"}}",
 						MediaType.APPLICATION_JSON));
 
 		OrderOperationResponse response = orderClient.cancelOrder(ACCOUNT_SEQ, ORDER_ID);
 
-		assertThat(response.orderId()).isEqualTo(ORDER_ID);
+		assertThat(response.orderId()).isEqualTo(OPERATION_ORDER_ID);
 		server.verify();
 	}
 
@@ -514,7 +516,7 @@ class TossOrderClientTests {
 		server.verify();
 	}
 
-	/** HTTP 500이나 요청과 다른 성공 주문번호는 취소 결과 불명으로 분류하는지 검사합니다. */
+	/** HTTP 500이나 원주문 번호를 그대로 반환한 응답은 취소 결과 불명으로 분류하는지 검사합니다. */
 	@Test
 	@DisplayName("불확실한 취소 응답은 자동 재시도할 수 없는 결과 불명으로 처리한다")
 	void 불확실한_취소_응답은_자동_재시도할_수_없는_결과_불명으로_처리한다() {
@@ -523,7 +525,7 @@ class TossOrderClientTests {
 				.andRespond(withStatus(HttpStatus.INTERNAL_SERVER_ERROR));
 		server.expect(requestTo(BASE_URL + "/api/v1/orders/" + ORDER_ID + "/cancel"))
 				.andRespond(withSuccess(
-						"{\"result\":{\"orderId\":\"different-order\"}}",
+						"{\"result\":{\"orderId\":\"" + ORDER_ID + "\"}}",
 						MediaType.APPLICATION_JSON));
 		assertThatThrownBy(() -> orderClient.cancelOrder(ACCOUNT_SEQ, ORDER_ID))
 				.isInstanceOfSatisfying(TossOrderException.class,
@@ -532,6 +534,95 @@ class TossOrderClientTests {
 		assertThatThrownBy(() -> orderClient.cancelOrder(ACCOUNT_SEQ, ORDER_ID))
 				.isInstanceOfSatisfying(TossOrderException.class,
 						exception -> assertThat(exception.isSubmissionStateUnknown()).isTrue());
+		server.verify();
+	}
+
+	/** 국내 정정 수량과 지정가를 문자열로 보내고 새 주문번호를 반환하는지 검사합니다. */
+	@Test
+	@DisplayName("국내 주문 정정을 공식 요청 형식으로 전송한다")
+	void 국내_주문_정정을_공식_요청_형식으로_전송한다() {
+		정상_토큰_발급_응답을_준비한다();
+		server.expect(requestTo(BASE_URL + "/api/v1/orders/" + ORDER_ID + "/modify"))
+				.andExpect(method(HttpMethod.POST))
+				.andExpect(header(HttpHeaders.AUTHORIZATION, "Bearer " + ACCESS_TOKEN))
+				.andExpect(header("X-Tossinvest-Account", Long.toString(ACCOUNT_SEQ)))
+				.andExpect(jsonPath("$.orderType").value("LIMIT"))
+				.andExpect(jsonPath("$.quantity").value("15"))
+				.andExpect(jsonPath("$.price").value("71000"))
+				.andExpect(jsonPath("$.confirmHighValueOrder").value(false))
+				.andRespond(withSuccess(
+						"{\"result\":{\"orderId\":\"" + OPERATION_ORDER_ID + "\"}}",
+						MediaType.APPLICATION_JSON));
+
+		OrderOperationResponse response = orderClient.modifyOrder(
+				ACCOUNT_SEQ, ORDER_ID,
+				new OrderModificationSubmissionRequest(
+						"KRW", OrderType.LIMIT, new BigDecimal("15"),
+						new BigDecimal("71000"), false));
+
+		assertThat(response.orderId()).isEqualTo(OPERATION_ORDER_ID);
+		server.verify();
+	}
+
+	/** 미국 주식 정정은 수량을 빼고 가격만 전송하는지 검사합니다. */
+	@Test
+	@DisplayName("미국 주식 주문 정정에는 수량을 보내지 않는다")
+	void 미국_주식_주문_정정에는_수량을_보내지_않는다() {
+		정상_토큰_발급_응답을_준비한다();
+		server.expect(requestTo(BASE_URL + "/api/v1/orders/" + ORDER_ID + "/modify"))
+				.andExpect(jsonPath("$.orderType").value("LIMIT"))
+				.andExpect(jsonPath("$.quantity").doesNotExist())
+				.andExpect(jsonPath("$.price").value("185.5"))
+				.andRespond(withSuccess(
+						"{\"result\":{\"orderId\":\"" + OPERATION_ORDER_ID + "\"}}",
+						MediaType.APPLICATION_JSON));
+
+		orderClient.modifyOrder(ACCOUNT_SEQ, ORDER_ID,
+				new OrderModificationSubmissionRequest(
+						"USD", OrderType.LIMIT, null, new BigDecimal("185.5"), false));
+		server.verify();
+	}
+
+	/** 미국 수량 정정과 국내 소수 수량을 인증 요청 전에 모두 차단하는지 검사합니다. */
+	@Test
+	@DisplayName("시장별로 허용되지 않는 정정 수량은 전송 전에 차단한다")
+	void 시장별로_허용되지_않는_정정_수량은_전송_전에_차단한다() {
+		assertThatThrownBy(() -> orderClient.modifyOrder(ACCOUNT_SEQ, ORDER_ID,
+				new OrderModificationSubmissionRequest(
+						"USD", OrderType.LIMIT, BigDecimal.ONE, new BigDecimal("10"), false)))
+				.isInstanceOf(TossOrderException.class)
+				.hasMessage("미국 주식 주문 정정은 수량을 보낼 수 없습니다.");
+		assertThatThrownBy(() -> orderClient.modifyOrder(ACCOUNT_SEQ, ORDER_ID,
+				new OrderModificationSubmissionRequest(
+						"KRW", OrderType.LIMIT, new BigDecimal("1.5"),
+						new BigDecimal("70000"), false)))
+				.isInstanceOf(TossOrderException.class)
+				.hasMessage("국내 주식 정정 수량은 정수여야 합니다.");
+		server.verify();
+	}
+
+	/** 정정의 HTTP 409와 500을 각각 확정 실패와 결과 불명으로 구분하는지 검사합니다. */
+	@Test
+	@DisplayName("주문 정정 오류를 확정 실패와 결과 불명으로 구분한다")
+	void 주문_정정_오류를_확정_실패와_결과_불명으로_구분한다() {
+		정상_토큰_발급_응답을_준비한다();
+		server.expect(requestTo(BASE_URL + "/api/v1/orders/" + ORDER_ID + "/modify"))
+				.andRespond(withStatus(HttpStatus.CONFLICT));
+		server.expect(requestTo(BASE_URL + "/api/v1/orders/" + ORDER_ID + "/modify"))
+				.andRespond(withStatus(HttpStatus.INTERNAL_SERVER_ERROR));
+		OrderModificationSubmissionRequest request = new OrderModificationSubmissionRequest(
+				"KRW", OrderType.MARKET, BigDecimal.ONE, null, false);
+
+		assertThatThrownBy(() -> orderClient.modifyOrder(ACCOUNT_SEQ, ORDER_ID, request))
+				.isInstanceOfSatisfying(TossOrderException.class, exception -> {
+					assertThat(exception.getHttpStatus()).isEqualTo(409);
+					assertThat(exception.isSubmissionStateUnknown()).isFalse();
+				});
+		assertThatThrownBy(() -> orderClient.modifyOrder(ACCOUNT_SEQ, ORDER_ID, request))
+				.isInstanceOfSatisfying(TossOrderException.class, exception -> {
+					assertThat(exception.getHttpStatus()).isEqualTo(500);
+					assertThat(exception.isSubmissionStateUnknown()).isTrue();
+				});
 		server.verify();
 	}
 

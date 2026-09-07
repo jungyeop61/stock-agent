@@ -49,8 +49,8 @@ class JpaOrderCancellationExecutionStore implements OrderCancellationExecutionSt
 
 	/** 제출 중인 취소 실행 한 건을 접수 상태로 변경합니다. */
 	@Override @Transactional
-	public boolean markAccepted(String executionId, OffsetDateTime completedAt) {
-		return repository.markAccepted(executionId, completedAt) == 1;
+	public boolean markAccepted(String executionId, String operationOrderId, OffsetDateTime completedAt) {
+		return repository.markAccepted(executionId, operationOrderId, completedAt) == 1;
 	}
 
 	/** 제출 중인 취소 실행 한 건을 확정 거절 상태로 변경합니다. */

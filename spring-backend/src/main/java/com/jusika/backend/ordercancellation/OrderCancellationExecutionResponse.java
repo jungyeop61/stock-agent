@@ -11,6 +11,7 @@ import com.jusika.backend.orderexecution.OrderExecutionStatus;
  * @param executionId 우리 서버가 만든 취소 실행 식별값
  * @param previewId 실행에 사용한 취소 미리보기 식별값
  * @param orderId 취소 대상 토스증권 주문 식별값
+ * @param operationOrderId 취소 접수로 새로 발급된 토스증권 주문 식별값
  * @param brokerMode 모의 취소 또는 실제 증권사 연결 모드
  * @param status 현재 취소 실행 상태
  * @param failureType 안전하게 분류한 실패 종류이며 정상이면 null
@@ -23,6 +24,7 @@ public record OrderCancellationExecutionResponse(
 		String executionId,
 		String previewId,
 		String orderId,
+		String operationOrderId,
 		String brokerMode,
 		OrderExecutionStatus status,
 		OrderExecutionFailureType failureType,
@@ -39,6 +41,7 @@ public record OrderCancellationExecutionResponse(
 	@Override
 	public String toString() {
 		return "OrderCancellationExecutionResponse[executionId=***, previewId=***, orderId=***"
+				+ ", operationOrderId=***"
 				+ ", brokerMode=" + brokerMode + ", status=" + status
 				+ ", failureType=" + failureType + ", createdAt=" + createdAt
 				+ ", updatedAt=" + updatedAt + ", submittedAt=" + submittedAt

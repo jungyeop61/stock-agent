@@ -100,7 +100,7 @@ public class OrderCancellationService {
 
 		String executionId = UUID.randomUUID().toString();
 		OrderCancellationExecutionResponse prepared = new OrderCancellationExecutionResponse(
-				executionId, preview.previewId(), preview.orderId(), cancellationGateway.mode(),
+				executionId, preview.previewId(), preview.orderId(), null, cancellationGateway.mode(),
 				OrderExecutionStatus.PREPARED, null, startedAt, startedAt, null, null);
 		if (!executionStore.claim(prepared)) {
 			throw new OrderExecutionConflictException("이미 취소했거나 취소 중인 주문입니다.");
@@ -128,11 +128,12 @@ public class OrderCancellationService {
 			String executionId, long accountSeq, String orderId) {
 		try {
 			OrderOperationResponse result = cancellationGateway.cancelOrder(accountSeq, orderId);
-			if (result == null || !orderId.equals(result.orderId())) {
+			if (result == null || result.orderId() == null || result.orderId().isBlank()
+					|| orderId.equals(result.orderId())) {
 				throw new OrderSubmissionException("주문 취소 응답 형식이 올바르지 않습니다.", true);
 			}
 			OffsetDateTime completedAt = OffsetDateTime.now(clock);
-			if (!executionStore.markAccepted(executionId, completedAt)) {
+			if (!executionStore.markAccepted(executionId, result.orderId(), completedAt)) {
 				throw new OrderExecutionSubmissionException("취소 접수 결과를 데이터베이스에 기록하지 못했습니다.");
 			}
 			return findExecution(executionId);

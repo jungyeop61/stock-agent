@@ -221,23 +221,24 @@ class OrderCancellationServiceTests {
 		}
 		/** 실행을 제출 중으로 변경합니다. */
 		@Override public boolean markSubmitting(String id, OffsetDateTime at) {
-			return 변경한다(id, OrderExecutionStatus.SUBMITTING, null, at, null);
+			return 변경한다(id, OrderExecutionStatus.SUBMITTING, null, null, at, null);
 		}
 		/** 실행을 내부 오류로 종료합니다. */
 		@Override public boolean markPreparationFailed(String id, OffsetDateTime at) {
-			return 변경한다(id, OrderExecutionStatus.REJECTED, OrderExecutionFailureType.INTERNAL_STATE, null, at);
+			return 변경한다(id, OrderExecutionStatus.REJECTED,
+					OrderExecutionFailureType.INTERNAL_STATE, null, null, at);
 		}
 		/** 실행을 접수 상태로 변경합니다. */
-		@Override public boolean markAccepted(String id, OffsetDateTime at) {
-			return 변경한다(id, OrderExecutionStatus.ACCEPTED, null, null, at);
+		@Override public boolean markAccepted(String id, String operationOrderId, OffsetDateTime at) {
+			return 변경한다(id, OrderExecutionStatus.ACCEPTED, null, operationOrderId, null, at);
 		}
 		/** 실행을 증권사 거절로 종료합니다. */
 		@Override public boolean markRejected(String id, OffsetDateTime at) {
-			return 변경한다(id, OrderExecutionStatus.REJECTED, OrderExecutionFailureType.BROKER_REJECTED, null, at);
+			return 변경한다(id, OrderExecutionStatus.REJECTED, OrderExecutionFailureType.BROKER_REJECTED, null, null, at);
 		}
 		/** 실행을 결과 불명 상태로 변경합니다. */
 		@Override public boolean markUnknown(String id, OffsetDateTime at) {
-			return 변경한다(id, OrderExecutionStatus.UNKNOWN, OrderExecutionFailureType.SUBMISSION_UNKNOWN, null, null);
+			return 변경한다(id, OrderExecutionStatus.UNKNOWN, OrderExecutionFailureType.SUBMISSION_UNKNOWN, null, null, null);
 		}
 		/** 실행 식별값으로 조회합니다. */
 		@Override public Optional<OrderCancellationExecutionResponse> findById(String id) { return Optional.ofNullable(values.get(id)); }
@@ -247,11 +248,12 @@ class OrderCancellationServiceTests {
 		@Override public Optional<OrderCancellationExecutionResponse> findByOrderId(String id) { return values.values().stream().filter(v -> v.orderId().equals(id)).findFirst(); }
 		/** 기존 식별값과 시각을 유지하며 상태 필드만 바꿉니다. */
 		private boolean 변경한다(String id, OrderExecutionStatus status,
-				OrderExecutionFailureType failure, OffsetDateTime submitted, OffsetDateTime completed) {
+				OrderExecutionFailureType failure, String operationOrderId,
+				OffsetDateTime submitted, OffsetDateTime completed) {
 			OrderCancellationExecutionResponse value = values.get(id); if (value == null) return false;
 			OffsetDateTime updated = completed != null ? completed : submitted != null ? submitted : NOW;
 			values.put(id, new OrderCancellationExecutionResponse(value.executionId(), value.previewId(),
-					value.orderId(), value.brokerMode(), status, failure, value.createdAt(), updated,
+					value.orderId(), operationOrderId, value.brokerMode(), status, failure, value.createdAt(), updated,
 					submitted != null ? submitted : value.submittedAt(), completed)); return true;
 		}
 	}
@@ -264,7 +266,7 @@ class OrderCancellationServiceTests {
 		@Override public OrderOperationResponse cancelOrder(long accountSeq, String orderId) {
 			callCount++;
 			if (unknown) throw new OrderSubmissionException("테스트 결과 불명", true);
-			return new OrderOperationResponse(orderId);
+			return new OrderOperationResponse("new-" + orderId);
 		}
 		/** 테스트가 사용하는 모의 모드 이름을 반환합니다. */
 		@Override public String mode() { return "MOCK"; }

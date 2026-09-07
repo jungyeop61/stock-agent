@@ -6,7 +6,7 @@ import com.jusika.backend.orderpreview.OrderSide;
 import com.jusika.backend.orderpreview.OrderType;
 
 /**
- * 토스증권 주문 생성 API에 문자열 소수 형식으로 보낼 내부 요청 객체를 모아 둡니다.
+ * 토스증권 주문 생성·정정 API에 문자열 소수 형식으로 보낼 내부 요청 객체를 모아 둡니다.
  */
 final class TossOrderApiRequests {
 
@@ -83,6 +83,30 @@ final class TossOrderApiRequests {
 			return "AmountRequest[clientOrderId=***, symbol=" + symbol
 					+ ", side=" + side + ", orderType=" + orderType
 					+ ", orderAmount=***, confirmHighValueOrder="
+					+ confirmHighValueOrder + "]";
+		}
+	}
+
+	/**
+	 * 토스증권 주문 정정 API의 실제 JSON 필드를 표현합니다.
+	 *
+	 * @param orderType 변경할 지정가 또는 시장가 유형
+	 * @param quantity 문자열 형태의 국내 정정 수량이며 미국 주식이면 null
+	 * @param price 문자열 형태의 정정 지정가이며 시장가이면 null
+	 * @param confirmHighValueOrder 국내 1억원 이상 정정 확인 여부
+	 */
+	@JsonInclude(JsonInclude.Include.NON_NULL)
+	record ModificationRequest(
+			OrderType orderType,
+			String quantity,
+			String price,
+			boolean confirmHighValueOrder) {
+
+		/** 로그에 정정 수량과 가격이 노출되지 않도록 가립니다. */
+		@Override
+		public String toString() {
+			return "ModificationRequest[orderType=" + orderType
+					+ ", quantity=***, price=***, confirmHighValueOrder="
 					+ confirmHighValueOrder + "]";
 		}
 	}
