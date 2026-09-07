@@ -37,6 +37,7 @@ import com.jusika.backend.conditionalorder.ConditionalOrderServiceException;
 import com.jusika.backend.conditionalorder.ConditionalOrderStatus;
 import com.jusika.backend.conditionalorder.ConditionalOrderType;
 import com.jusika.backend.conditionalorder.ConditionalOrderCreationResponse;
+import com.jusika.backend.conditionalorder.OcoConditionalOrderSubmissionRequest;
 import com.jusika.backend.conditionalorder.SingleConditionalOrderSubmissionRequest;
 import com.jusika.backend.orderexecution.OrderSubmissionException;
 import com.jusika.backend.orderpreview.OrderSide;
@@ -418,6 +419,80 @@ class TossConditionalOrderClientTests {
 				.satisfies(exception -> assertThat(
 						((OrderSubmissionException) exception).isSubmissionStateUnknown()).isTrue());
 		server.verify();
+	}
+
+	/** OCO의 두 매도 지정가 조건을 공식 중첩 JSON 형식과 계좌 헤더로 보내는지 검사합니다. */
+	@Test
+	@DisplayName("OCO 조건 주문 생성 본문에 두 매도 조건을 담는다")
+	void OCO_조건_주문_생성_본문에_두_매도_조건을_담는다() {
+		정상_토큰_발급_응답을_준비한다();
+		OcoConditionalOrderSubmissionRequest request = OCO_생성_요청을_만든다(
+				OrderType.LIMIT, OrderSide.SELL, OrderSide.SELL);
+		server.expect(requestTo(BASE_URL + "/api/v1/conditional-orders"))
+				.andExpect(method(HttpMethod.POST))
+				.andExpect(header(HttpHeaders.AUTHORIZATION, "Bearer " + ACCESS_TOKEN))
+				.andExpect(header("X-Tossinvest-Account", Long.toString(ACCOUNT_SEQ)))
+				.andExpect(jsonPath("$.symbol").value("005930"))
+				.andExpect(jsonPath("$.type").value("OCO"))
+				.andExpect(jsonPath("$.quantity").value("10"))
+				.andExpect(jsonPath("$.orderType").value("LIMIT"))
+				.andExpect(jsonPath("$.clientOrderId").value("oco-client-001"))
+				.andExpect(jsonPath("$.expireDate").value("2026-09-10"))
+				.andExpect(jsonPath("$.first.orderSide").value("SELL"))
+				.andExpect(jsonPath("$.first.triggerPrice").value("80000"))
+				.andExpect(jsonPath("$.first.orderPrice").value("79000"))
+				.andExpect(jsonPath("$.second.orderSide").value("SELL"))
+				.andExpect(jsonPath("$.second.triggerPrice").value("65000"))
+				.andExpect(jsonPath("$.second.orderPrice").value("64900"))
+				.andExpect(jsonPath("$.confirmHighValueOrder").value(false))
+				.andRespond(withSuccess("""
+						{"result":{"conditionalOrderId":"created-oco-001",
+						"clientOrderId":"oco-client-001"}}
+						""", MediaType.APPLICATION_JSON));
+
+		ConditionalOrderCreationResponse response =
+				conditionalOrderClient.createOcoConditionalOrder(ACCOUNT_SEQ, request);
+
+		assertThat(response.conditionalOrderId()).isEqualTo("created-oco-001");
+		assertThat(response.clientOrderId()).isEqualTo("oco-client-001");
+		server.verify();
+	}
+
+	/** OCO의 시장가 또는 매수 조건을 인증 요청 전에 차단하는지 검사합니다. */
+	@Test
+	@DisplayName("잘못된 OCO 생성 요청을 외부 호출 전에 차단한다")
+	void 잘못된_OCO_생성_요청을_외부_호출_전에_차단한다() {
+		OcoConditionalOrderSubmissionRequest market = OCO_생성_요청을_만든다(
+				OrderType.MARKET, OrderSide.SELL, OrderSide.SELL);
+		OcoConditionalOrderSubmissionRequest buy = OCO_생성_요청을_만든다(
+				OrderType.LIMIT, OrderSide.BUY, OrderSide.SELL);
+
+		assertThatThrownBy(() ->
+				conditionalOrderClient.createOcoConditionalOrder(ACCOUNT_SEQ, market))
+				.isInstanceOf(OrderSubmissionException.class)
+				.hasMessage("OCO 조건 주문 생성 요청 형식이 올바르지 않습니다.")
+				.satisfies(exception -> assertThat(
+						((OrderSubmissionException) exception).isSubmissionStateUnknown()).isFalse());
+		assertThatThrownBy(() ->
+				conditionalOrderClient.createOcoConditionalOrder(ACCOUNT_SEQ, buy))
+				.isInstanceOf(OrderSubmissionException.class)
+				.hasMessage("OCO 조건 주문 생성 요청 형식이 올바르지 않습니다.");
+		server.verify();
+	}
+
+	/** 반복 테스트에서 사용할 OCO 실제 생성 요청을 만듭니다. */
+	private OcoConditionalOrderSubmissionRequest OCO_생성_요청을_만든다(
+			OrderType orderType,
+			OrderSide firstSide,
+			OrderSide secondSide) {
+		return new OcoConditionalOrderSubmissionRequest(
+				"oco-client-001", "005930", BigDecimal.TEN, orderType,
+				LocalDate.parse("2026-09-10"),
+				new OcoConditionalOrderSubmissionRequest.Condition(
+						firstSide, new BigDecimal("80000"), new BigDecimal("79000")),
+				new OcoConditionalOrderSubmissionRequest.Condition(
+						secondSide, new BigDecimal("65000"), new BigDecimal("64900")),
+				false);
 	}
 
 	/**

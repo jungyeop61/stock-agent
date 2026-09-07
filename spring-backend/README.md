@@ -7,6 +7,7 @@
 제출 결과가 불명확한 주문은 최초 요청 지문을 확인한 뒤 10분 안에 같은 내용으로 한 번만 안전 복구할 수 있습니다.
 토스증권의 진행 중·종료 주문 목록과 주문 상세·누적 체결 결과를 읽기 전용으로 조회하고, 우리 데이터베이스의 주문 실행 기록도 조회할 수 있습니다.
 진행 중·종료 조건 주문 목록과 조건 주문의 개별 감시 조건도 읽기 전용으로 조회할 수 있습니다.
+`SINGLE`과 `OCO` 조건 주문은 현재가·계좌 여력 확인, 2분 승인, 실행 직전 재검증과 중복 실행 차단까지 구현했습니다.
 미체결 주문 취소는 변경 불가 미리보기, 2분 승인, 실행 직전 주문 재조회와 원주문 단위 중복 차단까지 구현했습니다.
 미체결 주문 정정은 국내·미국별 수량·가격 규칙, 고액 주문 확인, 승인과 실행 직전 재검증까지 구현했습니다.
 토스증권 주문 생성 클라이언트는 수량 주문과 미국 주식 금액 주문 형식 및 멱등성 처리를 구현했습니다.
@@ -856,6 +857,84 @@ curl http://localhost:8080/api/conditional-orders/single/executions/실행-식�
 ```
 
 실제 조건 주문 생성 라이브 테스트는 안전을 위해 만들거나 실행하지 않았습니다.
+
+## OCO 조건 주문 안전 생성
+
+`OCO`는 같은 종목의 두 매도 조건을 함께 감시하다가 하나가 발동하면 다른 하나를 취소하는 조건 주문입니다.
+현재 단계에서는 OCO 미리보기·승인·최종 재검증·`MOCK` 실행만 가능하며 실제 조건 주문은 생성하지 않습니다.
+
+국내 주식의 상단 이익 실현 조건과 하단 손실 제한 조건을 함께 입력하는 예시입니다.
+
+```bash
+curl -X POST http://localhost:8080/api/conditional-orders/oco/preview \
+  -H "Content-Type: application/json" \
+  -d '{
+    "accountSeq": 1,
+    "symbol": "005930",
+    "quantity": 10,
+    "orderType": "LIMIT",
+    "expireDate": "2026-09-10",
+    "first": {
+      "side": "SELL",
+      "triggerPrice": 80000,
+      "orderPrice": 79000
+    },
+    "second": {
+      "side": "SELL",
+      "triggerPrice": 65000,
+      "orderPrice": 64900
+    }
+  }'
+```
+
+토스증권 공식 규칙과 프로젝트 안전 규칙을 다음과 같이 적용합니다.
+
+- `first`와 `second`는 모두 `SELL`이어야 합니다.
+- OCO는 `LIMIT` 지정가만 허용하며 두 조건이 하나의 수량과 만료일을 공유합니다.
+- 미리보기와 실행 직전 현재가가 반드시 `first.triggerPrice > 현재가 > second.triggerPrice` 관계여야 합니다. 같은 가격도 허용하지 않습니다.
+- 두 조건 중 하나만 발동하므로 매도 가능 수량은 두 배로 합산하지 않고 공통 `quantity`와 한 번 비교합니다.
+- 국내 수량은 정수이고 국내 가격은 원 단위 정수여야 합니다.
+- 미국 주식 가격은 1달러 미만 소수점 4자리, 1달러 이상 소수점 2자리까지 허용합니다. OCO는 지정가이므로 미국 주식도 수량은 정수여야 합니다.
+- 각 조건이 발동했을 때의 예상 주문금액·수수료·수수료 차감 후 수령액을 따로 계산합니다.
+- 예상 수령액에는 매도 세금이 포함되지 않으므로 `sellTaxExcluded`는 `true`입니다.
+- 어느 한 국내 조건의 주문금액이라도 1억원 이상이면 고액 주문 확인 대상으로 표시합니다.
+- 프로젝트 안전 정책상 국내 OCO 주문금액은 조건별 30억원을 초과할 수 없습니다.
+
+미리보기의 두 조건과 예상 금액을 확인한 뒤 승인합니다.
+
+```bash
+curl -X POST http://localhost:8080/api/conditional-orders/oco/previews/미리보기-식별값/approve
+```
+
+승인된 미리보기를 실행하면 현재가의 두 감시가격 사이 관계, 매도 가능 수량, 수수료와 시장·통화를 모두 다시 조회합니다.
+하나라도 달라져 안전 조건을 만족하지 못하면 실행권을 만들기 전에 중단합니다.
+
+```bash
+curl -X POST http://localhost:8080/api/conditional-orders/oco/previews/미리보기-식별값/execute
+```
+
+현재 실행 결과의 `brokerMode`는 항상 `MOCK`입니다.
+토스증권 공식 OCO 생성 본문을 만드는 내부 클라이언트와 가짜 HTTP 검증은 구현했지만, 실행 서비스에는 연결하지 않았습니다.
+따라서 위 API는 실제 OCO 조건 주문을 만들거나 보유주식을 매도하지 않습니다.
+
+같은 미리보기는 데이터베이스 잠금과 고유 제약으로 한 번만 실행됩니다.
+실행 때마다 36자 이내의 `clientOrderId`를 만들며, 제출 결과가 `UNKNOWN`이면 새 OCO를 자동 생성하지 않고 사람이 조건 주문 목록과 토스증권 앱에서 확인해야 합니다.
+
+저장된 모의 실행 결과를 조회합니다.
+
+```bash
+curl http://localhost:8080/api/conditional-orders/oco/executions/실행-식별값
+```
+
+OCO 서비스·DB·HTTP 주소·토스 요청 형식은 실제 서버가 아닌 가짜 객체와 가짜 HTTP 서버로 검사합니다.
+
+```bash
+./mvnw -Dtest=OcoConditionalOrderServiceTests test
+./mvnw -Dtest=OcoConditionalOrderPersistenceTests,OcoConditionalOrderControllerTests test
+./mvnw -Dtest=TossConditionalOrderClientTests test
+```
+
+실제 OCO 생성 라이브 테스트는 안전을 위해 만들거나 실행하지 않았습니다.
 
 ## PostgreSQL 프로필
 

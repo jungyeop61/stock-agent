@@ -28,6 +28,7 @@ import com.jusika.backend.conditionalorder.ConditionalOrderRequestException;
 import com.jusika.backend.conditionalorder.ConditionalOrderServiceException;
 import com.jusika.backend.conditionalorder.ConditionalOrderStatus;
 import com.jusika.backend.conditionalorder.ConditionalOrderType;
+import com.jusika.backend.conditionalorder.OcoConditionalOrderSubmissionRequest;
 import com.jusika.backend.conditionalorder.SingleConditionalOrderSubmissionRequest;
 import com.jusika.backend.orderexecution.OrderSubmissionException;
 import com.jusika.backend.orderpreview.OrderType;
@@ -213,6 +214,49 @@ public class TossConditionalOrderClient {
 				null,
 				request.confirmHighValueOrder());
 
+		return submitCreationRequest(accountSeq, body, request.clientOrderId());
+	}
+
+	/**
+	 * 검증을 마친 OCO 조건 주문을 토스증권 생성 주소로 제출합니다.
+	 * 이 함수는 실제 계좌에 영향을 줄 수 있으므로 현재 MOCK 실행 서비스에는 연결하지 않습니다.
+	 *
+	 * @param accountSeq OCO 조건 주문을 만들 계좌 식별값
+	 * @param request 최종 재검증을 마친 OCO 조건 주문
+	 * @return 토스증권이 반환한 조건 주문과 멱등성 식별값
+	 */
+	public ConditionalOrderCreationResponse createOcoConditionalOrder(
+			long accountSeq,
+			OcoConditionalOrderSubmissionRequest request) {
+		validateAccountSeq(accountSeq);
+		validateSubmissionRequest(request);
+		CreateRequest body = new CreateRequest(
+				request.symbol().toUpperCase(Locale.ROOT),
+				ConditionalOrderType.OCO.name(),
+				request.quantity().toPlainString(),
+				request.orderType().name(),
+				request.clientOrderId(),
+				request.expireDate().toString(),
+				toConditionRequest(request.first()),
+				toConditionRequest(request.second()),
+				request.confirmHighValueOrder());
+		return submitCreationRequest(accountSeq, body, request.clientOrderId());
+	}
+
+	/** OCO의 한 내부 조건을 토스증권 생성 요청 조건으로 변환합니다. */
+	private ConditionRequest toConditionRequest(
+			OcoConditionalOrderSubmissionRequest.Condition condition) {
+		return new ConditionRequest(
+				condition.side().name(),
+				condition.triggerPrice().toPlainString(),
+				condition.orderPrice().toPlainString());
+	}
+
+	/** 단일·OCO 공통 생성 주소를 호출하고 실패를 확정 거절 또는 결과 불명으로 구분합니다. */
+	private ConditionalOrderCreationResponse submitCreationRequest(
+			long accountSeq,
+			CreateRequest body,
+			String clientOrderId) {
 		try {
 			TossConditionalOrderCreationApiResponse response = restClient.post()
 					.uri("/api/v1/conditional-orders")
@@ -221,7 +265,7 @@ public class TossConditionalOrderClient {
 					.body(body)
 					.retrieve()
 					.body(TossConditionalOrderCreationApiResponse.class);
-			return convertCreationResponse(response, request.clientOrderId());
+			return convertCreationResponse(response, clientOrderId);
 		} catch (RestClientResponseException exception) {
 			boolean unknown = exception.getStatusCode().is5xxServerError();
 			throw new OrderSubmissionException(
@@ -278,6 +322,49 @@ public class TossConditionalOrderClient {
 				|| (request.orderType() == OrderType.MARKET && request.orderPrice() != null)) {
 			throw new OrderSubmissionException("조건 주문 생성 요청 가격 형식이 올바르지 않습니다.", false);
 		}
+	}
+
+	/**
+	 * OCO 실제 생성 요청의 공통값과 두 매도 지정가 조건을 모두 확인합니다.
+	 *
+	 * @param request 검사할 OCO 조건 주문 제출 요청
+	 */
+	private void validateSubmissionRequest(OcoConditionalOrderSubmissionRequest request) {
+		if (request == null
+				|| request.clientOrderId() == null
+				|| request.clientOrderId().length() > 36
+				|| !CLIENT_ORDER_ID_PATTERN.matcher(request.clientOrderId()).matches()
+				|| request.symbol() == null
+				|| request.symbol().length() > MAX_SYMBOL_LENGTH
+				|| !SYMBOL_PATTERN.matcher(request.symbol()).matches()
+				|| request.quantity() == null
+				|| request.quantity().signum() <= 0
+				|| request.quantity().toPlainString().length() > MAX_DECIMAL_LENGTH
+				|| request.quantity().stripTrailingZeros().scale() > 0
+				|| request.orderType() != OrderType.LIMIT
+				|| request.expireDate() == null
+				|| !isValidOcoCondition(request.first())
+				|| !isValidOcoCondition(request.second())
+				|| request.first().triggerPrice().compareTo(request.second().triggerPrice()) <= 0) {
+			throw new OrderSubmissionException(
+					"OCO 조건 주문 생성 요청 형식이 올바르지 않습니다.", false);
+		}
+	}
+
+	/** OCO의 한 조건이 매도 방향과 양의 감시가격·주문가격을 가졌는지 확인합니다. */
+	private boolean isValidOcoCondition(
+			OcoConditionalOrderSubmissionRequest.Condition condition) {
+		return condition != null
+				&& condition.side() == com.jusika.backend.orderpreview.OrderSide.SELL
+				&& isValidPositiveSubmissionDecimal(condition.triggerPrice())
+				&& isValidPositiveSubmissionDecimal(condition.orderPrice());
+	}
+
+	/** 실제 생성 본문에 들어갈 양의 소수값이 최대 문자열 길이를 지키는지 확인합니다. */
+	private boolean isValidPositiveSubmissionDecimal(BigDecimal value) {
+		return value != null
+				&& value.signum() > 0
+				&& value.toPlainString().length() <= MAX_DECIMAL_LENGTH;
 	}
 
 	/**
