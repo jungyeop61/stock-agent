@@ -8,10 +8,11 @@
 토스증권의 진행 중·종료 주문 목록과 주문 상세·누적 체결 결과를 읽기 전용으로 조회하고, 우리 데이터베이스의 주문 실행 기록도 조회할 수 있습니다.
 진행 중·종료 조건 주문 목록과 조건 주문의 개별 감시 조건도 읽기 전용으로 조회할 수 있습니다.
 `SINGLE`, `OCO`, `OTO` 조건 주문은 현재가·계좌 여력 확인, 2분 승인, 실행 직전 재검증과 중복 실행 차단까지 구현했습니다.
+조건 주문 취소는 최신 조건 주문 조회, 2분 승인, 실행 직전 전체 조건 재검증과 대상 단위 중복 차단까지 구현했습니다.
 미체결 주문 취소는 변경 불가 미리보기, 2분 승인, 실행 직전 주문 재조회와 원주문 단위 중복 차단까지 구현했습니다.
 미체결 주문 정정은 국내·미국별 수량·가격 규칙, 고액 주문 확인, 승인과 실행 직전 재검증까지 구현했습니다.
 토스증권 주문 생성 클라이언트는 수량 주문과 미국 주식 금액 주문 형식 및 멱등성 처리를 구현했습니다.
-승인된 주문 실행·복구·취소·정정 API는 `MOCK` 경계에만 연결되어 실제 주문을 생성하거나 변경할 수는 없습니다.
+승인된 주문 실행·복구·취소·정정과 조건 주문 생성·취소 API는 `MOCK` 경계에만 연결되어 실제 주문을 생성하거나 변경할 수는 없습니다.
 
 ## 담당 범위
 
@@ -1014,6 +1015,64 @@ OTO 서비스·DB·HTTP 주소·토스 요청 형식은 실제 서버가 아닌 
 ```
 
 실제 OTO 생성 라이브 테스트는 안전을 위해 만들거나 실행하지 않았습니다.
+
+## 조건 주문 안전 취소
+
+조건 주문 취소는 토스증권에서 최신 상세를 읽어 변경 불가 미리보기를 만든 뒤, 사용자 승인과 실행 직전 재조회를 통과해야 실행됩니다.
+현재 단계에서는 `MOCK` 취소만 실행하므로 실제 토스증권 조건 주문은 변경되지 않습니다.
+
+취소할 계좌와 조건 주문 식별값으로 미리보기를 만듭니다.
+
+```bash
+curl -X POST http://localhost:8080/api/conditional-orders/cancellations/preview \
+  -H "Content-Type: application/json" \
+  -d '{
+    "accountSeq": 1,
+    "conditionalOrderId": "조건-주문-식별값"
+  }'
+```
+
+안전 정책은 다음과 같습니다.
+
+- 전체 상태가 `WATCHING` 또는 `PAUSED`인 조건 주문만 취소 대상으로 허용합니다.
+- 개별 감시 조건은 `WATCHING`, `HOLDING`, `PAUSED` 상태만 허용합니다.
+- 이미 `triggeredOrderId`가 생겼거나 `ORDERING`, `ORDERED`, `COMPLETED`, `EXPIRED` 상태가 된 주문은 차단합니다.
+- 이미 발동해 일반 주문이 만들어졌다면 조건 주문 취소가 아니라 일반 주문 조회·취소 흐름에서 별도로 확인해야 합니다.
+- SINGLE·OCO·OTO 유형, 종목, 시장, 수량, 주문 유형, 만료일, 모든 감시 조건과 등록 시각을 미리보기에 고정합니다.
+- 승인 후 실행 직전에 조건 주문을 다시 조회하며 값이나 상태가 하나라도 바뀌면 새 미리보기를 요구합니다.
+- 같은 계좌의 같은 조건 주문은 여러 미리보기를 만들어도 데이터베이스 잠금과 고유 제약으로 한 번만 취소합니다.
+
+내용을 확인한 뒤 미리보기를 승인합니다.
+
+```bash
+curl -X POST http://localhost:8080/api/conditional-orders/cancellations/previews/미리보기-식별값/approve
+```
+
+승인된 미리보기를 실행합니다.
+
+```bash
+curl -X POST http://localhost:8080/api/conditional-orders/cancellations/previews/미리보기-식별값/execute
+```
+
+저장된 취소 실행 결과를 조회합니다.
+
+```bash
+curl http://localhost:8080/api/conditional-orders/cancellations/executions/실행-식별값
+```
+
+실행 결과의 `brokerMode`는 현재 항상 `MOCK`입니다.
+토스증권 공식 `DELETE /api/v1/conditional-orders/{conditionalOrderId}` 요청과 204 성공 응답을 처리하는 내부 클라이언트는 구현했지만 실행 서비스에는 연결하지 않았습니다.
+4xx 응답은 확정 거절로, 5xx나 통신 오류는 결과 불명으로 분류합니다. 결과가 `UNKNOWN`이면 자동으로 다시 취소하지 않고 토스증권 앱과 조건 주문 조회에서 사람이 확인해야 합니다.
+
+가짜 객체·가짜 HTTP 서버와 H2 데이터베이스로 안전 흐름을 검사합니다.
+
+```bash
+./mvnw -Dtest=ConditionalOrderCancellationServiceTests test
+./mvnw -Dtest=ConditionalOrderCancellationPersistenceTests,ConditionalOrderCancellationControllerTests test
+./mvnw -Dtest=TossConditionalOrderClientTests test
+```
+
+실제 조건 주문 취소 라이브 테스트는 안전을 위해 만들거나 실행하지 않았습니다.
 
 ## PostgreSQL 프로필
 

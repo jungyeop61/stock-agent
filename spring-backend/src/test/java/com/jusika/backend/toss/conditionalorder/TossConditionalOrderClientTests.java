@@ -540,6 +540,58 @@ class TossConditionalOrderClientTests {
 		server.verify();
 	}
 
+	/** 공식 DELETE 주소와 계좌·인증 헤더로 조건 주문을 취소하고 204를 성공 처리하는지 검사합니다. */
+	@Test
+	@DisplayName("조건 주문 취소의 204 응답을 성공으로 처리한다")
+	void 조건_주문_취소의_204_응답을_성공으로_처리한다() {
+		정상_토큰_발급_응답을_준비한다();
+		server.expect(requestTo(BASE_URL + "/api/v1/conditional-orders/" + FIRST_ID))
+				.andExpect(method(HttpMethod.DELETE))
+				.andExpect(header(HttpHeaders.AUTHORIZATION, "Bearer " + ACCESS_TOKEN))
+				.andExpect(header("X-Tossinvest-Account", Long.toString(ACCOUNT_SEQ)))
+				.andRespond(withStatus(HttpStatus.NO_CONTENT));
+
+		conditionalOrderClient.cancelConditionalOrder(ACCOUNT_SEQ, FIRST_ID);
+
+		server.verify();
+	}
+
+	/** 4xx는 확정 거절, 5xx는 취소 결과 불명으로 구분하는지 검사합니다. */
+	@Test
+	@DisplayName("조건 주문 취소의 확정 거절과 결과 불명을 구분한다")
+	void 조건_주문_취소의_확정_거절과_결과_불명을_구분한다() {
+		정상_토큰_발급_응답을_준비한다();
+		server.expect(requestTo(BASE_URL + "/api/v1/conditional-orders/" + FIRST_ID))
+				.andRespond(withStatus(HttpStatus.BAD_REQUEST));
+		server.expect(requestTo(BASE_URL + "/api/v1/conditional-orders/" + SECOND_ID))
+				.andRespond(withStatus(HttpStatus.INTERNAL_SERVER_ERROR));
+
+		assertThatThrownBy(() -> conditionalOrderClient.cancelConditionalOrder(
+				ACCOUNT_SEQ, FIRST_ID))
+				.isInstanceOf(OrderSubmissionException.class)
+				.satisfies(exception -> assertThat(
+						((OrderSubmissionException) exception).isSubmissionStateUnknown()).isFalse())
+				.hasMessage("토스증권이 조건 주문 취소를 거절했습니다.");
+		assertThatThrownBy(() -> conditionalOrderClient.cancelConditionalOrder(
+				ACCOUNT_SEQ, SECOND_ID))
+				.isInstanceOf(OrderSubmissionException.class)
+				.satisfies(exception -> assertThat(
+						((OrderSubmissionException) exception).isSubmissionStateUnknown()).isTrue())
+				.hasMessage("조건 주문 취소 결과를 확인할 수 없습니다.");
+		server.verify();
+	}
+
+	/** 잘못된 조건 주문 식별값을 토큰 발급과 DELETE 요청 전에 차단하는지 검사합니다. */
+	@Test
+	@DisplayName("잘못된 조건 주문 취소 식별값을 외부 호출 전에 차단한다")
+	void 잘못된_조건_주문_취소_식별값을_외부_호출_전에_차단한다() {
+		assertThatThrownBy(() -> conditionalOrderClient.cancelConditionalOrder(
+				ACCOUNT_SEQ, "bad id"))
+				.isInstanceOf(ConditionalOrderRequestException.class)
+				.hasMessage("조건 주문 식별값 형식이 올바르지 않습니다.");
+		server.verify();
+	}
+
 	/** 반복 테스트에서 사용할 OTO 실제 생성 요청을 만듭니다. */
 	private OtoConditionalOrderSubmissionRequest OTO_생성_요청을_만든다(
 			OrderType orderType,

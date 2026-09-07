@@ -11,6 +11,8 @@ import java.util.Set;
 import java.util.regex.Pattern;
 
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
@@ -42,7 +44,7 @@ import com.jusika.backend.toss.conditionalorder.TossConditionalOrderApiRequests.
 import com.jusika.backend.toss.conditionalorder.TossConditionalOrderCreationApiResponse.CreationResult;
 
 /**
- * 토스증권 조건 주문을 조회하고, 실행 서비스와 분리된 생성 요청을 안전하게 변환합니다.
+ * 토스증권 조건 주문을 조회하고 실행 서비스와 분리된 생성·취소 요청을 안전하게 처리합니다.
  */
 @Component
 public class TossConditionalOrderClient {
@@ -184,6 +186,57 @@ public class TossConditionalOrderClient {
 		} catch (RuntimeException exception) {
 			throw new ConditionalOrderServiceException(
 					"토스증권 조건 주문 조회 서버와 통신하지 못했습니다.");
+		}
+	}
+
+	/**
+	 * 토스증권 조건 주문 식별값으로 조건 주문 취소를 요청합니다.
+	 * 공식 명세의 DELETE 요청과 204 응답만 사용하며 현재 MOCK 취소 서비스에는 연결하지 않습니다.
+	 *
+	 * @param accountSeq 취소할 조건 주문의 계좌 식별값
+	 * @param conditionalOrderId 취소할 토스증권 조건 주문 식별값
+	 */
+	public void cancelConditionalOrder(long accountSeq, String conditionalOrderId) {
+		validateAccountSeq(accountSeq);
+		String validatedId = validateId(
+				conditionalOrderId, "조건 주문 식별값 형식이 올바르지 않습니다.");
+		String accessToken;
+		try {
+			accessToken = tokenProvider.getAccessToken();
+			if (accessToken == null || accessToken.isBlank()) {
+				throw new OrderSubmissionException(
+						"조건 주문 취소 전에 유효한 인증 토큰을 준비하지 못했습니다.", false);
+			}
+		} catch (OrderSubmissionException exception) {
+			throw exception;
+		} catch (RuntimeException exception) {
+			throw new OrderSubmissionException(
+					"조건 주문 취소 전에 인증 토큰을 준비하지 못했습니다.", false);
+		}
+
+		try {
+			ResponseEntity<Void> response = restClient.delete()
+					.uri("/api/v1/conditional-orders/{conditionalOrderId}", validatedId)
+					.header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+					.header(ACCOUNT_HEADER, Long.toString(accountSeq))
+					.retrieve()
+					.toBodilessEntity();
+			if (response.getStatusCode() != HttpStatus.NO_CONTENT) {
+				throw new OrderSubmissionException(
+						"조건 주문 취소 결과를 확인할 수 없습니다.", true);
+			}
+		} catch (RestClientResponseException exception) {
+			boolean unknown = exception.getStatusCode().is5xxServerError();
+			throw new OrderSubmissionException(
+					unknown
+							? "조건 주문 취소 결과를 확인할 수 없습니다."
+							: "토스증권이 조건 주문 취소를 거절했습니다.",
+					unknown);
+		} catch (OrderSubmissionException exception) {
+			throw exception;
+		} catch (RuntimeException exception) {
+			throw new OrderSubmissionException(
+					"조건 주문 취소 결과를 확인할 수 없습니다.", true);
 		}
 	}
 
