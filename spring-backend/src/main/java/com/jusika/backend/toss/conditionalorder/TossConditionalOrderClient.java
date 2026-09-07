@@ -17,6 +17,7 @@ import org.springframework.web.client.RestClientResponseException;
 
 import com.jusika.backend.conditionalorder.ConditionalOrderConditionStatus;
 import com.jusika.backend.conditionalorder.ConditionalOrderConditionType;
+import com.jusika.backend.conditionalorder.ConditionalOrderCreationResponse;
 import com.jusika.backend.conditionalorder.ConditionalOrderDetailResponse;
 import com.jusika.backend.conditionalorder.ConditionalOrderDetailResponse.Condition;
 import com.jusika.backend.conditionalorder.ConditionalOrderListResponse;
@@ -27,11 +28,16 @@ import com.jusika.backend.conditionalorder.ConditionalOrderRequestException;
 import com.jusika.backend.conditionalorder.ConditionalOrderServiceException;
 import com.jusika.backend.conditionalorder.ConditionalOrderStatus;
 import com.jusika.backend.conditionalorder.ConditionalOrderType;
+import com.jusika.backend.conditionalorder.SingleConditionalOrderSubmissionRequest;
+import com.jusika.backend.orderexecution.OrderSubmissionException;
 import com.jusika.backend.orderpreview.OrderType;
 import com.jusika.backend.toss.auth.TossAccessTokenProvider;
 import com.jusika.backend.toss.conditionalorder.TossConditionalOrderApiResponse.TossConditionalOrderCondition;
 import com.jusika.backend.toss.conditionalorder.TossConditionalOrderApiResponse.TossConditionalOrderResult;
 import com.jusika.backend.toss.conditionalorder.TossConditionalOrderListApiResponse.TossConditionalOrderPage;
+import com.jusika.backend.toss.conditionalorder.TossConditionalOrderApiRequests.ConditionRequest;
+import com.jusika.backend.toss.conditionalorder.TossConditionalOrderApiRequests.CreateRequest;
+import com.jusika.backend.toss.conditionalorder.TossConditionalOrderCreationApiResponse.CreationResult;
 
 /**
  * 토스증권 조건 주문 목록과 상세를 읽기 전용으로 호출하고 응답을 안전하게 변환합니다.
@@ -50,6 +56,7 @@ public class TossConditionalOrderClient {
 	private static final Pattern CURSOR_PATTERN = Pattern.compile("^[A-Za-z0-9_\\-]+$");
 	private static final Pattern POSITIVE_DECIMAL_PATTERN = Pattern.compile("^\\d+(\\.\\d+)?$");
 	private static final Pattern SIGNED_DECIMAL_PATTERN = Pattern.compile("^-?\\d+(\\.\\d+)?$");
+	private static final Pattern CLIENT_ORDER_ID_PATTERN = Pattern.compile("^[A-Za-z0-9_-]+$");
 	private static final Set<ConditionalOrderStatus> OPEN_STATUSES = Set.of(
 			ConditionalOrderStatus.WATCHING,
 			ConditionalOrderStatus.PAUSED,
@@ -179,6 +186,58 @@ public class TossConditionalOrderClient {
 	}
 
 	/**
+	 * 검증을 마친 단일 조건 주문을 토스증권 생성 주소로 제출합니다.
+	 * 이 함수는 실제 계좌에 영향을 줄 수 있으므로 현재 MOCK 실행 서비스에는 연결하지 않습니다.
+	 *
+	 * @param accountSeq 조건 주문을 만들 계좌 식별값
+	 * @param request 최종 재검증을 마친 단일 조건 주문
+	 * @return 토스증권이 반환한 조건 주문과 멱등성 식별값
+	 */
+	public ConditionalOrderCreationResponse createSingleConditionalOrder(
+			long accountSeq,
+			SingleConditionalOrderSubmissionRequest request) {
+		validateAccountSeq(accountSeq);
+		validateSubmissionRequest(request);
+		CreateRequest body = new CreateRequest(
+				request.symbol().toUpperCase(Locale.ROOT),
+				ConditionalOrderType.SINGLE.name(),
+				request.quantity().toPlainString(),
+				request.orderType().name(),
+				request.clientOrderId(),
+				request.expireDate().toString(),
+				new ConditionRequest(
+						request.side().name(),
+						request.triggerPrice().toPlainString(),
+						request.orderPrice() == null
+								? null : request.orderPrice().toPlainString()),
+				null,
+				request.confirmHighValueOrder());
+
+		try {
+			TossConditionalOrderCreationApiResponse response = restClient.post()
+					.uri("/api/v1/conditional-orders")
+					.header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenProvider.getAccessToken())
+					.header(ACCOUNT_HEADER, Long.toString(accountSeq))
+					.body(body)
+					.retrieve()
+					.body(TossConditionalOrderCreationApiResponse.class);
+			return convertCreationResponse(response, request.clientOrderId());
+		} catch (RestClientResponseException exception) {
+			boolean unknown = exception.getStatusCode().is5xxServerError();
+			throw new OrderSubmissionException(
+					unknown
+							? "조건 주문 생성 결과를 확인할 수 없습니다."
+							: "토스증권이 조건 주문 생성을 거절했습니다.",
+					unknown);
+		} catch (OrderSubmissionException exception) {
+			throw exception;
+		} catch (RuntimeException exception) {
+			throw new OrderSubmissionException(
+					"조건 주문 생성 결과를 확인할 수 없습니다.", true);
+		}
+	}
+
+	/**
 	 * 계좌 식별값이 토스증권 계좌 헤더로 사용할 수 있는 양수인지 확인합니다.
 	 *
 	 * @param accountSeq 검사할 계좌 식별값
@@ -187,6 +246,59 @@ public class TossConditionalOrderClient {
 		if (accountSeq <= 0) {
 			throw new ConditionalOrderRequestException("계좌 식별값은 1 이상이어야 합니다.");
 		}
+	}
+
+	/**
+	 * 실제 생성 요청의 멱등성 식별값·종목·수량·가격·만료일 필수 규칙을 확인합니다.
+	 *
+	 * @param request 검사할 단일 조건 주문 제출 요청
+	 */
+	private void validateSubmissionRequest(SingleConditionalOrderSubmissionRequest request) {
+		if (request == null
+				|| request.clientOrderId() == null
+				|| request.clientOrderId().length() > 36
+				|| !CLIENT_ORDER_ID_PATTERN.matcher(request.clientOrderId()).matches()
+				|| request.symbol() == null
+				|| request.symbol().length() > MAX_SYMBOL_LENGTH
+				|| !SYMBOL_PATTERN.matcher(request.symbol()).matches()
+				|| request.quantity() == null
+				|| request.quantity().signum() <= 0
+				|| request.quantity().toPlainString().length() > MAX_DECIMAL_LENGTH
+				|| request.orderType() == null
+				|| request.expireDate() == null
+				|| request.side() == null
+				|| request.triggerPrice() == null
+				|| request.triggerPrice().signum() <= 0
+				|| request.triggerPrice().toPlainString().length() > MAX_DECIMAL_LENGTH) {
+			throw new OrderSubmissionException("조건 주문 생성 요청 형식이 올바르지 않습니다.", false);
+		}
+		if ((request.orderType() == OrderType.LIMIT
+				&& (request.orderPrice() == null || request.orderPrice().signum() <= 0
+				|| request.orderPrice().toPlainString().length() > MAX_DECIMAL_LENGTH))
+				|| (request.orderType() == OrderType.MARKET && request.orderPrice() != null)) {
+			throw new OrderSubmissionException("조건 주문 생성 요청 가격 형식이 올바르지 않습니다.", false);
+		}
+	}
+
+	/**
+	 * 생성 응답에 조건 주문 식별값이 있고 요청 멱등성 식별값이 그대로 반환되었는지 확인합니다.
+	 *
+	 * @param response 토스증권 조건 주문 생성 원본 응답
+	 * @param clientOrderId 요청에 사용한 멱등성 식별값
+	 * @return 검증을 마친 조건 주문 생성 응답
+	 */
+	private ConditionalOrderCreationResponse convertCreationResponse(
+			TossConditionalOrderCreationApiResponse response,
+			String clientOrderId) {
+		CreationResult result = response == null ? null : response.result();
+		if (result == null
+				|| !isValidId(result.conditionalOrderId())
+				|| !clientOrderId.equals(result.clientOrderId())) {
+			throw new OrderSubmissionException(
+					"조건 주문 생성 응답 형식이 올바르지 않습니다.", true);
+		}
+		return new ConditionalOrderCreationResponse(
+				result.conditionalOrderId(), result.clientOrderId());
 	}
 
 	/**

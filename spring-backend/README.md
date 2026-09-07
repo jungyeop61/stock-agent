@@ -784,6 +784,79 @@ curl http://localhost:8080/api/accounts/1/conditional-orders/조건-주문-식�
 RUN_TOSS_LIVE_TEST=true ./mvnw -Dtest=TossConditionalOrderLiveTests test
 ```
 
+## 단일 조건 주문 안전 생성
+
+한 개의 감시가격에 도달하면 매수 또는 매도하는 `SINGLE` 조건 주문의 미리보기를 만듭니다.
+미리보기 단계에서는 현재가·수수료와 매수 가능 금액 또는 매도 가능 수량만 조회하며 조건 주문을 생성하지 않습니다.
+
+국내 지정가 매수 조건 주문의 예시입니다.
+
+```bash
+curl -X POST http://localhost:8080/api/conditional-orders/single/preview \
+  -H "Content-Type: application/json" \
+  -d '{
+    "accountSeq": 1,
+    "symbol": "005930",
+    "side": "BUY",
+    "orderType": "LIMIT",
+    "quantity": 10,
+    "triggerPrice": 72000,
+    "orderPrice": 71000,
+    "expireDate": "2026-09-10"
+  }'
+```
+
+`triggerPrice`는 조건을 발동할 감시가격이고 `orderPrice`는 발동 후 제출할 지정가입니다.
+시장가 조건 주문은 `orderPrice`를 입력하지 않습니다.
+만료일은 오늘 또는 이후 날짜여야 하며, 승인 유효시간은 일반 주문과 같은 기본 2분입니다.
+
+수량과 가격은 다음 규칙을 적용합니다.
+
+- 국내 주식 수량과 가격은 정수만 허용합니다.
+- 미국 주식 지정가는 1달러 미만 소수점 4자리, 1달러 이상 소수점 2자리까지 허용합니다.
+- 소수점 수량은 미국 주식 시장가 매도만 허용하며 최대 소수점 6자리입니다.
+- 매수는 예상 주문금액과 수수료가 현금 매수 가능 금액을 넘지 않아야 합니다.
+- 매도는 주문 수량이 현재 매도 가능 수량을 넘지 않아야 합니다.
+- 국내 예상 주문금액이 1억원 이상이면 고액 주문 확인이 필요합니다.
+- 프로젝트 안전 정책상 국내 조건 주문금액은 30억원을 초과할 수 없습니다.
+
+미리보기의 내용을 확인한 뒤 승인합니다.
+
+```bash
+curl -X POST http://localhost:8080/api/conditional-orders/single/previews/미리보기-식별값/approve
+```
+
+승인된 미리보기를 실행하면 현재가·수수료와 계좌 여력을 다시 조회합니다.
+시장가 상승으로 새로 1억원 이상이 되었거나 잔고가 부족해졌으면 실행을 차단하고 새 미리보기를 요구합니다.
+조건 주문 등록 뒤 실제로 조건이 발동하는 시점에는 가격과 계좌 잔고가 다시 달라질 수 있으므로 주문 생성이나 체결을 보장하지는 않습니다.
+
+```bash
+curl -X POST http://localhost:8080/api/conditional-orders/single/previews/미리보기-식별값/execute
+```
+
+현재 실행 결과의 `brokerMode`는 항상 `MOCK`입니다.
+토스증권 공식 조건 주문 생성 주소를 호출하는 내부 클라이언트는 구현했지만 실행 서비스와 연결하지 않았습니다.
+따라서 위 승인·실행 주소와 자동 테스트는 실제 조건 주문을 만들지 않습니다.
+
+같은 미리보기는 데이터베이스 잠금과 고유 제약으로 한 번만 실행할 수 있습니다.
+실행 때마다 36자 이내의 `clientOrderId`를 만들어 중복 생성 방지 기반을 갖추며, 결과가 `UNKNOWN`이면 자동으로 다시 생성하지 않습니다.
+
+저장된 모의 실행 결과를 조회합니다.
+
+```bash
+curl http://localhost:8080/api/conditional-orders/single/executions/실행-식별값
+```
+
+단일 조건 주문 서비스·DB·토스 요청 형식은 실제 서버가 아닌 가짜 객체와 가짜 HTTP 서버로 검사합니다.
+
+```bash
+./mvnw -Dtest=SingleConditionalOrderServiceTests test
+./mvnw -Dtest=SingleConditionalOrderPersistenceTests test
+./mvnw -Dtest=TossConditionalOrderClientTests test
+```
+
+실제 조건 주문 생성 라이브 테스트는 안전을 위해 만들거나 실행하지 않았습니다.
+
 ## PostgreSQL 프로필
 
 PostgreSQL을 사용할 때는 필요한 환경변수를 설정하고 `postgres` 프로필을 활성화합니다.

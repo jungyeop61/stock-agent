@@ -3,15 +3,18 @@ package com.jusika.backend.toss.conditionalorder;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.jsonPath;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
+import java.math.BigDecimal;
 import java.net.URI;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.List;
 
@@ -33,6 +36,10 @@ import com.jusika.backend.conditionalorder.ConditionalOrderRequestException;
 import com.jusika.backend.conditionalorder.ConditionalOrderServiceException;
 import com.jusika.backend.conditionalorder.ConditionalOrderStatus;
 import com.jusika.backend.conditionalorder.ConditionalOrderType;
+import com.jusika.backend.conditionalorder.ConditionalOrderCreationResponse;
+import com.jusika.backend.conditionalorder.SingleConditionalOrderSubmissionRequest;
+import com.jusika.backend.orderexecution.OrderSubmissionException;
+import com.jusika.backend.orderpreview.OrderSide;
 import com.jusika.backend.orderpreview.OrderType;
 import com.jusika.backend.toss.TossApiProperties;
 import com.jusika.backend.toss.auth.TossAccessTokenProvider;
@@ -291,6 +298,125 @@ class TossConditionalOrderClientTests {
 		assertThat(page.toString()).doesNotContain(FIRST_ID, NEXT_CURSOR, "987654321");
 		assertThat(new TossConditionalOrderListApiResponse(page).toString())
 				.doesNotContain(FIRST_ID, NEXT_CURSOR, "987654321");
+		server.verify();
+	}
+
+	/** 국내 지정가 단일 조건 주문을 공식 중첩 JSON 형식과 헤더로 보내는지 검사합니다. */
+	@Test
+	@DisplayName("국내 지정가 단일 조건 주문 생성 본문을 만든다")
+	void 국내_지정가_단일_조건_주문_생성_본문을_만든다() {
+		정상_토큰_발급_응답을_준비한다();
+		SingleConditionalOrderSubmissionRequest request =
+				new SingleConditionalOrderSubmissionRequest(
+						"conditional-client-001", "005930", BigDecimal.TEN,
+						OrderType.LIMIT, LocalDate.parse("2026-09-10"), OrderSide.SELL,
+						new BigDecimal("72000"), new BigDecimal("71500"), false);
+		server.expect(requestTo(BASE_URL + "/api/v1/conditional-orders"))
+				.andExpect(method(HttpMethod.POST))
+				.andExpect(header(HttpHeaders.AUTHORIZATION, "Bearer " + ACCESS_TOKEN))
+				.andExpect(header("X-Tossinvest-Account", Long.toString(ACCOUNT_SEQ)))
+				.andExpect(jsonPath("$.symbol").value("005930"))
+				.andExpect(jsonPath("$.type").value("SINGLE"))
+				.andExpect(jsonPath("$.quantity").value("10"))
+				.andExpect(jsonPath("$.orderType").value("LIMIT"))
+				.andExpect(jsonPath("$.clientOrderId").value("conditional-client-001"))
+				.andExpect(jsonPath("$.expireDate").value("2026-09-10"))
+				.andExpect(jsonPath("$.first.orderSide").value("SELL"))
+				.andExpect(jsonPath("$.first.triggerPrice").value("72000"))
+				.andExpect(jsonPath("$.first.orderPrice").value("71500"))
+				.andExpect(jsonPath("$.second").doesNotExist())
+				.andExpect(jsonPath("$.confirmHighValueOrder").value(false))
+				.andRespond(withSuccess("""
+						{"result":{"conditionalOrderId":"created-conditional-001",
+						"clientOrderId":"conditional-client-001"}}
+						""", MediaType.APPLICATION_JSON));
+
+		ConditionalOrderCreationResponse response =
+				conditionalOrderClient.createSingleConditionalOrder(ACCOUNT_SEQ, request);
+
+		assertThat(response.conditionalOrderId()).isEqualTo("created-conditional-001");
+		assertThat(response.clientOrderId()).isEqualTo("conditional-client-001");
+		server.verify();
+	}
+
+	/** 시장가 단일 조건 주문에서는 지정가와 두 번째 조건을 보내지 않는지 검사합니다. */
+	@Test
+	@DisplayName("시장가 단일 조건 주문에서 주문가격을 생략한다")
+	void 시장가_단일_조건_주문에서_주문가격을_생략한다() {
+		정상_토큰_발급_응답을_준비한다();
+		SingleConditionalOrderSubmissionRequest request =
+				new SingleConditionalOrderSubmissionRequest(
+						"conditional-client-002", "AAPL", new BigDecimal("1.5"),
+						OrderType.MARKET, LocalDate.parse("2026-09-10"), OrderSide.SELL,
+						new BigDecimal("190"), null, true);
+		server.expect(requestTo(BASE_URL + "/api/v1/conditional-orders"))
+				.andExpect(jsonPath("$.first.orderPrice").doesNotExist())
+				.andExpect(jsonPath("$.second").doesNotExist())
+				.andExpect(jsonPath("$.confirmHighValueOrder").value(true))
+				.andRespond(withSuccess("""
+						{"result":{"conditionalOrderId":"created-conditional-002",
+						"clientOrderId":"conditional-client-002"}}
+						""", MediaType.APPLICATION_JSON));
+
+		ConditionalOrderCreationResponse response =
+				conditionalOrderClient.createSingleConditionalOrder(ACCOUNT_SEQ, request);
+
+		assertThat(response.conditionalOrderId()).isEqualTo("created-conditional-002");
+		server.verify();
+	}
+
+	/** 잘못된 멱등성 식별값과 시장가 주문가격을 토큰 발급 전에 차단하는지 검사합니다. */
+	@Test
+	@DisplayName("잘못된 단일 조건 주문 생성 요청을 외부 호출 전에 차단한다")
+	void 잘못된_단일_조건_주문_생성_요청을_외부_호출_전에_차단한다() {
+		SingleConditionalOrderSubmissionRequest badId =
+				new SingleConditionalOrderSubmissionRequest(
+						"잘못된 멱등키", "005930", BigDecimal.ONE, OrderType.LIMIT,
+						LocalDate.parse("2026-09-10"), OrderSide.BUY,
+						new BigDecimal("70000"), new BigDecimal("70000"), false);
+		SingleConditionalOrderSubmissionRequest badMarketPrice =
+				new SingleConditionalOrderSubmissionRequest(
+						"valid-client-id", "005930", BigDecimal.ONE, OrderType.MARKET,
+						LocalDate.parse("2026-09-10"), OrderSide.BUY,
+						new BigDecimal("70000"), new BigDecimal("70000"), false);
+
+		assertThatThrownBy(() ->
+				conditionalOrderClient.createSingleConditionalOrder(ACCOUNT_SEQ, badId))
+				.isInstanceOf(OrderSubmissionException.class)
+				.satisfies(exception -> assertThat(
+						((OrderSubmissionException) exception).isSubmissionStateUnknown()).isFalse());
+		assertThatThrownBy(() -> conditionalOrderClient.createSingleConditionalOrder(
+				ACCOUNT_SEQ, badMarketPrice))
+				.isInstanceOf(OrderSubmissionException.class)
+				.hasMessage("조건 주문 생성 요청 가격 형식이 올바르지 않습니다.");
+		server.verify();
+	}
+
+	/** 증권사의 4xx 거절과 5xx 결과 불명을 서로 다르게 분류하는지 검사합니다. */
+	@Test
+	@DisplayName("조건 주문 생성의 확정 거절과 결과 불명을 구분한다")
+	void 조건_주문_생성의_확정_거절과_결과_불명을_구분한다() {
+		정상_토큰_발급_응답을_준비한다();
+		SingleConditionalOrderSubmissionRequest request =
+				new SingleConditionalOrderSubmissionRequest(
+						"conditional-client-003", "005930", BigDecimal.ONE,
+						OrderType.LIMIT, LocalDate.parse("2026-09-10"), OrderSide.BUY,
+						new BigDecimal("70000"), new BigDecimal("70000"), false);
+		server.expect(requestTo(BASE_URL + "/api/v1/conditional-orders"))
+				.andRespond(withStatus(HttpStatus.UNPROCESSABLE_CONTENT));
+		server.expect(requestTo(BASE_URL + "/api/v1/conditional-orders"))
+				.andRespond(withStatus(HttpStatus.INTERNAL_SERVER_ERROR));
+
+		assertThatThrownBy(() ->
+				conditionalOrderClient.createSingleConditionalOrder(ACCOUNT_SEQ, request))
+				.isInstanceOf(OrderSubmissionException.class)
+				.satisfies(exception -> assertThat(
+						((OrderSubmissionException) exception).isSubmissionStateUnknown()).isFalse());
+		assertThatThrownBy(() ->
+				conditionalOrderClient.createSingleConditionalOrder(ACCOUNT_SEQ, request))
+				.isInstanceOf(OrderSubmissionException.class)
+				.satisfies(exception -> assertThat(
+						((OrderSubmissionException) exception).isSubmissionStateUnknown()).isTrue());
 		server.verify();
 	}
 
