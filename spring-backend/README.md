@@ -6,6 +6,7 @@
 수량 기반 주문 미리보기는 데이터베이스 저장, 만료, 사용자 승인, 최종 재검증과 중복 실행 차단까지 구현되어 있습니다.
 제출 결과가 불명확한 주문은 최초 요청 지문을 확인한 뒤 10분 안에 같은 내용으로 한 번만 안전 복구할 수 있습니다.
 토스증권의 진행 중·종료 주문 목록과 주문 상세·누적 체결 결과를 읽기 전용으로 조회하고, 우리 데이터베이스의 주문 실행 기록도 조회할 수 있습니다.
+진행 중·종료 조건 주문 목록과 조건 주문의 개별 감시 조건도 읽기 전용으로 조회할 수 있습니다.
 미체결 주문 취소는 변경 불가 미리보기, 2분 승인, 실행 직전 주문 재조회와 원주문 단위 중복 차단까지 구현했습니다.
 미체결 주문 정정은 국내·미국별 수량·가격 규칙, 고액 주문 확인, 승인과 실행 직전 재검증까지 구현했습니다.
 토스증권 주문 생성 클라이언트는 수량 주문과 미국 주식 금액 주문 형식 및 멱등성 처리를 구현했습니다.
@@ -735,6 +736,53 @@ curl http://localhost:8080/api/orders/modifications/executions/정정-실행-식
 ```
 
 실제 주문 정정 라이브 테스트는 안전을 위해 만들거나 실행하지 않았습니다.
+
+## 조건 주문 목록과 상세 조회
+
+조건 주문 조회는 토스증권에 등록된 조건 주문을 읽기만 하며 생성·정정·취소하지 않습니다.
+우리 API로 나중에 만들 조건 주문뿐 아니라 토스증권 앱 등 다른 경로에서 만든 조건 주문도 함께 조회됩니다.
+
+계좌의 진행 중 조건 주문 첫 페이지를 조회합니다.
+
+```bash
+curl "http://localhost:8080/api/accounts/1/conditional-orders?status=OPEN"
+```
+
+종료된 조건 주문을 종목과 페이지 크기로 조회합니다.
+
+```bash
+curl "http://localhost:8080/api/accounts/1/conditional-orders?status=CLOSED&symbol=005930&limit=20"
+```
+
+응답의 `nextCursor`가 있으면 다음 요청의 `cursor`에 그대로 전달합니다.
+페이지 크기는 생략하면 20이며 1 이상 100 이하만 허용합니다.
+
+```bash
+curl "http://localhost:8080/api/accounts/1/conditional-orders?status=CLOSED&cursor=다음-페이지-커서&limit=20"
+```
+
+목록에서 받은 조건 주문 식별값으로 상세를 조회합니다.
+
+```bash
+curl http://localhost:8080/api/accounts/1/conditional-orders/조건-주문-식별값
+```
+
+조건 주문 유형은 한 조건만 감시하는 `SINGLE`, 두 조건 중 하나가 발동되면 다른 조건을 취소하는 `OCO`, 첫 조건 체결 후 두 번째 조건을 감시하는 `OTO`로 구분합니다.
+응답에는 조건 주문 전체 상태와 수량·주문 유형·만료일, `first`와 선택 `second` 감시 조건이 포함됩니다.
+가격과 수익률은 문자열이 아닌 정확한 숫자로 변환하며 발동으로 만들어진 일반 주문 식별값도 보존합니다.
+
+평소 자동 테스트는 가짜 토스증권 서버만 사용합니다.
+
+```bash
+./mvnw -Dtest=TossConditionalOrderClientTests,ConditionalOrderControllerTests test
+```
+
+실제 계좌의 조건 주문 목록을 읽는 테스트는 사용자가 명시적으로 환경변수를 켰을 때만 실행됩니다.
+이 라이브 테스트도 `GET` 조회만 수행하며 조건 주문을 만들거나 변경하지 않습니다.
+
+```bash
+RUN_TOSS_LIVE_TEST=true ./mvnw -Dtest=TossConditionalOrderLiveTests test
+```
 
 ## PostgreSQL 프로필
 
