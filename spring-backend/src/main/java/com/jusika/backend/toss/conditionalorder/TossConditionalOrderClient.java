@@ -29,6 +29,7 @@ import com.jusika.backend.conditionalorder.ConditionalOrderServiceException;
 import com.jusika.backend.conditionalorder.ConditionalOrderStatus;
 import com.jusika.backend.conditionalorder.ConditionalOrderType;
 import com.jusika.backend.conditionalorder.OcoConditionalOrderSubmissionRequest;
+import com.jusika.backend.conditionalorder.OtoConditionalOrderSubmissionRequest;
 import com.jusika.backend.conditionalorder.SingleConditionalOrderSubmissionRequest;
 import com.jusika.backend.orderexecution.OrderSubmissionException;
 import com.jusika.backend.orderpreview.OrderType;
@@ -41,7 +42,7 @@ import com.jusika.backend.toss.conditionalorder.TossConditionalOrderApiRequests.
 import com.jusika.backend.toss.conditionalorder.TossConditionalOrderCreationApiResponse.CreationResult;
 
 /**
- * 토스증권 조건 주문 목록과 상세를 읽기 전용으로 호출하고 응답을 안전하게 변환합니다.
+ * 토스증권 조건 주문을 조회하고, 실행 서비스와 분리된 생성 요청을 안전하게 변환합니다.
  */
 @Component
 public class TossConditionalOrderClient {
@@ -252,7 +253,42 @@ public class TossConditionalOrderClient {
 				condition.orderPrice().toPlainString());
 	}
 
-	/** 단일·OCO 공통 생성 주소를 호출하고 실패를 확정 거절 또는 결과 불명으로 구분합니다. */
+	/**
+	 * 검증을 마친 OTO 조건 주문을 토스증권 생성 주소로 제출합니다.
+	 * 이 함수는 실제 계좌에 영향을 줄 수 있으므로 현재 MOCK 실행 서비스에는 연결하지 않습니다.
+	 *
+	 * @param accountSeq OTO 조건 주문을 만들 계좌 식별값
+	 * @param request 최종 재검증을 마친 OTO 조건 주문
+	 * @return 토스증권이 반환한 조건 주문과 멱등성 식별값
+	 */
+	public ConditionalOrderCreationResponse createOtoConditionalOrder(
+			long accountSeq,
+			OtoConditionalOrderSubmissionRequest request) {
+		validateAccountSeq(accountSeq);
+		validateSubmissionRequest(request);
+		CreateRequest body = new CreateRequest(
+				request.symbol().toUpperCase(Locale.ROOT),
+				ConditionalOrderType.OTO.name(),
+				request.quantity().toPlainString(),
+				request.orderType().name(),
+				request.clientOrderId(),
+				request.expireDate().toString(),
+				toConditionRequest(request.first()),
+				toConditionRequest(request.second()),
+				request.confirmHighValueOrder());
+		return submitCreationRequest(accountSeq, body, request.clientOrderId());
+	}
+
+	/** OTO의 한 내부 조건을 토스증권 생성 요청 조건으로 변환합니다. */
+	private ConditionRequest toConditionRequest(
+			OtoConditionalOrderSubmissionRequest.Condition condition) {
+		return new ConditionRequest(
+				condition.side().name(),
+				condition.triggerPrice().toPlainString(),
+				condition.orderPrice().toPlainString());
+	}
+
+	/** 모든 조건 주문의 공통 생성 주소를 호출하고 실패를 확정 거절 또는 결과 불명으로 구분합니다. */
 	private ConditionalOrderCreationResponse submitCreationRequest(
 			long accountSeq,
 			CreateRequest body,
@@ -356,6 +392,44 @@ public class TossConditionalOrderClient {
 			OcoConditionalOrderSubmissionRequest.Condition condition) {
 		return condition != null
 				&& condition.side() == com.jusika.backend.orderpreview.OrderSide.SELL
+				&& isValidPositiveSubmissionDecimal(condition.triggerPrice())
+				&& isValidPositiveSubmissionDecimal(condition.orderPrice());
+	}
+
+	/**
+	 * OTO 실제 생성 요청의 공통값과 선행 매수·후행 매도 지정가 조건을 확인합니다.
+	 *
+	 * @param request 검사할 OTO 조건 주문 제출 요청
+	 */
+	private void validateSubmissionRequest(OtoConditionalOrderSubmissionRequest request) {
+		if (request == null
+				|| request.clientOrderId() == null
+				|| request.clientOrderId().length() > 36
+				|| !CLIENT_ORDER_ID_PATTERN.matcher(request.clientOrderId()).matches()
+				|| request.symbol() == null
+				|| request.symbol().length() > MAX_SYMBOL_LENGTH
+				|| !SYMBOL_PATTERN.matcher(request.symbol()).matches()
+				|| request.quantity() == null
+				|| request.quantity().signum() <= 0
+				|| request.quantity().toPlainString().length() > MAX_DECIMAL_LENGTH
+				|| request.quantity().stripTrailingZeros().scale() > 0
+				|| request.orderType() != OrderType.LIMIT
+				|| request.expireDate() == null
+				|| !isValidOtoCondition(
+						request.first(), com.jusika.backend.orderpreview.OrderSide.BUY)
+				|| !isValidOtoCondition(
+						request.second(), com.jusika.backend.orderpreview.OrderSide.SELL)) {
+			throw new OrderSubmissionException(
+					"OTO 조건 주문 생성 요청 형식이 올바르지 않습니다.", false);
+		}
+	}
+
+	/** OTO의 한 조건이 예상 방향과 양의 감시가격·주문가격을 가졌는지 확인합니다. */
+	private boolean isValidOtoCondition(
+			OtoConditionalOrderSubmissionRequest.Condition condition,
+			com.jusika.backend.orderpreview.OrderSide expectedSide) {
+		return condition != null
+				&& condition.side() == expectedSide
 				&& isValidPositiveSubmissionDecimal(condition.triggerPrice())
 				&& isValidPositiveSubmissionDecimal(condition.orderPrice());
 	}

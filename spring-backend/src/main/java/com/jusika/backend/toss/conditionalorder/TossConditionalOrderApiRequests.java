@@ -12,7 +12,7 @@ final class TossConditionalOrderApiRequests {
 	}
 
 	/**
-	 * 단일 또는 OCO 조건 주문 생성 본문의 필수값과 선택값을 표현합니다.
+	 * 단일·OCO·OTO 조건 주문 생성 본문의 필수값과 선택값을 표현합니다.
 	 */
 	@JsonInclude(JsonInclude.Include.NON_NULL)
 	record CreateRequest(
@@ -37,7 +37,7 @@ final class TossConditionalOrderApiRequests {
 	}
 
 	/**
-	 * 단일 또는 OCO 조건 주문의 한 가격 감시 조건을 표현합니다.
+	 * 단일·OCO·OTO 조건 주문의 한 가격 감시 조건을 표현합니다.
 	 */
 	@JsonInclude(JsonInclude.Include.NON_NULL)
 	record ConditionRequest(

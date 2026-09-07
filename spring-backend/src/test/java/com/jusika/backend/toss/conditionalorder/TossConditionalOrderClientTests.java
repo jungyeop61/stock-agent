@@ -38,6 +38,7 @@ import com.jusika.backend.conditionalorder.ConditionalOrderStatus;
 import com.jusika.backend.conditionalorder.ConditionalOrderType;
 import com.jusika.backend.conditionalorder.ConditionalOrderCreationResponse;
 import com.jusika.backend.conditionalorder.OcoConditionalOrderSubmissionRequest;
+import com.jusika.backend.conditionalorder.OtoConditionalOrderSubmissionRequest;
 import com.jusika.backend.conditionalorder.SingleConditionalOrderSubmissionRequest;
 import com.jusika.backend.orderexecution.OrderSubmissionException;
 import com.jusika.backend.orderpreview.OrderSide;
@@ -478,6 +479,80 @@ class TossConditionalOrderClientTests {
 				.isInstanceOf(OrderSubmissionException.class)
 				.hasMessage("OCO 조건 주문 생성 요청 형식이 올바르지 않습니다.");
 		server.verify();
+	}
+
+	/** OTO의 선행 매수와 후행 매도를 공식 중첩 JSON 형식과 계좌 헤더로 보냅니다. */
+	@Test
+	@DisplayName("OTO 조건 주문 생성 본문에 매수와 매도 조건을 담는다")
+	void OTO_조건_주문_생성_본문에_매수와_매도_조건을_담는다() {
+		정상_토큰_발급_응답을_준비한다();
+		OtoConditionalOrderSubmissionRequest request = OTO_생성_요청을_만든다(
+				OrderType.LIMIT, OrderSide.BUY, OrderSide.SELL);
+		server.expect(requestTo(BASE_URL + "/api/v1/conditional-orders"))
+				.andExpect(method(HttpMethod.POST))
+				.andExpect(header(HttpHeaders.AUTHORIZATION, "Bearer " + ACCESS_TOKEN))
+				.andExpect(header("X-Tossinvest-Account", Long.toString(ACCOUNT_SEQ)))
+				.andExpect(jsonPath("$.symbol").value("005930"))
+				.andExpect(jsonPath("$.type").value("OTO"))
+				.andExpect(jsonPath("$.quantity").value("10"))
+				.andExpect(jsonPath("$.orderType").value("LIMIT"))
+				.andExpect(jsonPath("$.clientOrderId").value("oto-client-001"))
+				.andExpect(jsonPath("$.expireDate").value("2026-09-10"))
+				.andExpect(jsonPath("$.first.orderSide").value("BUY"))
+				.andExpect(jsonPath("$.first.triggerPrice").value("68000"))
+				.andExpect(jsonPath("$.first.orderPrice").value("69000"))
+				.andExpect(jsonPath("$.second.orderSide").value("SELL"))
+				.andExpect(jsonPath("$.second.triggerPrice").value("79000"))
+				.andExpect(jsonPath("$.second.orderPrice").value("80000"))
+				.andExpect(jsonPath("$.confirmHighValueOrder").value(false))
+				.andRespond(withSuccess("""
+						{"result":{"conditionalOrderId":"created-oto-001",
+						"clientOrderId":"oto-client-001"}}
+						""", MediaType.APPLICATION_JSON));
+
+		ConditionalOrderCreationResponse response =
+				conditionalOrderClient.createOtoConditionalOrder(ACCOUNT_SEQ, request);
+
+		assertThat(response.conditionalOrderId()).isEqualTo("created-oto-001");
+		assertThat(response.clientOrderId()).isEqualTo("oto-client-001");
+		server.verify();
+	}
+
+	/** OTO의 시장가 또는 잘못된 조건 순서를 인증 요청 전에 차단합니다. */
+	@Test
+	@DisplayName("잘못된 OTO 생성 요청을 외부 호출 전에 차단한다")
+	void 잘못된_OTO_생성_요청을_외부_호출_전에_차단한다() {
+		OtoConditionalOrderSubmissionRequest market = OTO_생성_요청을_만든다(
+				OrderType.MARKET, OrderSide.BUY, OrderSide.SELL);
+		OtoConditionalOrderSubmissionRequest wrongOrder = OTO_생성_요청을_만든다(
+				OrderType.LIMIT, OrderSide.SELL, OrderSide.BUY);
+
+		assertThatThrownBy(() ->
+				conditionalOrderClient.createOtoConditionalOrder(ACCOUNT_SEQ, market))
+				.isInstanceOf(OrderSubmissionException.class)
+				.hasMessage("OTO 조건 주문 생성 요청 형식이 올바르지 않습니다.")
+				.satisfies(exception -> assertThat(
+						((OrderSubmissionException) exception).isSubmissionStateUnknown()).isFalse());
+		assertThatThrownBy(() ->
+				conditionalOrderClient.createOtoConditionalOrder(ACCOUNT_SEQ, wrongOrder))
+				.isInstanceOf(OrderSubmissionException.class)
+				.hasMessage("OTO 조건 주문 생성 요청 형식이 올바르지 않습니다.");
+		server.verify();
+	}
+
+	/** 반복 테스트에서 사용할 OTO 실제 생성 요청을 만듭니다. */
+	private OtoConditionalOrderSubmissionRequest OTO_생성_요청을_만든다(
+			OrderType orderType,
+			OrderSide firstSide,
+			OrderSide secondSide) {
+		return new OtoConditionalOrderSubmissionRequest(
+				"oto-client-001", "005930", BigDecimal.TEN, orderType,
+				LocalDate.parse("2026-09-10"),
+				new OtoConditionalOrderSubmissionRequest.Condition(
+						firstSide, new BigDecimal("68000"), new BigDecimal("69000")),
+				new OtoConditionalOrderSubmissionRequest.Condition(
+						secondSide, new BigDecimal("79000"), new BigDecimal("80000")),
+				false);
 	}
 
 	/** 반복 테스트에서 사용할 OCO 실제 생성 요청을 만듭니다. */
