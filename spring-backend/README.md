@@ -4,6 +4,7 @@
 
 현재는 토스증권 OAuth 인증, 종목 현재가, 원화·달러 참고 환율, 계좌 목록, 보유주식 평가, 매수 가능 금액, 매도 가능 수량과 매매 수수료 조회가 구현되어 있습니다.
 수량 기반 주문 미리보기는 데이터베이스 저장, 만료, 사용자 승인, 최종 재검증과 중복 실행 차단까지 구현되어 있습니다.
+미국 주식 달러 금액 시장가 매수는 현재가·수수료·달러 매수 가능 금액·원화 환산 고액 여부를 검증하는 미리보기 생성과 조회까지 구현했습니다.
 제출 결과가 불명확한 주문은 최초 요청 지문을 확인한 뒤 10분 안에 같은 내용으로 한 번만 안전 복구할 수 있습니다.
 토스증권의 진행 중·종료 주문 목록과 주문 상세·누적 체결 결과를 읽기 전용으로 조회하고, 우리 데이터베이스의 주문 실행 기록도 조회할 수 있습니다.
 진행 중·종료 조건 주문 목록과 조건 주문의 개별 감시 조건도 읽기 전용으로 조회할 수 있습니다.
@@ -386,6 +387,76 @@ curl -X POST http://localhost:8080/api/orders/preview \
 로컬 기본 H2 데이터베이스의 내용은 서버를 종료하면 사라지고, `postgres` 프로필에서는 PostgreSQL에 유지됩니다.
 `orderReady`는 조회 시점의 입력 형식과 계좌 금액 또는 수량 검사를 통과했다는 뜻이며 증권사의 최종 주문 접수를 보장하지 않습니다.
 호가 단위, 주문 가능 시간, 종목 거래 제한과 미리보기 이후의 가격·잔고 변동은 실제 주문 직전에 다시 검사해야 합니다.
+
+## 미국 주식 달러 금액 매수 미리보기
+
+미국 주식을 달러 금액으로 시장가 매수할 때 사용할 변경 불가 미리보기를 만듭니다.
+요청에는 계좌, 미국 종목 코드와 달러 금액만 받으며 주문 방향은 `BUY`, 주문 유형은 `MARKET`으로 고정됩니다.
+이 API는 현재가·계좌·환율을 읽기만 하며 토스증권 주문 생성 API를 호출하지 않습니다.
+
+```bash
+curl -X POST http://localhost:8080/api/orders/amount/preview \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "accountSeq": 1,
+    "symbol": "AAPL",
+    "orderAmount": 100
+  }'
+```
+
+미리보기는 다음 값을 검사하고 계산합니다.
+
+- 종목 코드가 영문자로 시작하는 미국 주식 형식인지 확인합니다.
+- 현재가가 양수인 달러 가격인지 확인합니다.
+- 주문 금액과 미국 시장 예상 수수료의 합이 달러 현금 매수 가능 금액 이내인지 확인합니다.
+- 현재 유효한 USD→KRW 참고 환율로 주문 금액을 원화로 환산합니다.
+- 원화 환산 주문금액이 1억원 이상이면 `requiresHighValueConfirmation`을 `true`로 표시합니다.
+- 프로젝트 안전 정책상 원화 환산 주문금액이 30억원을 초과하면 미리보기를 만들지 않습니다.
+- 예상 수량은 주문 금액을 현재가로 나눠 소수점 18자리까지 내림 계산합니다.
+
+응답 예시는 다음과 같습니다.
+
+```json
+{
+  "previewId": "미리보기-식별값",
+  "createdAt": "2026-09-08T09:30:30+09:00",
+  "expiresAt": "2026-09-08T09:32:30+09:00",
+  "accountSeq": 1,
+  "symbol": "AAPL",
+  "side": "BUY",
+  "orderType": "MARKET",
+  "orderAmount": 100,
+  "currency": "USD",
+  "marketCountry": "US",
+  "referencePrice": 200,
+  "estimatedQuantity": 0.5,
+  "commissionRate": 0.001,
+  "estimatedCommission": 0.1,
+  "estimatedTotalCost": 100.1,
+  "exchangeRate": 1400,
+  "exchangeRateValidFrom": "2026-09-08T09:30:00+09:00",
+  "exchangeRateValidUntil": "2026-09-08T09:31:00+09:00",
+  "estimatedOrderAmountKrw": 140000,
+  "requiresHighValueConfirmation": false,
+  "orderReady": true,
+  "status": "PENDING_APPROVAL"
+}
+```
+
+`estimatedQuantity`는 현재가 기준 참고값이며 실제 체결 수량을 보장하지 않습니다.
+토스증권 금액 주문은 정규장 시작부터 정규장 종료 1시간 전까지만 접수할 수 있으므로, 이후 실행 단계에서 주문 직전 미국 장 운영 시간도 다시 확인해야 합니다.
+현재 단계에는 승인과 실행 주소가 없으며 `PENDING_APPROVAL` 미리보기를 저장하고 다시 조회하는 기능까지만 제공합니다.
+
+```bash
+curl http://localhost:8080/api/orders/amount/previews/미리보기-식별값
+```
+
+금액 주문 미리보기 서비스·V11 데이터베이스·HTTP 주소는 실제 토스증권 주문 없이 검사합니다.
+
+```bash
+./mvnw -Dtest=AmountOrderPreviewServiceTests test
+./mvnw -Dtest=AmountOrderPreviewPersistenceTests,AmountOrderPreviewControllerTests test
+```
 
 ## 주문 미리보기 승인
 
