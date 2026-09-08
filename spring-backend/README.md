@@ -2,7 +2,7 @@
 
 금융 거래의 최종 책임을 갖는 Spring Boot 프로젝트입니다.
 
-현재는 토스증권 OAuth 인증, 종목 현재가, 계좌 목록, 보유주식 평가, 매수 가능 금액, 매도 가능 수량과 매매 수수료 조회가 구현되어 있습니다.
+현재는 토스증권 OAuth 인증, 종목 현재가, 원화·달러 참고 환율, 계좌 목록, 보유주식 평가, 매수 가능 금액, 매도 가능 수량과 매매 수수료 조회가 구현되어 있습니다.
 수량 기반 주문 미리보기는 데이터베이스 저장, 만료, 사용자 승인, 최종 재검증과 중복 실행 차단까지 구현되어 있습니다.
 제출 결과가 불명확한 주문은 최초 요청 지문을 확인한 뒤 10분 안에 같은 내용으로 한 번만 안전 복구할 수 있습니다.
 토스증권의 진행 중·종료 주문 목록과 주문 상세·누적 체결 결과를 읽기 전용으로 조회하고, 우리 데이터베이스의 주문 실행 기록도 조회할 수 있습니다.
@@ -85,6 +85,49 @@ curl http://localhost:8080/api/stocks/005930/price
 
 ```bash
 RUN_TOSS_LIVE_TEST=true ./mvnw -Dtest=TossPriceLiveTests test
+```
+
+## 원화와 달러 참고 환율 조회
+
+토스증권의 현재 USD→KRW 참고 환율을 조회합니다.
+이 기능은 계좌나 주문을 변경하지 않는 읽기 전용 요청이며 실제 주문 환전율과 다를 수 있습니다.
+
+```bash
+curl 'http://localhost:8080/api/market/exchange-rate?baseCurrency=USD&quoteCurrency=KRW'
+```
+
+응답에는 기준·상대 통화, 매수 환율, 매매기준율, 베이시스 포인트, 등락 방향과 환율 유효시간이 포함됩니다.
+`rate`는 기준 통화 한 단위를 상대 통화로 환산할 때 사용하는 값입니다.
+
+```json
+{
+  "baseCurrency": "USD",
+  "quoteCurrency": "KRW",
+  "rate": 1380.5,
+  "midRate": 1375,
+  "basisPoint": 40,
+  "rateChangeType": "UP",
+  "validFrom": "2026-09-08T09:30:00+09:00",
+  "validUntil": "2026-09-08T09:31:00+09:00"
+}
+```
+
+`baseCurrency`와 `quoteCurrency`에는 `KRW`, `USD`만 사용할 수 있으며 서로 달라야 합니다.
+특정 시점의 환율이 필요하면 ISO 8601 형식의 `dateTime`을 추가합니다.
+
+```bash
+curl --get http://localhost:8080/api/market/exchange-rate \
+  --data-urlencode 'baseCurrency=USD' \
+  --data-urlencode 'quoteCurrency=KRW' \
+  --data-urlencode 'dateTime=2026-09-08T09:30:00+09:00'
+```
+
+평소 자동 테스트는 실제 서버 대신 가짜 HTTP 서버를 사용합니다.
+읽기 전용 실제 환율 테스트도 사용자가 환경변수를 명시했을 때만 실행됩니다.
+
+```bash
+./mvnw -Dtest=TossExchangeRateClientTests,ExchangeRateControllerTests test
+RUN_TOSS_LIVE_TEST=true ./mvnw -Dtest=TossExchangeRateLiveTests test
 ```
 
 ## 계좌 목록 조회
