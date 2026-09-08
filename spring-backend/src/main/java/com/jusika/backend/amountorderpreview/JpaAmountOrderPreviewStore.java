@@ -62,6 +62,19 @@ class JpaAmountOrderPreviewStore implements AmountOrderPreviewStore {
 	}
 
 	/**
+	 * 유효한 승인 상태 한 행만 사용 완료 상태로 조건부 변경합니다.
+	 *
+	 * @param previewId 실행에 사용할 금액 주문 미리보기 식별값
+	 * @param consumedAt 실행권을 확보한 시각
+	 * @return 이번 호출이 상태를 변경했으면 true
+	 */
+	@Override
+	@Transactional
+	public boolean consumeApproved(String previewId, OffsetDateTime consumedAt) {
+		return repository.consumeApproved(previewId, consumedAt) == 1;
+	}
+
+	/**
 	 * 식별값에 해당하는 저장 행을 API 응답 형태로 반환합니다.
 	 *
 	 * @param previewId 조회할 미리보기 식별값

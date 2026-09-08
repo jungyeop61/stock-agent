@@ -35,6 +35,15 @@ public interface AmountOrderPreviewStore {
 	boolean expirePending(String previewId, OffsetDateTime now);
 
 	/**
+	 * 승인 상태이며 아직 유효한 금액 주문 미리보기를 한 번만 사용 완료 상태로 바꿉니다.
+	 *
+	 * @param previewId 실행에 사용할 금액 주문 미리보기 식별값
+	 * @param consumedAt 실행권을 확보한 시각
+	 * @return 이번 호출이 실제로 사용 완료 상태를 만들었으면 true
+	 */
+	boolean consumeApproved(String previewId, OffsetDateTime consumedAt);
+
+	/**
 	 * 식별값에 해당하는 저장된 금액 주문 미리보기를 조회합니다.
 	 *
 	 * @param previewId 조회할 미리보기 식별값

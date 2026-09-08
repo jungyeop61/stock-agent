@@ -4,7 +4,7 @@
 
 현재는 토스증권 OAuth 인증, 종목 현재가, 원화·달러 참고 환율, 미국 장 운영 일정, 계좌 목록, 보유주식 평가, 매수 가능 금액, 매도 가능 수량과 매매 수수료 조회가 구현되어 있습니다.
 수량 기반 주문 미리보기는 데이터베이스 저장, 만료, 사용자 승인, 최종 재검증과 중복 실행 차단까지 구현되어 있습니다.
-미국 주식 달러 금액 시장가 매수는 현재가·수수료·달러 매수 가능 금액·원화 환산 고액 여부를 검증하는 미리보기 생성·조회, 2분 승인과 현재 접수 가능 시간 판정까지 구현했습니다.
+미국 주식 달러 금액 시장가 매수는 미리보기 생성·조회, 2분 승인, 장 운영시간·현재가·수수료·달러 매수 가능 금액·환율의 실행 직전 재검증과 중복 실행 차단까지 구현했습니다.
 제출 결과가 불명확한 주문은 최초 요청 지문을 확인한 뒤 10분 안에 같은 내용으로 한 번만 안전 복구할 수 있습니다.
 토스증권의 진행 중·종료 주문 목록과 주문 상세·누적 체결 결과를 읽기 전용으로 조회하고, 우리 데이터베이스의 주문 실행 기록도 조회할 수 있습니다.
 진행 중·종료 조건 주문 목록과 조건 주문의 개별 감시 조건도 읽기 전용으로 조회할 수 있습니다.
@@ -234,8 +234,8 @@ curl http://localhost:8080/api/market/us/amount-order-window
 - `AFTER_CUTOFF`: 정규장 종료 1시간 전의 접수 마감 시각과 같거나 그 이후
 - `MARKET_CLOSED`: 휴장일이거나 정규장을 운영하지 않는 날
 
-현재 단계는 시간 판정 결과만 반환합니다.
-금액 주문 미리보기 승인·실행 서비스나 토스증권 주문 생성 API에는 아직 연결하지 않았습니다.
+이 읽기 전용 판정 결과는 금액 주문 실행 직전 안전 검증에도 사용합니다.
+토스증권 주문 생성 API에는 연결하지 않았으므로 시간 판정 자체와 금액 주문 실행 모두 실제 주문을 만들지 않습니다.
 
 ```bash
 ./mvnw -Dtest=UsAmountOrderWindowServiceTests,UsAmountOrderWindowControllerTests test
@@ -486,7 +486,7 @@ curl -X POST http://localhost:8080/api/orders/preview \
 
 - 국내 주식과 일반 미국 주식 주문은 양의 정수 수량만 허용합니다.
 - 미국 주식 시장가 매도만 소수점 6자리까지 허용합니다.
-- 미국 주식 소수점 매수는 이번 단계에 포함하지 않았으며 이후 금액 주문으로 구현합니다.
+- 미국 주식 소수점 매수는 수량 주문으로 받지 않고 별도의 달러 금액 주문 안전 흐름을 사용합니다.
 - 지정가는 가격이 필수이고 시장가는 가격을 입력할 수 없습니다.
 - 국내 지정가는 원 단위 정수여야 합니다.
 - 미국 지정가는 1달러 미만이면 소수점 4자리, 1달러 이상이면 소수점 2자리까지 허용합니다.
@@ -555,7 +555,7 @@ curl -X POST http://localhost:8080/api/orders/amount/preview \
 ```
 
 `estimatedQuantity`는 현재가 기준 참고값이며 실제 체결 수량을 보장하지 않습니다.
-토스증권 금액 주문은 정규장 시작부터 정규장 종료 1시간 전까지만 접수할 수 있으므로, 이후 실행 단계에서 주문 직전 미국 장 운영 시간도 다시 확인해야 합니다.
+토스증권 금액 주문은 정규장 시작부터 정규장 종료 1시간 전까지만 접수할 수 있으므로 실행 직전에 미국 장 운영 시간을 다시 확인합니다.
 생성한 `PENDING_APPROVAL` 미리보기는 다음 주소로 다시 조회할 수 있습니다.
 
 ```bash
@@ -570,13 +570,58 @@ curl -X POST http://localhost:8080/api/orders/amount/previews/미리보기-식�
 
 승인되면 저장된 금융 계산값은 그대로 유지되고 `status`가 `APPROVED`, `approvedAt`이 승인 시각으로 기록됩니다.
 유효 종료 시각과 정확히 같은 시각부터는 `EXPIRED`로 바뀌고 HTTP 410을 반환하며, 중복 승인은 HTTP 409로 거절합니다.
-현재 단계에는 금액 주문 실행 주소가 없고 승인도 데이터베이스 상태만 바꾸므로 토스증권 주문 생성 API를 호출하지 않습니다.
 
-금액 주문 미리보기·승인 서비스와 V11·V12 데이터베이스, HTTP 주소는 실제 토스증권 주문 없이 검사합니다.
+승인한 미리보기를 2분 유효시간 안에 MOCK으로 실행합니다.
+
+```bash
+curl -X POST http://localhost:8080/api/orders/amount/previews/미리보기-식별값/execute
+```
+
+실행 직전에는 다음 조건을 모두 새로 확인합니다.
+
+- 미국 현지 날짜의 장 운영 일정을 조회해 현재 시각이 금액 주문 접수 구간인지 확인합니다.
+- 현재가가 승인한 미국 종목과 USD 통화에 대응하는 양수인지 확인합니다.
+- 최신 미국 시장 수수료로 수수료 포함 필요 금액을 다시 계산합니다.
+- 최신 달러 현금 매수 가능 금액이 수수료 포함 필요 금액 이상인지 확인합니다.
+- 현재 유효한 USD→KRW 환율로 고액 주문 여부와 30억원 안전 한도를 다시 확인합니다.
+- 승인한 미리보기의 고정 필드와 저장 계산값이 서로 모순되지 않는지 확인합니다.
+
+검증을 통과하면 V13의 `amount_order_executions` 테이블에 실행권을 먼저 저장하고 미리보기를 `CONSUMED`로 바꿉니다.
+미리보기 행 잠금과 `preview_id` 고유 제약을 함께 사용하므로 같은 미리보기는 한 번만 제출 경계에 도달합니다.
+제출 경계는 현재 `MOCK` 구현만 존재하며 토스증권 금액 주문 클라이언트와 연결하지 않았습니다.
+
+```json
+{
+  "executionId": "서버-실행-식별값",
+  "previewId": "미리보기-식별값",
+  "clientOrderId": "비공개-멱등성-식별값",
+  "brokerMode": "MOCK",
+  "status": "ACCEPTED",
+  "brokerOrderId": "모의-주문-식별값",
+  "failureType": null,
+  "createdAt": "2026-09-08T09:31:00+09:00",
+  "updatedAt": "2026-09-08T09:31:00+09:00",
+  "submittedAt": "2026-09-08T09:31:00+09:00",
+  "completedAt": "2026-09-08T09:31:00+09:00"
+}
+```
+
+저장된 실행 결과는 읽기 전용으로 조회할 수 있습니다.
+
+```bash
+curl http://localhost:8080/api/orders/amount/executions/실행-식별값
+```
+
+제출 결과를 확정할 수 없으면 `status`를 `UNKNOWN`, `failureType`을 `SUBMISSION_UNKNOWN`으로 저장하고 자동으로 다시 주문하지 않습니다.
+금액 주문 UNKNOWN 복구 주소는 아직 제공하지 않으며 다음 단계에서 최초 요청 지문과 동일한 요청만 한 번 복구하도록 별도로 구현합니다.
+
+금액 주문 미리보기·승인·MOCK 실행과 V11~V13 데이터베이스, HTTP 주소는 실제 토스증권 주문 없이 검사합니다.
 
 ```bash
 ./mvnw -Dtest=AmountOrderPreviewServiceTests test
 ./mvnw -Dtest=AmountOrderPreviewPersistenceTests,AmountOrderPreviewControllerTests test
+./mvnw -Dtest=AmountOrderExecutionServiceTests test
+./mvnw -Dtest=AmountOrderExecutionPersistenceTests,AmountOrderExecutionControllerTests test
 ```
 
 ## 주문 미리보기 승인

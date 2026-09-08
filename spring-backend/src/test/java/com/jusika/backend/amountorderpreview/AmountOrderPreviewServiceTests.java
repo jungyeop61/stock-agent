@@ -445,6 +445,20 @@ class AmountOrderPreviewServiceTests {
 			return true;
 		}
 
+		/** 유효한 승인 미리보기만 사용 완료 상태로 변경합니다. */
+		@Override
+		public boolean consumeApproved(String previewId, OffsetDateTime consumedAt) {
+			AmountOrderPreviewResponse preview = previews.get(previewId);
+			if (preview == null
+					|| preview.status() != OrderPreviewStatus.APPROVED
+					|| !preview.expiresAt().isAfter(consumedAt)) {
+				return false;
+			}
+			previews.put(previewId, 상태를_바꾼다(
+					preview, OrderPreviewStatus.CONSUMED, preview.approvedAt()));
+			return true;
+		}
+
 		/**
 		 * 기존 금융 계산값을 유지하면서 상태와 승인 시각만 바꾼 새 응답을 만듭니다.
 		 *

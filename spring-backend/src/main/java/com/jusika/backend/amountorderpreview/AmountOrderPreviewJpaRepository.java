@@ -52,4 +52,24 @@ interface AmountOrderPreviewJpaRepository extends JpaRepository<AmountOrderPrevi
 	int expirePending(
 			@Param("previewId") String previewId,
 			@Param("now") OffsetDateTime now);
+
+	/**
+	 * 승인 상태이며 아직 유효한 한 행만 사용 완료 상태로 변경합니다.
+	 *
+	 * @param previewId 실행에 사용할 금액 주문 미리보기 식별값
+	 * @param consumedAt 실행권을 확보한 시각
+	 * @return 상태가 변경된 행의 수
+	 */
+	@Modifying(clearAutomatically = true, flushAutomatically = true)
+	@Query("""
+			update AmountOrderPreviewEntity preview
+			set preview.status = com.jusika.backend.orderpreview.OrderPreviewStatus.CONSUMED,
+				preview.version = preview.version + 1
+			where preview.previewId = :previewId
+				and preview.status = com.jusika.backend.orderpreview.OrderPreviewStatus.APPROVED
+				and preview.expiresAt > :consumedAt
+			""")
+	int consumeApproved(
+			@Param("previewId") String previewId,
+			@Param("consumedAt") OffsetDateTime consumedAt);
 }
