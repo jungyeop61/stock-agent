@@ -8,7 +8,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * 미국 주식 달러 금액 매수 미리보기를 생성하고 조회할 HTTP 주소를 제공합니다.
+ * 미국 주식 달러 금액 매수 미리보기를 생성하고 승인·조회할 HTTP 주소를 제공합니다.
  */
 @RestController
 @RequestMapping("/api/orders/amount")
@@ -34,6 +34,18 @@ public class AmountOrderPreviewController {
 	@PostMapping("/preview")
 	public AmountOrderPreviewResponse createPreview(@RequestBody AmountOrderPreviewRequest request) {
 		return previewService.createPreview(request);
+	}
+
+	/**
+	 * 저장된 금액 주문 내용을 바꾸지 않고 유효한 미리보기에 사용자 승인을 기록합니다.
+	 * 이 함수는 토스증권 주문 생성 API를 호출하지 않습니다.
+	 *
+	 * @param previewId 승인할 금액 주문 미리보기 식별값
+	 * @return 승인 시각과 승인 상태가 반영된 저장 미리보기
+	 */
+	@PostMapping("/previews/{previewId}/approve")
+	public AmountOrderPreviewResponse approvePreview(@PathVariable String previewId) {
+		return previewService.approvePreview(previewId);
 	}
 
 	/**

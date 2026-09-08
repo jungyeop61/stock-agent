@@ -13,6 +13,7 @@ import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 
 /**
  * 미국 주식 달러 금액 매수 미리보기의 변경 불가 계산 결과를 데이터베이스에 보관합니다.
@@ -91,6 +92,13 @@ class AmountOrderPreviewEntity {
 	@Column(nullable = false, length = 32)
 	private OrderPreviewStatus status;
 
+	@Column(name = "approved_at")
+	private OffsetDateTime approvedAt;
+
+	@Version
+	@Column(nullable = false)
+	private long version;
+
 	/**
 	 * JPA가 데이터베이스 행을 객체로 복원할 때 사용할 빈 생성자입니다.
 	 */
@@ -125,6 +133,7 @@ class AmountOrderPreviewEntity {
 		this.requiresHighValueConfirmation = preview.requiresHighValueConfirmation();
 		this.orderReady = preview.orderReady();
 		this.status = preview.status();
+		this.approvedAt = preview.approvedAt();
 	}
 
 	/**
@@ -165,6 +174,7 @@ class AmountOrderPreviewEntity {
 				estimatedOrderAmountKrw,
 				requiresHighValueConfirmation,
 				orderReady,
-				status);
+				status,
+				approvedAt);
 	}
 }

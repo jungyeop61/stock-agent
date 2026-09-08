@@ -93,6 +93,51 @@ class AmountOrderPreviewControllerTests {
 	}
 
 	/**
+	 * URL의 식별값만 승인 서비스에 전달하고 승인 결과를 반환하는지 검사합니다.
+	 */
+	@Test
+	@DisplayName("달러 금액 주문 미리보기를 HTTP로 승인한다")
+	void 달러_금액_주문_미리보기를_HTTP로_승인한다() throws Exception {
+		OffsetDateTime approvedAt = OffsetDateTime.parse("2026-09-08T09:31:00+09:00");
+		recordingService.response = 금액_주문_미리보기를_만든다();
+		recordingService.response = new AmountOrderPreviewResponse(
+				recordingService.response.previewId(),
+				recordingService.response.createdAt(),
+				recordingService.response.expiresAt(),
+				recordingService.response.accountSeq(),
+				recordingService.response.symbol(),
+				recordingService.response.side(),
+				recordingService.response.orderType(),
+				recordingService.response.orderAmount(),
+				recordingService.response.currency(),
+				recordingService.response.marketCountry(),
+				recordingService.response.referencePrice(),
+				recordingService.response.estimatedQuantity(),
+				recordingService.response.commissionRate(),
+				recordingService.response.estimatedCommission(),
+				recordingService.response.estimatedTotalCost(),
+				recordingService.response.exchangeRate(),
+				recordingService.response.exchangeRateValidFrom(),
+				recordingService.response.exchangeRateValidUntil(),
+				recordingService.response.estimatedOrderAmountKrw(),
+				recordingService.response.requiresHighValueConfirmation(),
+				recordingService.response.orderReady(),
+				OrderPreviewStatus.APPROVED,
+				approvedAt);
+
+		mockMvc.perform(post(
+						"/api/orders/amount/previews/{previewId}/approve",
+						recordingService.response.previewId()))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.status").value("APPROVED"))
+				.andExpect(jsonPath("$.approvedAt").value("2026-09-08T09:31:00+09:00"));
+
+		assertThat(recordingService.approveCallCount).isEqualTo(1);
+		assertThat(recordingService.approvePreviewId)
+				.isEqualTo(recordingService.response.previewId());
+	}
+
+	/**
 	 * 컨트롤러 응답에 사용할 정상 달러 금액 주문 미리보기를 만듭니다.
 	 *
 	 * @return HTTP JSON 변환에 사용할 미리보기
@@ -121,7 +166,8 @@ class AmountOrderPreviewControllerTests {
 				new BigDecimal("140000"),
 				false,
 				true,
-				OrderPreviewStatus.PENDING_APPROVAL);
+				OrderPreviewStatus.PENDING_APPROVAL,
+				null);
 	}
 
 	/**
@@ -132,8 +178,10 @@ class AmountOrderPreviewControllerTests {
 		private AmountOrderPreviewResponse response;
 		private AmountOrderPreviewRequest request;
 		private String previewId;
+		private String approvePreviewId;
 		private int createCallCount;
 		private int getCallCount;
+		private int approveCallCount;
 
 		/** 실제 의존성 없이 기록용 부모 객체를 초기화합니다. */
 		private RecordingAmountOrderPreviewService() {
@@ -153,6 +201,14 @@ class AmountOrderPreviewControllerTests {
 		public AmountOrderPreviewResponse getPreview(String previewId) {
 			getCallCount++;
 			this.previewId = previewId;
+			return response;
+		}
+
+		/** 승인 식별값을 기록하고 준비된 미리보기를 반환합니다. */
+		@Override
+		public AmountOrderPreviewResponse approvePreview(String previewId) {
+			approveCallCount++;
+			approvePreviewId = previewId;
 			return response;
 		}
 	}

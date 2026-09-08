@@ -32,6 +32,7 @@ import com.jusika.backend.orderpreview.OrderType;
  * @param requiresHighValueConfirmation 원화 환산액이 1억원 이상인지 여부
  * @param orderReady 입력과 계좌 여력 검증을 통과했는지 여부
  * @param status 미리보기의 현재 상태
+ * @param approvedAt 사용자가 승인한 시각이며 승인 전이면 null
  */
 public record AmountOrderPreviewResponse(
 		String previewId,
@@ -55,5 +56,6 @@ public record AmountOrderPreviewResponse(
 		BigDecimal estimatedOrderAmountKrw,
 		boolean requiresHighValueConfirmation,
 		boolean orderReady,
-		OrderPreviewStatus status) {
+		OrderPreviewStatus status,
+		OffsetDateTime approvedAt) {
 }

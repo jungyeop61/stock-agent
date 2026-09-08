@@ -25,7 +25,7 @@ import com.jusika.backend.toss.orderinfo.TossBuyingPowerClient;
 import com.jusika.backend.toss.orderinfo.TossCommissionsClient;
 
 /**
- * 실제 주문 없이 미국 주식 달러 금액 매수의 입력과 계좌 여력을 검증해 미리보기를 만듭니다.
+ * 실제 주문 없이 미국 주식 달러 금액 매수 미리보기를 생성하고 한 번만 승인합니다.
  */
 @Service
 public class AmountOrderPreviewService {
@@ -127,8 +127,40 @@ public class AmountOrderPreviewService {
 				estimatedOrderAmountKrw,
 				estimatedOrderAmountKrw.compareTo(HIGH_VALUE_KRW_THRESHOLD) >= 0,
 				true,
-				OrderPreviewStatus.PENDING_APPROVAL);
+				OrderPreviewStatus.PENDING_APPROVAL,
+				null);
 		return previewStore.save(preview);
+	}
+
+	/**
+	 * 저장된 금액 주문 내용을 바꾸지 않고 유효한 승인 대기 미리보기만 한 번 승인합니다.
+	 * 이 함수는 토스증권 주문 생성 API를 호출하지 않습니다.
+	 *
+	 * @param previewId 승인할 금액 주문 미리보기 식별값
+	 * @return 승인 시각과 승인 상태가 기록된 금액 주문 미리보기
+	 */
+	public AmountOrderPreviewResponse approvePreview(String previewId) {
+		validatePreviewId(previewId);
+		OffsetDateTime approvedAt = OffsetDateTime.now(clock);
+
+		previewStore.expirePending(previewId, approvedAt);
+		if (previewStore.approvePending(previewId, approvedAt)) {
+			return findStoredPreview(previewId);
+		}
+
+		AmountOrderPreviewResponse preview = findStoredPreview(previewId);
+		switch (preview.status()) {
+			case EXPIRED -> throw new AmountOrderPreviewExpiredException(
+					"금액 주문 미리보기의 승인 시간이 지났습니다. 새 미리보기를 만들어 주세요.");
+			case APPROVED -> throw new AmountOrderPreviewStateException(
+					"이미 승인한 금액 주문 미리보기입니다.");
+			case CONSUMED -> throw new AmountOrderPreviewStateException(
+					"이미 주문에 사용한 금액 주문 미리보기입니다.");
+			case PENDING_APPROVAL -> throw new AmountOrderPreviewStateException(
+					"금액 주문 미리보기 상태가 변경되어 승인하지 못했습니다. 다시 확인해 주세요.");
+		}
+		throw new AmountOrderPreviewStateException(
+				"알 수 없는 금액 주문 미리보기 상태라 승인하지 못했습니다.");
 	}
 
 	/**
@@ -139,6 +171,16 @@ public class AmountOrderPreviewService {
 	 */
 	public AmountOrderPreviewResponse getPreview(String previewId) {
 		validatePreviewId(previewId);
+		return findStoredPreview(previewId);
+	}
+
+	/**
+	 * 저장소에서 금액 주문 미리보기를 읽고 없으면 찾을 수 없음 오류를 발생시킵니다.
+	 *
+	 * @param previewId 조회할 금액 주문 미리보기 식별값
+	 * @return 데이터베이스에 저장된 금액 주문 미리보기
+	 */
+	private AmountOrderPreviewResponse findStoredPreview(String previewId) {
 		return previewStore.findById(previewId)
 				.orElseThrow(() -> new AmountOrderPreviewNotFoundException(
 						"금액 주문 미리보기를 찾을 수 없습니다."));

@@ -1,5 +1,6 @@
 package com.jusika.backend.amountorderpreview;
 
+import java.time.OffsetDateTime;
 import java.util.Optional;
 
 import org.springframework.stereotype.Repository;
@@ -32,6 +33,32 @@ class JpaAmountOrderPreviewStore implements AmountOrderPreviewStore {
 	@Transactional
 	public AmountOrderPreviewResponse save(AmountOrderPreviewResponse preview) {
 		return repository.save(AmountOrderPreviewEntity.from(preview)).toResponse();
+	}
+
+	/**
+	 * 승인 가능한 한 행만 조건부 갱신해 중복 승인을 막습니다.
+	 *
+	 * @param previewId 승인할 금액 미리보기 식별값
+	 * @param approvedAt 승인 시각
+	 * @return 이번 호출이 상태를 변경했으면 true
+	 */
+	@Override
+	@Transactional
+	public boolean approvePending(String previewId, OffsetDateTime approvedAt) {
+		return repository.approvePending(previewId, approvedAt) == 1;
+	}
+
+	/**
+	 * 승인 대기 중인 만료 행만 조건부 갱신합니다.
+	 *
+	 * @param previewId 만료 여부를 반영할 금액 미리보기 식별값
+	 * @param now 현재 시각
+	 * @return 이번 호출이 상태를 변경했으면 true
+	 */
+	@Override
+	@Transactional
+	public boolean expirePending(String previewId, OffsetDateTime now) {
+		return repository.expirePending(previewId, now) == 1;
 	}
 
 	/**
