@@ -1,0 +1,17 @@
+package com.jusika.backend.conditionalordermodification;
+
+import com.jusika.backend.conditionalorder.ConditionalOrderModificationResponse;
+import com.jusika.backend.conditionalorder.ConditionalOrderModificationSubmissionRequest;
+
+/** 승인된 조건 주문 정정을 모의 처리하거나 향후 실제 증권사로 전달하는 경계입니다. */
+interface ConditionalOrderModificationGateway {
+
+	/** 검증된 새 전체 구성으로 기존 조건 주문을 대체합니다. */
+	ConditionalOrderModificationResponse modify(
+			long accountSeq,
+			String originalConditionalOrderId,
+			ConditionalOrderModificationSubmissionRequest request);
+
+	/** 현재 정정 경계가 모의인지 실제인지 구분할 이름을 반환합니다. */
+	String mode();
+}

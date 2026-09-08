@@ -31,6 +31,8 @@ import org.springframework.web.client.RestClient;
 import com.jusika.backend.conditionalorder.ConditionalOrderDetailResponse;
 import com.jusika.backend.conditionalorder.ConditionalOrderListResponse;
 import com.jusika.backend.conditionalorder.ConditionalOrderListStatus;
+import com.jusika.backend.conditionalorder.ConditionalOrderModificationResponse;
+import com.jusika.backend.conditionalorder.ConditionalOrderModificationSubmissionRequest;
 import com.jusika.backend.conditionalorder.ConditionalOrderNotFoundException;
 import com.jusika.backend.conditionalorder.ConditionalOrderRequestException;
 import com.jusika.backend.conditionalorder.ConditionalOrderServiceException;
@@ -540,6 +542,95 @@ class TossConditionalOrderClientTests {
 		server.verify();
 	}
 
+	/** OCO 유형 전환 정정을 공식 POST 주소와 전체 구성 본문으로 보내는지 검사합니다. */
+	@Test
+	@DisplayName("조건 주문 OCO 정정을 공식 전체 구성 형식으로 전송한다")
+	void 조건_주문_OCO_정정을_공식_전체_구성_형식으로_전송한다() {
+		정상_토큰_발급_응답을_준비한다();
+		ConditionalOrderModificationSubmissionRequest request = OCO_정정_요청을_만든다();
+		server.expect(requestTo(BASE_URL
+				+ "/api/v1/conditional-orders/" + FIRST_ID + "/modify"))
+				.andExpect(method(HttpMethod.POST))
+				.andExpect(header(HttpHeaders.AUTHORIZATION, "Bearer " + ACCESS_TOKEN))
+				.andExpect(header("X-Tossinvest-Account", Long.toString(ACCOUNT_SEQ)))
+				.andExpect(jsonPath("$.type").value("OCO"))
+				.andExpect(jsonPath("$.quantity").value("10"))
+				.andExpect(jsonPath("$.orderType").value("LIMIT"))
+				.andExpect(jsonPath("$.expireDate").value("2026-09-10"))
+				.andExpect(jsonPath("$.first.orderSide").value("SELL"))
+				.andExpect(jsonPath("$.first.triggerPrice").value("80000"))
+				.andExpect(jsonPath("$.first.orderPrice").value("79000"))
+				.andExpect(jsonPath("$.second.orderSide").value("SELL"))
+				.andExpect(jsonPath("$.second.triggerPrice").value("65000"))
+				.andExpect(jsonPath("$.second.orderPrice").value("64900"))
+				.andExpect(jsonPath("$.confirmHighValueOrder").value(true))
+				.andExpect(jsonPath("$.symbol").doesNotExist())
+				.andExpect(jsonPath("$.clientOrderId").doesNotExist())
+				.andRespond(withSuccess(
+						"{\"result\":{\"conditionalOrderId\":\"replacement-id\"}}",
+						MediaType.APPLICATION_JSON));
+
+		ConditionalOrderModificationResponse response = conditionalOrderClient
+				.modifyConditionalOrder(ACCOUNT_SEQ, FIRST_ID, request);
+
+		assertThat(response.conditionalOrderId()).isEqualTo("replacement-id");
+		server.verify();
+	}
+
+	/** SINGLE 시장가 정정에서는 두 번째 조건과 주문가격을 보내지 않는지 검사합니다. */
+	@Test
+	@DisplayName("SINGLE 시장가 조건 주문 정정에서 선택 필드를 생략한다")
+	void SINGLE_시장가_조건_주문_정정에서_선택_필드를_생략한다() {
+		정상_토큰_발급_응답을_준비한다();
+		ConditionalOrderModificationSubmissionRequest request =
+				new ConditionalOrderModificationSubmissionRequest(
+						ConditionalOrderType.SINGLE, new BigDecimal("1.5"), OrderType.MARKET,
+						LocalDate.parse("2026-09-10"),
+						new ConditionalOrderModificationSubmissionRequest.Condition(
+								OrderSide.SELL, new BigDecimal("190"), null),
+						null, false);
+		server.expect(requestTo(BASE_URL
+				+ "/api/v1/conditional-orders/" + FIRST_ID + "/modify"))
+				.andExpect(jsonPath("$.type").value("SINGLE"))
+				.andExpect(jsonPath("$.first.orderPrice").doesNotExist())
+				.andExpect(jsonPath("$.second").doesNotExist())
+				.andRespond(withSuccess(
+						"{\"result\":{\"conditionalOrderId\":\"replacement-single-id\"}}",
+						MediaType.APPLICATION_JSON));
+
+		ConditionalOrderModificationResponse response = conditionalOrderClient
+				.modifyConditionalOrder(ACCOUNT_SEQ, FIRST_ID, request);
+
+		assertThat(response.conditionalOrderId()).isEqualTo("replacement-single-id");
+		server.verify();
+	}
+
+	/** 조건 주문 정정 4xx는 확정 거절, 5xx는 결과 불명으로 분류하는지 검사합니다. */
+	@Test
+	@DisplayName("조건 주문 정정의 확정 거절과 결과 불명을 구분한다")
+	void 조건_주문_정정의_확정_거절과_결과_불명을_구분한다() {
+		정상_토큰_발급_응답을_준비한다();
+		ConditionalOrderModificationSubmissionRequest request = OCO_정정_요청을_만든다();
+		server.expect(requestTo(BASE_URL
+				+ "/api/v1/conditional-orders/" + FIRST_ID + "/modify"))
+				.andRespond(withStatus(HttpStatus.UNPROCESSABLE_CONTENT));
+		server.expect(requestTo(BASE_URL
+				+ "/api/v1/conditional-orders/" + SECOND_ID + "/modify"))
+				.andRespond(withStatus(HttpStatus.INTERNAL_SERVER_ERROR));
+
+		assertThatThrownBy(() -> conditionalOrderClient.modifyConditionalOrder(
+				ACCOUNT_SEQ, FIRST_ID, request))
+				.isInstanceOf(OrderSubmissionException.class)
+				.satisfies(exception -> assertThat(
+						((OrderSubmissionException) exception).isSubmissionStateUnknown()).isFalse());
+		assertThatThrownBy(() -> conditionalOrderClient.modifyConditionalOrder(
+				ACCOUNT_SEQ, SECOND_ID, request))
+				.isInstanceOf(OrderSubmissionException.class)
+				.satisfies(exception -> assertThat(
+						((OrderSubmissionException) exception).isSubmissionStateUnknown()).isTrue());
+		server.verify();
+	}
+
 	/** 공식 DELETE 주소와 계좌·인증 헤더로 조건 주문을 취소하고 204를 성공 처리하는지 검사합니다. */
 	@Test
 	@DisplayName("조건 주문 취소의 204 응답을 성공으로 처리한다")
@@ -605,6 +696,18 @@ class TossConditionalOrderClientTests {
 				new OtoConditionalOrderSubmissionRequest.Condition(
 						secondSide, new BigDecimal("79000"), new BigDecimal("80000")),
 				false);
+	}
+
+	/** 반복 HTTP 테스트에서 사용할 OCO 정정 전체 구성 요청을 만듭니다. */
+	private ConditionalOrderModificationSubmissionRequest OCO_정정_요청을_만든다() {
+		return new ConditionalOrderModificationSubmissionRequest(
+				ConditionalOrderType.OCO, BigDecimal.TEN, OrderType.LIMIT,
+				LocalDate.parse("2026-09-10"),
+				new ConditionalOrderModificationSubmissionRequest.Condition(
+						OrderSide.SELL, new BigDecimal("80000"), new BigDecimal("79000")),
+				new ConditionalOrderModificationSubmissionRequest.Condition(
+						OrderSide.SELL, new BigDecimal("65000"), new BigDecimal("64900")),
+				true);
 	}
 
 	/** 반복 테스트에서 사용할 OCO 실제 생성 요청을 만듭니다. */

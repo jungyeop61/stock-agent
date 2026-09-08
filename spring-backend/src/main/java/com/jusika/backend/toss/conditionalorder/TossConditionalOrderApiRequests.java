@@ -37,6 +37,28 @@ final class TossConditionalOrderApiRequests {
 	}
 
 	/**
+	 * 조건 주문 정정에서 기존 주문을 대체할 전체 구성의 공식 JSON 필드를 표현합니다.
+	 */
+	@JsonInclude(JsonInclude.Include.NON_NULL)
+	record ModifyRequest(
+			String type,
+			String quantity,
+			String orderType,
+			String expireDate,
+			ConditionRequest first,
+			ConditionRequest second,
+			boolean confirmHighValueOrder) {
+
+		/** 로그에 정정 수량과 모든 조건 가격이 노출되지 않도록 요청 내용을 가립니다. */
+		@Override
+		public String toString() {
+			return "ModifyRequest[type=" + type + ", quantity=***, orderType=" + orderType
+					+ ", expireDate=" + expireDate + ", first=***, second=***"
+					+ ", confirmHighValueOrder=" + confirmHighValueOrder + "]";
+		}
+	}
+
+	/**
 	 * 단일·OCO·OTO 조건 주문의 한 가격 감시 조건을 표현합니다.
 	 */
 	@JsonInclude(JsonInclude.Include.NON_NULL)

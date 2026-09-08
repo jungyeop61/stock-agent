@@ -25,6 +25,8 @@ import com.jusika.backend.conditionalorder.ConditionalOrderDetailResponse.Condit
 import com.jusika.backend.conditionalorder.ConditionalOrderListResponse;
 import com.jusika.backend.conditionalorder.ConditionalOrderListStatus;
 import com.jusika.backend.conditionalorder.ConditionalOrderMarket;
+import com.jusika.backend.conditionalorder.ConditionalOrderModificationResponse;
+import com.jusika.backend.conditionalorder.ConditionalOrderModificationSubmissionRequest;
 import com.jusika.backend.conditionalorder.ConditionalOrderNotFoundException;
 import com.jusika.backend.conditionalorder.ConditionalOrderRequestException;
 import com.jusika.backend.conditionalorder.ConditionalOrderServiceException;
@@ -41,7 +43,9 @@ import com.jusika.backend.toss.conditionalorder.TossConditionalOrderApiResponse.
 import com.jusika.backend.toss.conditionalorder.TossConditionalOrderListApiResponse.TossConditionalOrderPage;
 import com.jusika.backend.toss.conditionalorder.TossConditionalOrderApiRequests.ConditionRequest;
 import com.jusika.backend.toss.conditionalorder.TossConditionalOrderApiRequests.CreateRequest;
+import com.jusika.backend.toss.conditionalorder.TossConditionalOrderApiRequests.ModifyRequest;
 import com.jusika.backend.toss.conditionalorder.TossConditionalOrderCreationApiResponse.CreationResult;
+import com.jusika.backend.toss.conditionalorder.TossConditionalOrderModificationApiResponse.ModificationResult;
 
 /**
  * 토스증권 조건 주문을 조회하고 실행 서비스와 분리된 생성·취소 요청을 안전하게 처리합니다.
@@ -187,6 +191,123 @@ public class TossConditionalOrderClient {
 			throw new ConditionalOrderServiceException(
 					"토스증권 조건 주문 조회 서버와 통신하지 못했습니다.");
 		}
+	}
+
+	/**
+	 * 기존 조건 주문을 취소하고 검증된 새 전체 구성으로 대체 정정을 요청합니다.
+	 * 공식 수정 주소와 새 조건 주문 식별값 응답을 구현하지만 MOCK 안전 서비스에는 연결하지 않습니다.
+	 *
+	 * @param accountSeq 정정할 조건 주문의 계좌 식별값
+	 * @param conditionalOrderId 정정할 기존 조건 주문 식별값
+	 * @param request 최종 검증을 마친 정정 후 전체 구성
+	 * @return 기존 식별값과 다른 새 조건 주문 식별값
+	 */
+	public ConditionalOrderModificationResponse modifyConditionalOrder(
+			long accountSeq,
+			String conditionalOrderId,
+			ConditionalOrderModificationSubmissionRequest request) {
+		validateAccountSeq(accountSeq);
+		String validatedId = validateId(
+				conditionalOrderId, "조건 주문 식별값 형식이 올바르지 않습니다.");
+		validateModificationRequest(request);
+		ModifyRequest body = new ModifyRequest(
+				request.type().name(), request.quantity().toPlainString(),
+				request.orderType().name(), request.expireDate().toString(),
+				toConditionRequest(request.first()), toConditionRequest(request.second()),
+				request.confirmHighValueOrder());
+
+		String accessToken;
+		try {
+			accessToken = tokenProvider.getAccessToken();
+			if (accessToken == null || accessToken.isBlank()) {
+				throw new OrderSubmissionException(
+						"조건 주문 정정 전에 유효한 인증 토큰을 준비하지 못했습니다.", false);
+			}
+		} catch (OrderSubmissionException exception) {
+			throw exception;
+		} catch (RuntimeException exception) {
+			throw new OrderSubmissionException(
+					"조건 주문 정정 전에 인증 토큰을 준비하지 못했습니다.", false);
+		}
+
+		try {
+			TossConditionalOrderModificationApiResponse response = restClient.post()
+					.uri("/api/v1/conditional-orders/{conditionalOrderId}/modify", validatedId)
+					.header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+					.header(ACCOUNT_HEADER, Long.toString(accountSeq))
+					.body(body)
+					.retrieve()
+					.body(TossConditionalOrderModificationApiResponse.class);
+			ModificationResult result = response == null ? null : response.result();
+			if (result == null || !isValidId(result.conditionalOrderId())
+					|| validatedId.equals(result.conditionalOrderId())) {
+				throw new OrderSubmissionException(
+						"조건 주문 정정 응답 형식이 올바르지 않습니다.", true);
+			}
+			return new ConditionalOrderModificationResponse(result.conditionalOrderId());
+		} catch (RestClientResponseException exception) {
+			boolean unknown = exception.getStatusCode().is5xxServerError();
+			throw new OrderSubmissionException(
+					unknown ? "조건 주문 정정 결과를 확인할 수 없습니다."
+							: "토스증권이 조건 주문 정정을 거절했습니다.",
+					unknown);
+		} catch (OrderSubmissionException exception) {
+			throw exception;
+		} catch (RuntimeException exception) {
+			throw new OrderSubmissionException("조건 주문 정정 결과를 확인할 수 없습니다.", true);
+		}
+	}
+
+	/** 조건 주문 정정 요청의 유형별 전체 구성과 필수값을 전송 전에 검사합니다. */
+	private void validateModificationRequest(
+			ConditionalOrderModificationSubmissionRequest request) {
+		if (request == null || request.type() == null || request.quantity() == null
+				|| request.quantity().signum() <= 0
+				|| request.quantity().toPlainString().length() > MAX_DECIMAL_LENGTH
+				|| request.orderType() == null || request.expireDate() == null
+				|| !isValidModificationCondition(request.first(), request.orderType())) {
+			throw new OrderSubmissionException("조건 주문 정정 요청 형식이 올바르지 않습니다.", false);
+		}
+		if ((request.type() == ConditionalOrderType.SINGLE && request.second() != null)
+				|| (request.type() != ConditionalOrderType.SINGLE
+						&& !isValidModificationCondition(request.second(), request.orderType()))) {
+			throw new OrderSubmissionException("조건 주문 정정 조건 구성이 올바르지 않습니다.", false);
+		}
+		if (request.type() != ConditionalOrderType.SINGLE
+				&& (request.orderType() != OrderType.LIMIT
+						|| request.quantity().stripTrailingZeros().scale() > 0)) {
+			throw new OrderSubmissionException(
+					"OCO와 OTO 정정은 정수 수량의 지정가만 사용할 수 있습니다.", false);
+		}
+		if (request.type() == ConditionalOrderType.OCO
+				&& (request.first().side() != com.jusika.backend.orderpreview.OrderSide.SELL
+						|| request.second().side() != com.jusika.backend.orderpreview.OrderSide.SELL)) {
+			throw new OrderSubmissionException("OCO 정정 조건은 모두 매도여야 합니다.", false);
+		}
+		if (request.type() == ConditionalOrderType.OTO
+				&& (request.first().side() != com.jusika.backend.orderpreview.OrderSide.BUY
+						|| request.second().side() != com.jusika.backend.orderpreview.OrderSide.SELL)) {
+			throw new OrderSubmissionException("OTO 정정 조건 방향이 올바르지 않습니다.", false);
+		}
+	}
+
+	/** 정정 요청의 한 조건이 방향·가격·주문 유형 규칙을 만족하는지 확인합니다. */
+	private boolean isValidModificationCondition(
+			ConditionalOrderModificationSubmissionRequest.Condition condition,
+			OrderType orderType) {
+		return condition != null && condition.side() != null
+				&& isValidPositiveSubmissionDecimal(condition.triggerPrice())
+				&& ((orderType == OrderType.LIMIT
+						&& isValidPositiveSubmissionDecimal(condition.orderPrice()))
+						|| (orderType == OrderType.MARKET && condition.orderPrice() == null));
+	}
+
+	/** 정정 제출 조건을 토스증권 공식 조건 JSON 구조로 변환합니다. */
+	private ConditionRequest toConditionRequest(
+			ConditionalOrderModificationSubmissionRequest.Condition condition) {
+		return condition == null ? null : new ConditionRequest(
+				condition.side().name(), condition.triggerPrice().toPlainString(),
+				condition.orderPrice() == null ? null : condition.orderPrice().toPlainString());
 	}
 
 	/**
