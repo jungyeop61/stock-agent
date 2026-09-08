@@ -56,6 +56,9 @@ class AmountOrderExecutionEntity {
 	@Column(name = "submitted_at")
 	private OffsetDateTime submittedAt;
 
+	@Column(name = "recovery_attempted_at")
+	private OffsetDateTime recoveryAttemptedAt;
+
 	@Column(name = "completed_at")
 	private OffsetDateTime completedAt;
 
@@ -89,6 +92,7 @@ class AmountOrderExecutionEntity {
 		this.createdAt = response.createdAt();
 		this.updatedAt = response.updatedAt();
 		this.submittedAt = response.submittedAt();
+		this.recoveryAttemptedAt = response.recoveryAttemptedAt();
 		this.completedAt = response.completedAt();
 	}
 
@@ -122,6 +126,16 @@ class AmountOrderExecutionEntity {
 				createdAt,
 				updatedAt,
 				submittedAt,
+				recoveryAttemptedAt,
 				completedAt);
+	}
+
+	/**
+	 * 안전 복구 검증에만 사용할 최초 금액 주문 요청 지문을 반환합니다.
+	 *
+	 * @return 외부 API에는 공개하지 않는 요청 지문
+	 */
+	String requestFingerprint() {
+		return requestFingerprint;
 	}
 }

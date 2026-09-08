@@ -87,6 +87,78 @@ class AmountOrderExecutionPersistenceTests {
 		assertThat(stored.completedAt()).isNull();
 	}
 
+	/** 결과 불명 실행의 지문을 읽고 복구권과 회수한 주문번호를 한 번만 저장하는지 검사합니다. */
+	@Test
+	@DisplayName("결과 불명 금액 주문을 데이터베이스에서 한 번만 복구한다")
+	void 결과_불명_금액_주문을_데이터베이스에서_한_번만_복구한다() {
+		OffsetDateTime now = OffsetDateTime.of(2026, 9, 8, 12, 0, 0, 0, ZoneOffset.ofHours(9));
+		AmountOrderPreviewResponse preview = 승인된_미리보기를_저장한다(now);
+		AmountOrderExecutionResponse execution = 실행_준비_기록을_만든다(preview.previewId(), now);
+		String fingerprint = "d".repeat(64);
+		executionStore.claim(execution, fingerprint);
+		OffsetDateTime submittedAt = now.plusSeconds(1);
+		executionStore.markSubmitting(execution.executionId(), submittedAt);
+		executionStore.markUnknown(execution.executionId(), submittedAt.plusSeconds(1));
+		OffsetDateTime recoveryStartedAt = submittedAt.plusMinutes(9);
+
+		AmountOrderExecutionRecoveryCandidate candidate = executionStore
+				.findRecoveryCandidateById(execution.executionId()).orElseThrow();
+		boolean claimed = executionStore.claimRecovery(
+				execution.executionId(), recoveryStartedAt.minusMinutes(10), recoveryStartedAt);
+		boolean duplicateClaim = executionStore.claimRecovery(
+				execution.executionId(), recoveryStartedAt.minusMinutes(10), recoveryStartedAt);
+		boolean recovered = executionStore.markRecovered(
+				execution.executionId(), "mock-recovered-amount-order", recoveryStartedAt.plusSeconds(1));
+		AmountOrderExecutionResponse stored = executionStore.findById(execution.executionId()).orElseThrow();
+
+		assertThat(candidate.requestFingerprint()).isEqualTo(fingerprint);
+		assertThat(claimed).isTrue();
+		assertThat(duplicateClaim).isFalse();
+		assertThat(recovered).isTrue();
+		assertThat(stored.status()).isEqualTo(OrderExecutionStatus.ACCEPTED);
+		assertThat(stored.failureType()).isNull();
+		assertThat(stored.recoveryAttemptedAt()).isEqualTo(recoveryStartedAt);
+		assertThat(stored.completedAt()).isEqualTo(recoveryStartedAt.plusSeconds(1));
+	}
+
+	/** 정확히 10분이 지난 실행과 한 번 실패한 복구는 다시 선점되지 않는지 검사합니다. */
+	@Test
+	@DisplayName("만료되거나 이미 실패한 금액 주문 복구권을 데이터베이스에서 차단한다")
+	void 만료되거나_이미_실패한_금액_주문_복구권을_데이터베이스에서_차단한다() {
+		OffsetDateTime now = OffsetDateTime.of(2026, 9, 8, 13, 0, 0, 0, ZoneOffset.ofHours(9));
+		AmountOrderPreviewResponse expiredPreview = 승인된_미리보기를_저장한다(now);
+		AmountOrderExecutionResponse expired = 실행_준비_기록을_만든다(expiredPreview.previewId(), now);
+		executionStore.claim(expired, "e".repeat(64));
+		executionStore.markSubmitting(expired.executionId(), now.plusSeconds(1));
+		executionStore.markUnknown(expired.executionId(), now.plusSeconds(2));
+		OffsetDateTime exactTenMinutes = now.plusSeconds(1).plusMinutes(10);
+
+		boolean expiredClaim = executionStore.claimRecovery(
+				expired.executionId(), exactTenMinutes.minusMinutes(10), exactTenMinutes);
+
+		AmountOrderPreviewResponse retriedPreview = 승인된_미리보기를_저장한다(now.plusMinutes(20));
+		AmountOrderExecutionResponse retried = 실행_준비_기록을_만든다(
+				retriedPreview.previewId(), now.plusMinutes(20));
+		executionStore.claim(retried, "f".repeat(64));
+		OffsetDateTime submittedAt = now.plusMinutes(20).plusSeconds(1);
+		executionStore.markSubmitting(retried.executionId(), submittedAt);
+		executionStore.markUnknown(retried.executionId(), submittedAt.plusSeconds(1));
+		OffsetDateTime recoveryStartedAt = submittedAt.plusMinutes(1);
+		boolean firstClaim = executionStore.claimRecovery(
+				retried.executionId(), recoveryStartedAt.minusMinutes(10), recoveryStartedAt);
+		boolean markedUnknown = executionStore.markRecoveryUnknown(
+				retried.executionId(), recoveryStartedAt.plusSeconds(1));
+		boolean secondClaim = executionStore.claimRecovery(
+				retried.executionId(), recoveryStartedAt.minusMinutes(9), recoveryStartedAt.plusMinutes(1));
+
+		assertThat(expiredClaim).isFalse();
+		assertThat(firstClaim).isTrue();
+		assertThat(markedUnknown).isTrue();
+		assertThat(secondClaim).isFalse();
+		assertThat(executionStore.findById(retried.executionId()).orElseThrow().failureType())
+				.isEqualTo(OrderExecutionFailureType.RECOVERY_UNKNOWN);
+	}
+
 	/** 데이터베이스 테스트에 사용할 승인된 정상 금액 주문 미리보기를 저장합니다. */
 	private AmountOrderPreviewResponse 승인된_미리보기를_저장한다(OffsetDateTime now) {
 		return previewStore.save(new AmountOrderPreviewResponse(
@@ -104,6 +176,6 @@ class AmountOrderExecutionPersistenceTests {
 			OffsetDateTime now) {
 		return new AmountOrderExecutionResponse(
 				UUID.randomUUID().toString(), previewId, UUID.randomUUID().toString(), "MOCK",
-				OrderExecutionStatus.PREPARED, null, null, now, now, null, null);
+				OrderExecutionStatus.PREPARED, null, null, now, now, null, null, null);
 	}
 }

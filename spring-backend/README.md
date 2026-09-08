@@ -5,7 +5,7 @@
 현재는 토스증권 OAuth 인증, 종목 현재가, 원화·달러 참고 환율, 미국 장 운영 일정, 계좌 목록, 보유주식 평가, 매수 가능 금액, 매도 가능 수량과 매매 수수료 조회가 구현되어 있습니다.
 수량 기반 주문 미리보기는 데이터베이스 저장, 만료, 사용자 승인, 최종 재검증과 중복 실행 차단까지 구현되어 있습니다.
 미국 주식 달러 금액 시장가 매수는 미리보기 생성·조회, 2분 승인, 장 운영시간·현재가·수수료·달러 매수 가능 금액·환율의 실행 직전 재검증과 중복 실행 차단까지 구현했습니다.
-제출 결과가 불명확한 주문은 최초 요청 지문을 확인한 뒤 10분 안에 같은 내용으로 한 번만 안전 복구할 수 있습니다.
+제출 결과가 불명확한 수량 주문과 금액 주문은 최초 요청 지문을 확인한 뒤 10분 안에 같은 내용으로 한 번만 안전 복구할 수 있습니다.
 토스증권의 진행 중·종료 주문 목록과 주문 상세·누적 체결 결과를 읽기 전용으로 조회하고, 우리 데이터베이스의 주문 실행 기록도 조회할 수 있습니다.
 진행 중·종료 조건 주문 목록과 조건 주문의 개별 감시 조건도 읽기 전용으로 조회할 수 있습니다.
 `SINGLE`, `OCO`, `OTO` 조건 주문은 현재가·계좌 여력 확인, 2분 승인, 실행 직전 재검증과 중복 실행 차단까지 구현했습니다.
@@ -602,6 +602,7 @@ curl -X POST http://localhost:8080/api/orders/amount/previews/미리보기-식�
   "createdAt": "2026-09-08T09:31:00+09:00",
   "updatedAt": "2026-09-08T09:31:00+09:00",
   "submittedAt": "2026-09-08T09:31:00+09:00",
+  "recoveryAttemptedAt": null,
   "completedAt": "2026-09-08T09:31:00+09:00"
 }
 ```
@@ -613,15 +614,33 @@ curl http://localhost:8080/api/orders/amount/executions/실행-식별값
 ```
 
 제출 결과를 확정할 수 없으면 `status`를 `UNKNOWN`, `failureType`을 `SUBMISSION_UNKNOWN`으로 저장하고 자동으로 다시 주문하지 않습니다.
-금액 주문 UNKNOWN 복구 주소는 아직 제공하지 않으며 다음 단계에서 최초 요청 지문과 동일한 요청만 한 번 복구하도록 별도로 구현합니다.
+이 상태만 다음 주소에서 한 번 안전 복구할 수 있습니다.
 
-금액 주문 미리보기·승인·MOCK 실행과 V11~V13 데이터베이스, HTTP 주소는 실제 토스증권 주문 없이 검사합니다.
+```bash
+curl -X POST http://localhost:8080/api/orders/amount/executions/실행-식별값/recover
+```
+
+금액 주문 안전 복구는 다음 규칙을 모두 적용합니다.
+
+- 최초 제출 시각부터 10분 미만인 실행만 허용하며 정확히 10분이 된 시점부터 HTTP 410으로 거절합니다.
+- 저장된 미리보기와 최초 `clientOrderId`로 원래 금액 주문 본문을 재구성합니다.
+- 계좌와 주문 본문의 SHA-256 지문을 상수 시간 비교해 최초 요청과 완전히 같은지 확인합니다.
+- 최초 실행과 현재 복구 경계가 모두 `MOCK`일 때만 허용합니다.
+- 복구는 기존 요청의 결과를 회수하는 과정이므로 현재가·장 시간·잔고를 다시 조회하거나 주문 본문을 바꾸지 않습니다.
+- 데이터베이스 조건부 갱신으로 같은 실행의 복구권을 한 요청만 확보합니다.
+
+복구가 성공하면 상태를 `ACCEPTED`로 바꾸고 `recoveryAttemptedAt`과 회수한 모의 주문 식별값을 저장합니다.
+복구 결과도 확정할 수 없으면 `failureType`을 `RECOVERY_UNKNOWN`으로 바꿔 두 번째 복구를 금지하며, 주문 목록과 토스증권 앱에서 직접 확인해야 합니다.
+복구 전용 경계도 현재 결정적인 모의 응답만 반환하고 실제 토스증권 금액 주문 클라이언트에는 연결하지 않았습니다.
+
+금액 주문 미리보기·승인·MOCK 실행·안전 복구와 V11~V14 데이터베이스, HTTP 주소는 실제 토스증권 주문 없이 검사합니다.
 
 ```bash
 ./mvnw -Dtest=AmountOrderPreviewServiceTests test
 ./mvnw -Dtest=AmountOrderPreviewPersistenceTests,AmountOrderPreviewControllerTests test
 ./mvnw -Dtest=AmountOrderExecutionServiceTests test
 ./mvnw -Dtest=AmountOrderExecutionPersistenceTests,AmountOrderExecutionControllerTests test
+./mvnw -Dtest=AmountOrderRecoveryServiceTests test
 ```
 
 ## 주문 미리보기 승인

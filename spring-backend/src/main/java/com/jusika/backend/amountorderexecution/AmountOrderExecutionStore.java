@@ -64,6 +64,46 @@ public interface AmountOrderExecutionStore {
 	boolean markUnknown(String executionId, OffsetDateTime failedAt);
 
 	/**
+	 * 안전 복구에 필요한 금액 주문 실행 상태와 비공개 요청 지문을 함께 조회합니다.
+	 *
+	 * @param executionId 조회할 금액 주문 실행 식별값
+	 * @return 복구 후보이며 없으면 빈 값
+	 */
+	Optional<AmountOrderExecutionRecoveryCandidate> findRecoveryCandidateById(String executionId);
+
+	/**
+	 * 10분 안의 최초 결과 불명 금액 주문만 안전 복구 중 상태로 한 번 변경합니다.
+	 *
+	 * @param executionId 변경할 금액 주문 실행 식별값
+	 * @param submittedAfter 이 시각보다 나중에 제출한 실행만 허용하는 하한선
+	 * @param recoveryStartedAt 복구 시작 시각이자 제출 시각의 상한선
+	 * @return 이번 호출이 복구권을 확보했으면 true
+	 */
+	boolean claimRecovery(
+			String executionId,
+			OffsetDateTime submittedAfter,
+			OffsetDateTime recoveryStartedAt);
+
+	/**
+	 * 복구 중 금액 주문을 접수 상태로 확정합니다.
+	 *
+	 * @param executionId 변경할 금액 주문 실행 식별값
+	 * @param brokerOrderId 복구 응답으로 회수한 주문 식별값
+	 * @param completedAt 접수를 확인한 시각
+	 * @return 이번 호출이 상태를 변경했으면 true
+	 */
+	boolean markRecovered(String executionId, String brokerOrderId, OffsetDateTime completedAt);
+
+	/**
+	 * 복구 응답도 불확실한 금액 주문을 재복구할 수 없는 결과 불명 상태로 되돌립니다.
+	 *
+	 * @param executionId 변경할 금액 주문 실행 식별값
+	 * @param failedAt 복구 결과를 확정하지 못한 시각
+	 * @return 이번 호출이 상태를 변경했으면 true
+	 */
+	boolean markRecoveryUnknown(String executionId, OffsetDateTime failedAt);
+
+	/**
 	 * 실행 식별값으로 저장된 금액 주문 실행 기록을 조회합니다.
 	 *
 	 * @param executionId 조회할 실행 식별값

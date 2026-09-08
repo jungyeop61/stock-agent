@@ -14,14 +14,19 @@ import org.springframework.web.bind.annotation.RestController;
 public class AmountOrderExecutionController {
 
 	private final AmountOrderExecutionService executionService;
+	private final AmountOrderRecoveryService recoveryService;
 
 	/**
 	 * 금액 주문의 최종 재검증과 MOCK 실행을 담당하는 서비스를 전달받습니다.
 	 *
 	 * @param executionService 금액 주문 실행 서비스
+	 * @param recoveryService 결과 불명 금액 주문의 안전 복구 서비스
 	 */
-	public AmountOrderExecutionController(AmountOrderExecutionService executionService) {
+	public AmountOrderExecutionController(
+			AmountOrderExecutionService executionService,
+			AmountOrderRecoveryService recoveryService) {
 		this.executionService = executionService;
+		this.recoveryService = recoveryService;
 	}
 
 	/**
@@ -44,5 +49,16 @@ public class AmountOrderExecutionController {
 	@GetMapping("/executions/{executionId}")
 	public AmountOrderExecutionResponse getExecution(@PathVariable String executionId) {
 		return executionService.getExecution(executionId);
+	}
+
+	/**
+	 * 최초 제출 결과가 불명확한 금액 주문의 기존 모의 주문번호를 같은 요청으로 한 번 회수합니다.
+	 *
+	 * @param executionId 안전 복구할 금액 주문 실행 식별값
+	 * @return 복구 뒤 데이터베이스에 저장된 금액 주문 실행 기록
+	 */
+	@PostMapping("/executions/{executionId}/recover")
+	public AmountOrderExecutionResponse recoverExecution(@PathVariable String executionId) {
+		return recoveryService.recoverUnknownExecution(executionId);
 	}
 }

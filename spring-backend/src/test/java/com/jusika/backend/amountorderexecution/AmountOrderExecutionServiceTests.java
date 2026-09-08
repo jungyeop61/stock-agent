@@ -376,6 +376,7 @@ class AmountOrderExecutionServiceTests {
 	private static final class MemoryExecutionStore implements AmountOrderExecutionStore {
 
 		private AmountOrderExecutionResponse execution;
+		private String requestFingerprint;
 
 		/** 같은 미리보기의 첫 실행 준비 기록만 저장합니다. */
 		@Override
@@ -384,6 +385,7 @@ class AmountOrderExecutionServiceTests {
 				return false;
 			}
 			execution = candidate;
+			this.requestFingerprint = requestFingerprint;
 			return true;
 		}
 
@@ -457,6 +459,38 @@ class AmountOrderExecutionServiceTests {
 			return true;
 		}
 
+		/** 저장된 실행 기록과 최초 요청 지문을 복구 후보로 반환합니다. */
+		@Override
+		public Optional<AmountOrderExecutionRecoveryCandidate> findRecoveryCandidateById(
+				String executionId) {
+			return findById(executionId)
+					.map(value -> new AmountOrderExecutionRecoveryCandidate(value, requestFingerprint));
+		}
+
+		/** 이 실행 테스트에서는 안전 복구 선점을 수행하지 않습니다. */
+		@Override
+		public boolean claimRecovery(
+				String executionId,
+				OffsetDateTime submittedAfter,
+				OffsetDateTime recoveryStartedAt) {
+			return false;
+		}
+
+		/** 이 실행 테스트에서는 복구 접수 전이를 수행하지 않습니다. */
+		@Override
+		public boolean markRecovered(
+				String executionId,
+				String brokerOrderId,
+				OffsetDateTime completedAt) {
+			return false;
+		}
+
+		/** 이 실행 테스트에서는 복구 결과 불명 전이를 수행하지 않습니다. */
+		@Override
+		public boolean markRecoveryUnknown(String executionId, OffsetDateTime failedAt) {
+			return false;
+		}
+
 		/** 실행 식별값으로 메모리 실행 기록을 조회합니다. */
 		@Override
 		public Optional<AmountOrderExecutionResponse> findById(String executionId) {
@@ -490,7 +524,8 @@ class AmountOrderExecutionServiceTests {
 			return new AmountOrderExecutionResponse(
 					execution.executionId(), execution.previewId(), execution.clientOrderId(),
 					execution.brokerMode(), status, brokerOrderId, failureType,
-					execution.createdAt(), updatedAt, submittedAt, completedAt);
+					execution.createdAt(), updatedAt, submittedAt,
+					execution.recoveryAttemptedAt(), completedAt);
 		}
 	}
 
@@ -614,6 +649,14 @@ class AmountOrderExecutionServiceTests {
 			}
 			return new OrderCreationResponse(
 					"fake-amount-" + request.clientOrderId(), request.clientOrderId());
+		}
+
+		/** 이 실행 테스트에서는 복구 경계를 호출하지 않습니다. */
+		@Override
+		public OrderCreationResponse recoverAmountOrder(
+				long accountSeq,
+				AmountOrderSubmissionRequest request) {
+			throw new AssertionError("새 금액 주문 실행 중 복구 경계를 호출하면 안 됩니다.");
 		}
 
 		/** 테스트 제출 경계가 모의 모드임을 반환합니다. */

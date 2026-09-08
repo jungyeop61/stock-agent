@@ -102,6 +102,43 @@ class JpaAmountOrderExecutionStore implements AmountOrderExecutionStore {
 				null) == 1;
 	}
 
+	/** 안전 복구에 필요한 금액 주문 실행 기록과 비공개 요청 지문을 함께 조회합니다. */
+	@Override
+	@Transactional(readOnly = true)
+	public Optional<AmountOrderExecutionRecoveryCandidate> findRecoveryCandidateById(
+			String executionId) {
+		return repository.findById(executionId)
+				.map(entity -> new AmountOrderExecutionRecoveryCandidate(
+						entity.toResponse(), entity.requestFingerprint()));
+	}
+
+	/** 유효시간 안의 최초 결과 불명 금액 주문만 한 번 복구 중으로 선점합니다. */
+	@Override
+	@Transactional
+	public boolean claimRecovery(
+			String executionId,
+			OffsetDateTime submittedAfter,
+			OffsetDateTime recoveryStartedAt) {
+		return repository.claimRecovery(executionId, submittedAfter, recoveryStartedAt) == 1;
+	}
+
+	/** 복구 중인 금액 주문을 회수한 주문번호와 함께 접수 상태로 변경합니다. */
+	@Override
+	@Transactional
+	public boolean markRecovered(
+			String executionId,
+			String brokerOrderId,
+			OffsetDateTime completedAt) {
+		return repository.markRecovered(executionId, brokerOrderId, completedAt) == 1;
+	}
+
+	/** 복구 응답도 불확실한 금액 주문을 재복구 불가 상태로 변경합니다. */
+	@Override
+	@Transactional
+	public boolean markRecoveryUnknown(String executionId, OffsetDateTime failedAt) {
+		return repository.markRecoveryUnknown(executionId, failedAt) == 1;
+	}
+
 	/** 실행 식별값으로 저장된 금액 주문 실행 기록을 조회합니다. */
 	@Override
 	@Transactional(readOnly = true)

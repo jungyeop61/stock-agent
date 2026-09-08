@@ -109,4 +109,80 @@ interface AmountOrderExecutionJpaRepository
 			@Param("failureType") OrderExecutionFailureType failureType,
 			@Param("updatedAt") OffsetDateTime updatedAt,
 			@Param("completedAt") OffsetDateTime completedAt);
+
+	/**
+	 * 최초 제출 결과가 불명확하고 멱등성 유효시간 안인 금액 주문만 복구 중으로 선점합니다.
+	 *
+	 * @param executionId 변경할 금액 주문 실행 식별값
+	 * @param submittedAfter 제출 시각이 반드시 이 시각보다 나중이어야 하는 하한선
+	 * @param recoveryStartedAt 복구 시작 시각이자 미래 제출 기록을 거르는 상한선
+	 * @return 상태가 변경된 행의 수
+	 */
+	@Modifying(clearAutomatically = true, flushAutomatically = true)
+	@Query("""
+			update AmountOrderExecutionEntity execution
+			set execution.status = com.jusika.backend.orderexecution.OrderExecutionStatus.RECOVERING,
+				execution.recoveryAttemptedAt = :recoveryStartedAt,
+				execution.updatedAt = :recoveryStartedAt,
+				execution.version = execution.version + 1
+			where execution.executionId = :executionId
+				and execution.status = com.jusika.backend.orderexecution.OrderExecutionStatus.UNKNOWN
+				and execution.failureType = com.jusika.backend.orderexecution.OrderExecutionFailureType.SUBMISSION_UNKNOWN
+				and execution.brokerOrderId is null
+				and execution.completedAt is null
+				and execution.requestFingerprint is not null
+				and execution.recoveryAttemptedAt is null
+				and execution.submittedAt > :submittedAfter
+				and execution.submittedAt <= :recoveryStartedAt
+			""")
+	int claimRecovery(
+			@Param("executionId") String executionId,
+			@Param("submittedAfter") OffsetDateTime submittedAfter,
+			@Param("recoveryStartedAt") OffsetDateTime recoveryStartedAt);
+
+	/**
+	 * 복구 중인 금액 주문에 회수한 주문번호를 저장하고 접수 상태로 변경합니다.
+	 *
+	 * @param executionId 변경할 금액 주문 실행 식별값
+	 * @param brokerOrderId 복구 응답으로 회수한 주문 식별값
+	 * @param completedAt 접수를 확인한 시각
+	 * @return 상태가 변경된 행의 수
+	 */
+	@Modifying(clearAutomatically = true, flushAutomatically = true)
+	@Query("""
+			update AmountOrderExecutionEntity execution
+			set execution.status = com.jusika.backend.orderexecution.OrderExecutionStatus.ACCEPTED,
+				execution.brokerOrderId = :brokerOrderId,
+				execution.failureType = null,
+				execution.completedAt = :completedAt,
+				execution.updatedAt = :completedAt,
+				execution.version = execution.version + 1
+			where execution.executionId = :executionId
+				and execution.status = com.jusika.backend.orderexecution.OrderExecutionStatus.RECOVERING
+			""")
+	int markRecovered(
+			@Param("executionId") String executionId,
+			@Param("brokerOrderId") String brokerOrderId,
+			@Param("completedAt") OffsetDateTime completedAt);
+
+	/**
+	 * 복구 결과도 불명확한 금액 주문을 두 번째 복구가 불가능한 상태로 되돌립니다.
+	 *
+	 * @param executionId 변경할 금액 주문 실행 식별값
+	 * @param failedAt 복구 결과를 확정하지 못한 시각
+	 * @return 상태가 변경된 행의 수
+	 */
+	@Modifying(clearAutomatically = true, flushAutomatically = true)
+	@Query("""
+			update AmountOrderExecutionEntity execution
+			set execution.status = com.jusika.backend.orderexecution.OrderExecutionStatus.UNKNOWN,
+				execution.failureType = com.jusika.backend.orderexecution.OrderExecutionFailureType.RECOVERY_UNKNOWN,
+				execution.updatedAt = :failedAt,
+				execution.version = execution.version + 1
+			where execution.executionId = :executionId
+				and execution.status = com.jusika.backend.orderexecution.OrderExecutionStatus.RECOVERING
+			""")
+	int markRecoveryUnknown(
+			@Param("executionId") String executionId,
+			@Param("failedAt") OffsetDateTime failedAt);
 }

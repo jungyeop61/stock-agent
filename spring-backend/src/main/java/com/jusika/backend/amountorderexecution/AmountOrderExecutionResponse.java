@@ -18,6 +18,7 @@ import com.jusika.backend.orderexecution.OrderExecutionStatus;
  * @param createdAt 실행 기록을 만든 시각
  * @param updatedAt 실행 상태를 마지막으로 바꾼 시각
  * @param submittedAt 주문 제출을 시작한 시각이며 시작 전에는 null
+ * @param recoveryAttemptedAt 결과 불명 주문의 안전 복구를 시작한 시각이며 시도 전에는 null
  * @param completedAt 접수 또는 거절을 확정한 시각이며 결과 불명이면 null
  */
 public record AmountOrderExecutionResponse(
@@ -31,6 +32,7 @@ public record AmountOrderExecutionResponse(
 		OffsetDateTime createdAt,
 		OffsetDateTime updatedAt,
 		OffsetDateTime submittedAt,
+		OffsetDateTime recoveryAttemptedAt,
 		OffsetDateTime completedAt) {
 
 	/**
@@ -44,6 +46,8 @@ public record AmountOrderExecutionResponse(
 				+ ", brokerMode=" + brokerMode + ", status=" + status
 				+ ", brokerOrderId=***, failureType=" + failureType
 				+ ", createdAt=" + createdAt + ", updatedAt=" + updatedAt
-				+ ", submittedAt=" + submittedAt + ", completedAt=" + completedAt + "]";
+				+ ", submittedAt=" + submittedAt
+				+ ", recoveryAttemptedAt=" + recoveryAttemptedAt
+				+ ", completedAt=" + completedAt + "]";
 	}
 }
