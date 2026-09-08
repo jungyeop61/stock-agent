@@ -2,7 +2,7 @@
 
 금융 거래의 최종 책임을 갖는 Spring Boot 프로젝트입니다.
 
-현재는 토스증권 OAuth 인증, 종목 현재가, 원화·달러 참고 환율, 계좌 목록, 보유주식 평가, 매수 가능 금액, 매도 가능 수량과 매매 수수료 조회가 구현되어 있습니다.
+현재는 토스증권 OAuth 인증, 종목 현재가, 원화·달러 참고 환율, 미국 장 운영 일정, 계좌 목록, 보유주식 평가, 매수 가능 금액, 매도 가능 수량과 매매 수수료 조회가 구현되어 있습니다.
 수량 기반 주문 미리보기는 데이터베이스 저장, 만료, 사용자 승인, 최종 재검증과 중복 실행 차단까지 구현되어 있습니다.
 미국 주식 달러 금액 시장가 매수는 현재가·수수료·달러 매수 가능 금액·원화 환산 고액 여부를 검증하는 미리보기 생성·조회와 2분 승인까지 구현했습니다.
 제출 결과가 불명확한 주문은 최초 요청 지문을 확인한 뒤 10분 안에 같은 내용으로 한 번만 안전 복구할 수 있습니다.
@@ -129,6 +129,77 @@ curl --get http://localhost:8080/api/market/exchange-rate \
 ```bash
 ./mvnw -Dtest=TossExchangeRateClientTests,ExchangeRateControllerTests test
 RUN_TOSS_LIVE_TEST=true ./mvnw -Dtest=TossExchangeRateLiveTests test
+```
+
+## 미국 장 운영 일정 조회
+
+토스증권의 미국 시장 운영 캘린더를 읽기 전용으로 조회합니다.
+날짜를 생략하면 토스증권의 현재 기준일을 사용하며, `date`를 입력할 때는 미국 현지 날짜를 `YYYY-MM-DD` 형식으로 전달합니다.
+
+```bash
+curl 'http://localhost:8080/api/market/us/calendar?date=2026-03-25'
+```
+
+응답에는 조회 기준일과 직전·다음 영업일이 포함됩니다.
+각 날짜에는 데이마켓, 프리마켓, 정규장, 애프터마켓의 시작·종료 시각이 한국 표준시로 표시됩니다.
+
+```json
+{
+  "today": {
+    "date": "2026-03-25",
+    "businessDay": true,
+    "dayMarket": {
+      "startTime": "2026-03-25T09:00:00+09:00",
+      "endTime": "2026-03-25T16:50:00+09:00"
+    },
+    "preMarket": {
+      "startTime": "2026-03-25T17:00:00+09:00",
+      "endTime": "2026-03-25T22:30:00+09:00"
+    },
+    "regularMarket": {
+      "startTime": "2026-03-25T22:30:00+09:00",
+      "endTime": "2026-03-26T05:00:00+09:00"
+    },
+    "afterMarket": {
+      "startTime": "2026-03-26T05:00:00+09:00",
+      "endTime": "2026-03-26T07:00:00+09:00"
+    }
+  },
+  "previousBusinessDay": {
+    "date": "2026-03-24",
+    "businessDay": true,
+    "dayMarket": null,
+    "preMarket": null,
+    "regularMarket": {
+      "startTime": "2026-03-24T22:30:00+09:00",
+      "endTime": "2026-03-25T05:00:00+09:00"
+    },
+    "afterMarket": null
+  },
+  "nextBusinessDay": {
+    "date": "2026-03-26",
+    "businessDay": true,
+    "dayMarket": null,
+    "preMarket": null,
+    "regularMarket": {
+      "startTime": "2026-03-26T22:30:00+09:00",
+      "endTime": "2026-03-27T05:00:00+09:00"
+    },
+    "afterMarket": null
+  }
+}
+```
+
+미국 시장이 휴장하면 기준일의 네 세션이 모두 `null`이고 `businessDay`는 `false`입니다.
+서버는 요청 날짜 일치 여부, 직전·다음 영업일 순서, 각 세션이 한국 표준시인지와 시작 시각이 종료 시각보다 앞서는지를 검사합니다.
+현재 단계는 시장 일정 조회만 제공하며 금액 주문 실행 가능 여부 판단이나 토스증권 주문 API에는 연결하지 않았습니다.
+
+평소 자동 테스트는 실제 서버 대신 가짜 HTTP 서버를 사용합니다.
+읽기 전용 실제 일정 테스트도 사용자가 환경변수를 명시했을 때만 실행됩니다.
+
+```bash
+./mvnw -Dtest=TossUsMarketCalendarClientTests,UsMarketCalendarControllerTests test
+RUN_TOSS_LIVE_TEST=true ./mvnw -Dtest=TossUsMarketCalendarLiveTests test
 ```
 
 ## 계좌 목록 조회
