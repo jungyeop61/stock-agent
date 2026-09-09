@@ -92,6 +92,7 @@ public class OrderCancellationService {
 		OrderCancellationPreviewResponse preview = findPreview(previewId);
 		OffsetDateTime startedAt = OffsetDateTime.now(clock);
 		validateExecutablePreview(preview, startedAt);
+		cancellationGateway.requireCancellationAvailable();
 
 		OrderDetailResponse current = historyClient.getOrder(preview.accountSeq(), preview.orderId());
 		validateOrderIdentity(current, preview.accountSeq(), preview.orderId());

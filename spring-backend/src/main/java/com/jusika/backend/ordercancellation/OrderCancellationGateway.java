@@ -5,6 +5,12 @@ import com.jusika.backend.order.OrderOperationResponse;
 /** 승인된 취소 요청을 모의 처리 또는 향후 실제 증권사로 전달하는 경계입니다. */
 interface OrderCancellationGateway {
 
+	/**
+	 * 최신 주문 재조회, 미리보기 소비와 취소 실행권 확보 전에 취소 경계가 안전한지 확인합니다.
+	 * 실제 취소 구현은 전역 LIVE 안전정책을 통과하지 못하면 여기서 즉시 차단해야 합니다.
+	 */
+	void requireCancellationAvailable();
+
 	/** 계좌의 원주문을 취소하고 취소된 주문 식별값을 반환합니다. */
 	OrderOperationResponse cancelOrder(long accountSeq, String orderId);
 
