@@ -83,6 +83,29 @@ curl -H "X-Jusika-Api-Key: $JUSIKA_INTERNAL_ORDER_API_KEY" \
 아래의 기존 계좌·주문 `curl` 예시는 요청 형식에 집중하기 위해 인증 헤더를 반복해서 적지 않았으므로, 실제 호출할 때 조회에는 읽기 키 헤더를, 미리보기·승인·실행·복구에는 주문 키 헤더를 함께 전달해야 합니다.
 이번 단계는 컨트롤러 진입 전 인증·권한 검사만 추가했으며 실제 토스증권 주문 어댑터를 연결하지 않았고 데이터베이스 마이그레이션도 없습니다.
 
+### 보호 API 요청 감사 추적
+
+모든 `/api/**` 응답에는 `X-Jusika-Request-Id` 헤더가 포함됩니다.
+클라이언트가 이 헤더에 정규 UUID를 보내면 같은 값을 사용하고, 누락하거나 다른 문자열을 보내면 서버가 새 UUID로 교체합니다.
+
+읽기 또는 주문 권한으로 보호된 요청은 다음 값만 `JUSIKA_INTERNAL_API_AUDIT` 로거에 한 줄로 기록합니다.
+
+- 요청 시작 시각과 요청 UUID
+- `GET`, `POST` 같은 HTTP 메서드
+- 실제 계좌번호와 주문 식별값이 제거된 라우트 템플릿
+- 요구 권한과 비밀값을 제외한 인증 결과
+- 권한 거절, 처리 완료 또는 처리 실패 결과
+- 최종 HTTP 상태와 처리 시간
+
+예를 들어 실행 식별값이 포함된 실제 URL을 호출해도 로그의 라우트는 다음처럼 기록됩니다.
+
+```text
+event=internal_api_audit occurredAt=<요청-시각> requestId=<요청-UUID> method=GET route=/api/orders/executions/{executionId} authority=READ authentication=ALLOWED outcome=REQUEST_COMPLETED status=200 durationMs=<처리-시간>
+```
+
+내부 API 키 원문, 요청 본문, 쿼리 문자열, 실제 계좌번호, 토큰과 실제 주문 식별값은 감사 사건에 포함하지 않습니다.
+공개 API도 응답 요청 UUID는 받지만 내부 권한 감사 로그의 대상은 아닙니다.
+
 ```bash
 ./mvnw -Dtest=InternalApiKeyAuthenticationServiceTests,InternalApiAuthorizationInterceptorTests,InternalApiAuthorizationIntegrationTests test
 ```
