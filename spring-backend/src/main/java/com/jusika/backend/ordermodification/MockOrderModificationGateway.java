@@ -10,6 +10,12 @@ import com.jusika.backend.order.OrderOperationResponse;
 @Component
 @ConditionalOnProperty(name = "jusika.broker.mode", havingValue = "mock", matchIfMissing = true)
 class MockOrderModificationGateway implements OrderModificationGateway {
+	/** 모의 정정은 실제 증권사 주문을 변경하지 않으므로 별도 차단 없이 사용할 수 있습니다. */
+	@Override
+	public void requireModificationAvailable() {
+		// MOCK 모드는 실제 네트워크 정정 요청을 만들지 않습니다.
+	}
+
 	/** 네트워크 호출 없이 원주문과 다른 모의 정정 주문번호를 반환합니다. */
 	@Override
 	public OrderOperationResponse modifyOrder(

@@ -17,6 +17,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import com.jusika.backend.brokersafety.BrokerMutationBlockedException;
 import com.jusika.backend.order.OrderModificationSubmissionRequest;
 import com.jusika.backend.order.OrderOperationResponse;
 import com.jusika.backend.orderexecution.OrderExecutionConflictException;
@@ -146,6 +147,25 @@ class OrderModificationServiceTests {
 				.isInstanceOf(OrderExecutionConflictException.class)
 				.hasMessageContaining("원주문 내용이 변경");
 		assertThat(executionStore.values).isEmpty();
+		assertThat(gateway.callCount).isZero();
+	}
+
+	/** LIVE 가용성 검사가 실패하면 외부 조회나 미리보기·실행 상태를 변경하지 않는지 검사합니다. */
+	@Test
+	@DisplayName("LIVE 안전정책 차단은 주문 정정 재조회와 미리보기 소비 전에 적용된다")
+	void LIVE_안전정책_차단은_주문_정정_재조회와_미리보기_소비_전에_적용된다() {
+		OrderModificationPreviewResponse preview = 승인된_미리보기를_저장한다();
+		gateway.availabilityFailure = new BrokerMutationBlockedException(
+				"테스트 LIVE 주문 정정 차단");
+
+		assertThatThrownBy(() -> service.executeApprovedPreview(preview.previewId()))
+				.isInstanceOf(BrokerMutationBlockedException.class)
+				.hasMessage("테스트 LIVE 주문 정정 차단");
+		assertThat(previewStore.findById(preview.previewId()).orElseThrow().status())
+				.isEqualTo(OrderModificationPreviewStatus.APPROVED);
+		assertThat(executionStore.values).isEmpty();
+		assertThat(historyClient.callCount).isZero();
+		assertThat(priceClient.callCount).isZero();
 		assertThat(gateway.callCount).isZero();
 	}
 
@@ -318,6 +338,11 @@ class OrderModificationServiceTests {
 	private static final class RecordingModificationGateway implements OrderModificationGateway {
 		private int callCount;
 		private boolean unknown;
+		private RuntimeException availabilityFailure;
+		/** 준비한 LIVE 안전 차단을 재현하거나 MOCK 정정 사용 가능 상태를 유지합니다. */
+		@Override public void requireModificationAvailable() {
+			if (availabilityFailure != null) throw availabilityFailure;
+		}
 		/** 정정 호출을 기록하고 새 모의 주문번호 또는 결과 불명 오류를 반환합니다. */
 		@Override public OrderOperationResponse modifyOrder(
 				long accountSeq, String originalOrderId, OrderModificationSubmissionRequest request) {

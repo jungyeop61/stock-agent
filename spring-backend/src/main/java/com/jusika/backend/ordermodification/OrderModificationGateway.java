@@ -5,6 +5,12 @@ import com.jusika.backend.order.OrderOperationResponse;
 
 /** 승인된 주문 정정을 모의 처리하거나 향후 실제 증권사로 전달하는 경계입니다. */
 interface OrderModificationGateway {
+	/**
+	 * 최신 주문·현재가 재조회, 미리보기 소비와 정정 실행권 확보 전에 경계가 안전한지 확인합니다.
+	 * 실제 정정 구현은 전역 LIVE 안전정책을 통과하지 못하면 여기서 즉시 차단해야 합니다.
+	 */
+	void requireModificationAvailable();
+
 	/** 원주문을 검증된 새 유형·수량·가격으로 정정합니다. */
 	OrderOperationResponse modifyOrder(
 			long accountSeq, String originalOrderId, OrderModificationSubmissionRequest request);
