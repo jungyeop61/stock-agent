@@ -4,13 +4,14 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 
+import com.jusika.backend.brokersafety.BrokerSafetyProperties;
 import com.jusika.backend.orderpreview.OrderPreviewProperties;
 
 /**
  * 주식아 스프링 백엔드를 시작하는 진입점입니다.
  */
 @SpringBootApplication
-@EnableConfigurationProperties(OrderPreviewProperties.class)
+@EnableConfigurationProperties({OrderPreviewProperties.class, BrokerSafetyProperties.class})
 public class JusikaBackendApplication {
 
 	/**

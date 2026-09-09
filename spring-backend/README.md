@@ -15,6 +15,7 @@
 미체결 주문 정정은 국내·미국별 수량·가격 규칙, 고액 주문 확인, 승인과 실행 직전 재검증까지 구현했습니다.
 토스증권 주문 생성 클라이언트는 수량 주문과 미국 주식 금액 주문 형식 및 멱등성 처리를 구현했습니다.
 승인된 주문 실행·복구·취소·정정과 조건 주문 생성·취소·정정 API는 `MOCK` 경계에만 연결되어 실제 주문을 생성하거나 변경할 수는 없습니다.
+전역 실행 안전장치는 기본 `MOCK`, LIVE 기능 비활성화, 긴급 차단 스위치 활성화와 실제 어댑터 미연결의 네 겹 차단 상태입니다.
 
 ## 담당 범위
 
@@ -43,6 +44,45 @@ Maven Wrapper와 프로젝트 설정이 정상인지 확인합니다.
 ```
 
 실행 후 `http://localhost:8080/actuator/health`에서 상태를 확인합니다.
+
+## 실제 주문 연결 전역 안전장치
+
+실제 매수·매도·취소·정정 어댑터를 연결하기 전에 다음 세 설정을 중앙 정책에서 함께 검사합니다.
+
+- `JUSIKA_BROKER_MODE`: 기본값은 `mock`이며 `live`가 아니면 실제 주문을 차단합니다.
+- `JUSIKA_LIVE_TRADING_ENABLED`: 기본값은 `false`이며 사용자의 명시적 허락 전에는 활성화하지 않습니다.
+- `JUSIKA_TRADING_KILL_SWITCH_ACTIVE`: 기본값은 `true`이며 활성화된 동안 실제 주문을 즉시 차단합니다.
+
+현재는 세 안전 설정이 모두 열려 있더라도 실제 주문 어댑터 연결값이 코드에서 `false`로 고정되어 있습니다.
+따라서 환경변수만 바꿔서는 실제 토스증권 주문을 생성하거나 변경할 수 없습니다.
+향후 실제 어댑터는 증권사 변경 요청 직전에 반드시 중앙 안전 정책의 최종 검사를 통과해야 합니다.
+
+현재 상태는 계좌번호, 토큰이나 주문 식별값 없이 조회할 수 있습니다.
+
+```bash
+curl http://localhost:8080/api/broker/safety
+```
+
+기본 응답은 다음과 같습니다.
+
+```json
+{
+  "mode": "MOCK",
+  "liveEnabled": false,
+  "killSwitchActive": true,
+  "liveSafetyGateOpen": false,
+  "liveAdapterConnected": false,
+  "liveMutationAvailable": false,
+  "blockReason": "MOCK_MODE"
+}
+```
+
+`blockReason`은 `MOCK_MODE`, `LIVE_FEATURE_DISABLED`, `KILL_SWITCH_ACTIVE`, `LIVE_ADAPTER_NOT_CONNECTED` 중 현재 가장 우선적인 차단 사유를 반환합니다.
+이 단계는 설정과 읽기 전용 상태 조회만 추가하므로 데이터베이스 마이그레이션이 없습니다.
+
+```bash
+./mvnw -Dtest=BrokerMutationSafetyPolicyTests,BrokerSafetyControllerTests test
+```
 
 ## 토스증권 인증 테스트
 

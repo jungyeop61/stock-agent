@@ -35,6 +35,8 @@ jusika:
     expiration: ${ORDER_PREVIEW_EXPIRATION:2m}
   broker:
     mode: ${JUSIKA_BROKER_MODE:mock}
+    live-enabled: ${JUSIKA_LIVE_TRADING_ENABLED:false}
+    kill-switch-active: ${JUSIKA_TRADING_KILL_SWITCH_ACTIVE:true}
   toss:
     base-url: ${TOSSINVEST_BASE_URL:https://openapi.tossinvest.com}
     client-id: ${TOSSINVEST_CLIENT_ID:}

@@ -1,0 +1,22 @@
+package com.jusika.backend.brokersafety;
+
+/**
+ * 비밀정보 없이 현재 증권사 주문 변경 안전장치 상태를 표현합니다.
+ *
+ * @param mode 현재 요청한 증권사 실행 모드
+ * @param liveEnabled 실제 주문 기능 플래그 상태
+ * @param killSwitchActive 긴급 차단 스위치 상태
+ * @param liveSafetyGateOpen 실제 주문 안전 설정 세 가지가 모두 통과했는지 여부
+ * @param liveAdapterConnected 실제 주문 변경 어댑터가 연결되어 있는지 여부
+ * @param liveMutationAvailable 현재 실제 주문 변경이 가능한지 여부
+ * @param blockReason 실제 주문 변경을 차단하는 우선 사유
+ */
+public record BrokerSafetyStatusResponse(
+		BrokerExecutionMode mode,
+		boolean liveEnabled,
+		boolean killSwitchActive,
+		boolean liveSafetyGateOpen,
+		boolean liveAdapterConnected,
+		boolean liveMutationAvailable,
+		BrokerSafetyBlockReason blockReason) {
+}
