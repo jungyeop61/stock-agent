@@ -167,6 +167,7 @@ public class OcoConditionalOrderService {
 		OcoConditionalOrderPreviewResponse preview = findPreview(previewId);
 		OffsetDateTime startedAt = OffsetDateTime.now(clock);
 		validateExecutablePreview(preview, startedAt);
+		submissionGateway.requireSubmissionAvailable();
 		Revalidation revalidation = revalidateConditions(preview);
 		if (revalidation.requiresHighValueConfirmation()
 				&& !preview.requiresHighValueConfirmation()) {

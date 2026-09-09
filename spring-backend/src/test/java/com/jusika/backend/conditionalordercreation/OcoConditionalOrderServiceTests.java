@@ -19,6 +19,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import com.jusika.backend.brokersafety.BrokerMutationBlockedException;
 import com.jusika.backend.commission.CommissionsResponse;
 import com.jusika.backend.commission.CommissionsResponse.CommissionItem;
 import com.jusika.backend.conditionalorder.ConditionalOrderCreationResponse;
@@ -216,6 +217,30 @@ class OcoConditionalOrderServiceTests {
 		assertThatThrownBy(() -> service.executeApprovedPreview(preview.previewId()))
 				.isInstanceOf(OrderPreviewStateException.class);
 		assertThat(gateway.callCount).isEqualTo(1);
+	}
+
+	/** LIVE 가용성 검사가 실패하면 금융 조회나 미리보기·실행 상태를 변경하지 않는지 검사합니다. */
+	@Test
+	@DisplayName("LIVE 안전정책 차단은 OCO 조건 주문 재조회와 미리보기 소비 전에 적용된다")
+	void LIVE_안전정책_차단은_OCO_조건_주문_재조회와_미리보기_소비_전에_적용된다() {
+		OcoConditionalOrderPreviewResponse preview = service.createPreview(기본_OCO_요청을_만든다());
+		service.approvePreview(preview.previewId());
+		gateway.availabilityFailure = new BrokerMutationBlockedException(
+				"테스트 LIVE OCO 조건 주문 차단");
+		int previewPriceCalls = priceClient.callCount;
+		int previewSellableCalls = sellableQuantityClient.callCount;
+		int previewCommissionCalls = commissionsClient.callCount;
+
+		assertThatThrownBy(() -> service.executeApprovedPreview(preview.previewId()))
+				.isInstanceOf(BrokerMutationBlockedException.class)
+				.hasMessage("테스트 LIVE OCO 조건 주문 차단");
+		assertThat(previewStore.findById(preview.previewId()).orElseThrow().status())
+				.isEqualTo(OrderPreviewStatus.APPROVED);
+		assertThat(executionStore.values).isEmpty();
+		assertThat(priceClient.callCount).isEqualTo(previewPriceCalls);
+		assertThat(sellableQuantityClient.callCount).isEqualTo(previewSellableCalls);
+		assertThat(commissionsClient.callCount).isEqualTo(previewCommissionCalls);
+		assertThat(gateway.callCount).isZero();
 	}
 
 	/** 승인 후 현재가가 감시가격 범위를 벗어나면 실행권 생성 전에 안전하게 중단합니다. */
@@ -490,6 +515,15 @@ class OcoConditionalOrderServiceTests {
 		private int callCount;
 		private boolean unknown;
 		private OcoConditionalOrderSubmissionRequest request;
+		private RuntimeException availabilityFailure;
+
+		/** 준비한 LIVE 안전 차단을 재현하거나 MOCK OCO 사용 가능 상태를 유지합니다. */
+		@Override
+		public void requireSubmissionAvailable() {
+			if (availabilityFailure != null) {
+				throw availabilityFailure;
+			}
+		}
 
 		/** 호출을 기록하고 모의 OCO 식별값 또는 결과 불명 오류를 반환합니다. */
 		@Override
