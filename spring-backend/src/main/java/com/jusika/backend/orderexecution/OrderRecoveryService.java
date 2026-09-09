@@ -72,6 +72,7 @@ public class OrderRecoveryService {
 		OffsetDateTime startedAt = OffsetDateTime.now(clock);
 		QuantityOrderSubmissionRequest request = createOriginalRequest(execution, preview);
 		validateRecoveryCandidate(candidate, preview, request, startedAt);
+		submissionGateway.requireSubmissionAvailable();
 
 		OffsetDateTime submittedAfter = startedAt.minus(IDEMPOTENCY_WINDOW);
 		if (!executionStore.claimRecovery(executionId, submittedAfter, startedAt)) {

@@ -9,6 +9,12 @@ import com.jusika.backend.order.QuantityOrderSubmissionRequest;
 public interface OrderSubmissionGateway {
 
 	/**
+	 * 미리보기 소비나 복구권 확보 전에 현재 주문 제출 경계가 안전하게 사용 가능한지 확인합니다.
+	 * 실제 주문 구현은 전역 LIVE 안전정책을 통과하지 못하면 여기서 즉시 차단해야 합니다.
+	 */
+	void requireSubmissionAvailable();
+
+	/**
 	 * 수량 기반 주문을 현재 설정된 증권사 모드로 제출합니다.
 	 *
 	 * @param accountSeq 주문에 사용할 계좌 식별값

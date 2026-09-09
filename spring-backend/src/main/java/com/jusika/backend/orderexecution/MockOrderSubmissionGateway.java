@@ -14,6 +14,14 @@ import com.jusika.backend.order.QuantityOrderSubmissionRequest;
 class MockOrderSubmissionGateway implements OrderSubmissionGateway {
 
 	/**
+	 * 네트워크를 사용하지 않는 MOCK 제출 경계가 항상 사용 가능함을 확인합니다.
+	 */
+	@Override
+	public void requireSubmissionAvailable() {
+		// MOCK 구현은 실제 증권사 주문을 전송하지 않으므로 추가 차단 조건이 없습니다.
+	}
+
+	/**
 	 * 네트워크 호출 없이 멱등성 식별값으로 결정적인 모의 주문번호를 만듭니다.
 	 *
 	 * @param accountSeq 주문에 사용할 계좌 식별값

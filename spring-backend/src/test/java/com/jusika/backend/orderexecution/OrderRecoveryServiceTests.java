@@ -17,6 +17,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import com.jusika.backend.brokersafety.BrokerMutationBlockedException;
 import com.jusika.backend.order.OrderCreationResponse;
 import com.jusika.backend.order.OrderTimeInForce;
 import com.jusika.backend.order.QuantityOrderSubmissionRequest;
@@ -86,6 +87,25 @@ class OrderRecoveryServiceTests {
 				fixture.execution().executionId()))
 				.isInstanceOf(OrderExecutionConflictException.class);
 		assertThat(submissionGateway.recoveryCallCount).isOne();
+	}
+
+	/** LIVE 가용성 검사가 실패하면 복구권과 결과 불명 상태를 그대로 유지하는지 검사합니다. */
+	@Test
+	@DisplayName("LIVE 안전정책 차단은 복구권 확보 전에 적용된다")
+	void LIVE_안전정책_차단은_복구권_확보_전에_적용된다() {
+		RecoveryFixture fixture = 복구_대상을_저장한다(현재시각().minusMinutes(1));
+		submissionGateway.availabilityFailure = new BrokerMutationBlockedException(
+				"테스트 LIVE 복구 차단");
+
+		assertThatThrownBy(() -> service.recoverUnknownExecution(
+				fixture.execution().executionId()))
+				.isInstanceOf(BrokerMutationBlockedException.class)
+				.hasMessage("테스트 LIVE 복구 차단");
+		OrderExecutionResponse stored = executionStore.findById(
+				fixture.execution().executionId()).orElseThrow();
+		assertThat(stored.status()).isEqualTo(OrderExecutionStatus.UNKNOWN);
+		assertThat(stored.recoveryAttemptedAt()).isNull();
+		assertThat(submissionGateway.recoveryCallCount).isZero();
 	}
 
 	/**
@@ -488,6 +508,15 @@ class OrderRecoveryServiceTests {
 		private String mode = "MOCK";
 		private OrderSubmissionException failure;
 		private OrderCreationResponse response;
+		private RuntimeException availabilityFailure;
+
+		/** 준비한 LIVE 안전 차단을 복구권 확보 전에 재현하거나 MOCK 사용을 허용합니다. */
+		@Override
+		public void requireSubmissionAvailable() {
+			if (availabilityFailure != null) {
+				throw availabilityFailure;
+			}
+		}
 
 		/** 이 복구 테스트에서는 새 주문 제출을 허용하지 않습니다. */
 		@Override
