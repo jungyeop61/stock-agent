@@ -166,6 +166,7 @@ public class SingleConditionalOrderService {
 		SingleConditionalOrderPreviewResponse preview = findPreview(previewId);
 		OffsetDateTime startedAt = OffsetDateTime.now(clock);
 		validateExecutablePreview(preview, startedAt);
+		submissionGateway.requireSubmissionAvailable();
 		Calculation calculation = revalidateAccountConditions(preview);
 		if (calculation.requiresHighValueConfirmation()
 				&& !preview.requiresHighValueConfirmation()) {

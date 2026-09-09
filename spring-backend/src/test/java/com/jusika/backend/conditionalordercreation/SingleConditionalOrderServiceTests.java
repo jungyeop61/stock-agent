@@ -19,6 +19,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import com.jusika.backend.brokersafety.BrokerMutationBlockedException;
 import com.jusika.backend.buyingpower.BuyingPowerResponse;
 import com.jusika.backend.commission.CommissionsResponse;
 import com.jusika.backend.commission.CommissionsResponse.CommissionItem;
@@ -184,6 +185,31 @@ class SingleConditionalOrderServiceTests {
 		assertThatThrownBy(() -> service.executeApprovedPreview(preview.previewId()))
 				.isInstanceOf(OrderPreviewStateException.class);
 		assertThat(gateway.callCount).isEqualTo(1);
+	}
+
+	/** LIVE 가용성 검사가 실패하면 금융 조회나 미리보기·실행 상태를 변경하지 않는지 검사합니다. */
+	@Test
+	@DisplayName("LIVE 안전정책 차단은 SINGLE 조건 주문 재조회와 미리보기 소비 전에 적용된다")
+	void LIVE_안전정책_차단은_SINGLE_조건_주문_재조회와_미리보기_소비_전에_적용된다() {
+		SingleConditionalOrderPreviewResponse preview = service.createPreview(
+				국내_지정가_매수_요청을_만든다());
+		service.approvePreview(preview.previewId());
+		gateway.availabilityFailure = new BrokerMutationBlockedException(
+				"테스트 LIVE SINGLE 조건 주문 차단");
+		int previewPriceCalls = priceClient.callCount;
+		int previewBuyingPowerCalls = buyingPowerClient.callCount;
+		int previewCommissionCalls = commissionsClient.callCount;
+
+		assertThatThrownBy(() -> service.executeApprovedPreview(preview.previewId()))
+				.isInstanceOf(BrokerMutationBlockedException.class)
+				.hasMessage("테스트 LIVE SINGLE 조건 주문 차단");
+		assertThat(previewStore.findById(preview.previewId()).orElseThrow().status())
+				.isEqualTo(OrderPreviewStatus.APPROVED);
+		assertThat(executionStore.values).isEmpty();
+		assertThat(priceClient.callCount).isEqualTo(previewPriceCalls);
+		assertThat(buyingPowerClient.callCount).isEqualTo(previewBuyingPowerCalls);
+		assertThat(commissionsClient.callCount).isEqualTo(previewCommissionCalls);
+		assertThat(gateway.callCount).isZero();
 	}
 
 	/** 시장가 상승으로 새로 고액 주문이 되면 승인 내용을 재확인하게 하는지 검사합니다. */
@@ -479,6 +505,15 @@ class SingleConditionalOrderServiceTests {
 	private static final class RecordingGateway implements SingleConditionalOrderGateway {
 		private int callCount;
 		private boolean unknown;
+		private RuntimeException availabilityFailure;
+
+		/** 준비한 LIVE 안전 차단을 재현하거나 MOCK 조건 주문 사용 가능 상태를 유지합니다. */
+		@Override
+		public void requireSubmissionAvailable() {
+			if (availabilityFailure != null) {
+				throw availabilityFailure;
+			}
+		}
 
 		/** 호출을 기록하고 모의 조건 주문 식별값 또는 결과 불명 오류를 반환합니다. */
 		@Override

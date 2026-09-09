@@ -9,6 +9,12 @@ import com.jusika.backend.conditionalorder.SingleConditionalOrderSubmissionReque
 interface SingleConditionalOrderGateway {
 
 	/**
+	 * 최신 금융정보 재조회, 미리보기 소비와 실행권 확보 전에 생성 경계가 안전한지 확인합니다.
+	 * 실제 생성 구현은 전역 LIVE 안전정책을 통과하지 못하면 여기서 즉시 차단해야 합니다.
+	 */
+	void requireSubmissionAvailable();
+
+	/**
 	 * 최종 재검증한 단일 조건 주문을 현재 설정된 실행 모드로 제출합니다.
 	 *
 	 * @param accountSeq 주문에 사용할 계좌 식별값
