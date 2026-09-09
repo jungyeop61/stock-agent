@@ -7,11 +7,15 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.jusika.backend.internalauth.InternalApiAuthority;
+import com.jusika.backend.internalauth.RequiresInternalApiAuthority;
+
 /**
  * 단일 조건 주문의 미리보기·승인·모의 실행·실행 결과 조회 주소를 제공합니다.
  */
 @RestController
 @RequestMapping("/api/conditional-orders/single")
+@RequiresInternalApiAuthority(InternalApiAuthority.ORDER)
 public class SingleConditionalOrderController {
 
 	private final SingleConditionalOrderService service;
@@ -68,6 +72,7 @@ public class SingleConditionalOrderController {
 	 * @return 데이터베이스에 저장된 실행 결과
 	 */
 	@GetMapping("/executions/{executionId}")
+	@RequiresInternalApiAuthority(InternalApiAuthority.READ)
 	public SingleConditionalOrderExecutionResponse getExecution(
 			@PathVariable String executionId) {
 		return service.getExecution(executionId);

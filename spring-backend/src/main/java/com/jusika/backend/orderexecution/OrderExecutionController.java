@@ -6,11 +6,15 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.jusika.backend.internalauth.InternalApiAuthority;
+import com.jusika.backend.internalauth.RequiresInternalApiAuthority;
+
 /**
  * 모바일 앱과 에이전트가 주문 실행 기록을 조회하고 결과 불명 주문을 복구할 HTTP 주소를 제공합니다.
  */
 @RestController
 @RequestMapping("/api/orders/executions")
+@RequiresInternalApiAuthority(InternalApiAuthority.ORDER)
 public class OrderExecutionController {
 
 	private final OrderExecutionService orderExecutionService;
@@ -37,6 +41,7 @@ public class OrderExecutionController {
 	 * @return 저장된 모의 또는 향후 실제 주문 실행 기록
 	 */
 	@GetMapping("/{executionId}")
+	@RequiresInternalApiAuthority(InternalApiAuthority.READ)
 	public OrderExecutionResponse getExecution(@PathVariable String executionId) {
 		return orderExecutionService.getExecution(executionId);
 	}

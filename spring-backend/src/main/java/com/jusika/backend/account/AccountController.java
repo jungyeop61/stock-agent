@@ -6,6 +6,8 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.jusika.backend.internalauth.InternalApiAuthority;
+import com.jusika.backend.internalauth.RequiresInternalApiAuthority;
 import com.jusika.backend.toss.account.TossAccountClient;
 
 /**
@@ -13,6 +15,7 @@ import com.jusika.backend.toss.account.TossAccountClient;
  */
 @RestController
 @RequestMapping("/api/accounts")
+@RequiresInternalApiAuthority(InternalApiAuthority.READ)
 public class AccountController {
 
 	private final TossAccountClient accountClient;

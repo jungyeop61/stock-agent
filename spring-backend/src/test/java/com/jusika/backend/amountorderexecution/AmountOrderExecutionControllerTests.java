@@ -18,6 +18,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import com.jusika.backend.amountorderpreview.AmountOrderPreviewResponse;
 import com.jusika.backend.amountorderpreview.AmountOrderPreviewStore;
+import com.jusika.backend.internalauth.InternalApiAuthorizationInterceptor;
 import com.jusika.backend.order.AmountOrderSubmissionRequest;
 import com.jusika.backend.orderexecution.OrderExecutionStatus;
 import com.jusika.backend.orderpreview.OrderPreviewStatus;
@@ -27,9 +28,15 @@ import com.jusika.backend.orderpreview.OrderType;
 /**
  * 금액 주문 MOCK 실행과 저장 결과 조회 HTTP 주소의 상태 코드를 검사합니다.
  */
-@SpringBootTest
+@SpringBootTest(properties = {
+		"jusika.internal-api.read-key=테스트-읽기-키",
+		"jusika.internal-api.order-key=테스트-주문-키"
+})
 @AutoConfigureMockMvc
 class AmountOrderExecutionControllerTests {
+
+	private static final String TEST_READ_KEY = "테스트-읽기-키";
+	private static final String TEST_ORDER_KEY = "테스트-주문-키";
 
 	@Autowired
 	private MockMvc mockMvc;
@@ -55,7 +62,8 @@ class AmountOrderExecutionControllerTests {
 		executionStore.claim(execution, "a".repeat(64));
 
 		mockMvc.perform(get(
-				"/api/orders/amount/executions/{executionId}", execution.executionId()))
+				"/api/orders/amount/executions/{executionId}", execution.executionId())
+				.header(InternalApiAuthorizationInterceptor.API_KEY_HEADER, TEST_READ_KEY))
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.executionId").value(execution.executionId()))
 				.andExpect(jsonPath("$.previewId").value(preview.previewId()))
@@ -72,13 +80,16 @@ class AmountOrderExecutionControllerTests {
 				OffsetDateTime.now(), OrderPreviewStatus.PENDING_APPROVAL);
 
 		mockMvc.perform(post(
-				"/api/orders/amount/previews/{previewId}/execute", pending.previewId()))
+				"/api/orders/amount/previews/{previewId}/execute", pending.previewId())
+				.header(InternalApiAuthorizationInterceptor.API_KEY_HEADER, TEST_ORDER_KEY))
 				.andExpect(status().isConflict());
 		mockMvc.perform(get(
-				"/api/orders/amount/executions/{executionId}", "잘못된-식별값"))
+				"/api/orders/amount/executions/{executionId}", "잘못된-식별값")
+				.header(InternalApiAuthorizationInterceptor.API_KEY_HEADER, TEST_READ_KEY))
 				.andExpect(status().isBadRequest());
 		mockMvc.perform(get(
-				"/api/orders/amount/executions/{executionId}", UUID.randomUUID()))
+				"/api/orders/amount/executions/{executionId}", UUID.randomUUID())
+				.header(InternalApiAuthorizationInterceptor.API_KEY_HEADER, TEST_READ_KEY))
 				.andExpect(status().isNotFound());
 	}
 
@@ -104,7 +115,8 @@ class AmountOrderExecutionControllerTests {
 		executionStore.markUnknown(execution.executionId(), now.minusSeconds(1));
 
 		mockMvc.perform(post(
-				"/api/orders/amount/executions/{executionId}/recover", execution.executionId()))
+				"/api/orders/amount/executions/{executionId}/recover", execution.executionId())
+				.header(InternalApiAuthorizationInterceptor.API_KEY_HEADER, TEST_ORDER_KEY))
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.executionId").value(execution.executionId()))
 				.andExpect(jsonPath("$.status").value("ACCEPTED"))

@@ -45,6 +45,48 @@ Maven Wrapper와 프로젝트 설정이 정상인지 확인합니다.
 
 실행 후 `http://localhost:8080/actuator/health`에서 상태를 확인합니다.
 
+## 내부 API 키 인증과 권한
+
+계좌 정보와 주문 관련 API는 `X-Jusika-Api-Key` 요청 헤더로 내부 호출자를 확인합니다.
+키는 다음 두 권한으로 분리합니다.
+
+- 읽기 키: 계좌, 보유주식, 매수 가능 금액, 매도 가능 수량, 수수료, 일반·조건 주문과 저장된 실행 결과를 조회할 수 있습니다.
+- 주문 키: 읽기 권한을 포함하며 주문 미리보기, 승인, MOCK 실행과 UNKNOWN 수동 복구를 요청할 수 있습니다.
+
+다음 환경변수는 기본값이 빈 문자열입니다. 필요한 서버 키가 비어 있으면 보호 API는 서비스 로직을 실행하지 않고 `503 Service Unavailable`로 차단됩니다.
+
+```dotenv
+JUSIKA_INTERNAL_READ_API_KEY=
+JUSIKA_INTERNAL_ORDER_API_KEY=
+```
+
+실제 키는 Git에 저장하지 않고 실행 환경에서 충분히 긴 서로 다른 무작위 값으로 설정합니다.
+두 키를 같은 값으로 설정하면 주문 권한 요청은 안전하지 않은 구성으로 판단해 `503 Service Unavailable`로 차단합니다.
+읽기 키로 주문 권한 경로를 호출하면 `403 Forbidden`, 키가 누락되거나 일치하지 않으면 `401 Unauthorized`를 반환합니다.
+인증 실패 응답과 애플리케이션 로그에는 제출된 키, 계좌번호, 토큰이나 주문 식별값을 넣지 않습니다.
+
+계좌와 주문 상태를 읽을 때는 읽기 키 또는 주문 키를 사용합니다.
+
+```bash
+curl -H "X-Jusika-Api-Key: $JUSIKA_INTERNAL_READ_API_KEY" \
+  http://localhost:8080/api/accounts
+```
+
+주문 미리보기·승인·실행·복구에는 주문 키만 사용합니다.
+
+```bash
+curl -H "X-Jusika-Api-Key: $JUSIKA_INTERNAL_ORDER_API_KEY" \
+  -X POST http://localhost:8080/api/orders/previews/미리보기-식별값/approve
+```
+
+현재가, 환율, 미국 장 일정, 증권사 안전 상태와 Actuator 상태 확인은 내부 API 키 없이 조회할 수 있습니다.
+아래의 기존 계좌·주문 `curl` 예시는 요청 형식에 집중하기 위해 인증 헤더를 반복해서 적지 않았으므로, 실제 호출할 때 조회에는 읽기 키 헤더를, 미리보기·승인·실행·복구에는 주문 키 헤더를 함께 전달해야 합니다.
+이번 단계는 컨트롤러 진입 전 인증·권한 검사만 추가했으며 실제 토스증권 주문 어댑터를 연결하지 않았고 데이터베이스 마이그레이션도 없습니다.
+
+```bash
+./mvnw -Dtest=InternalApiKeyAuthenticationServiceTests,InternalApiAuthorizationInterceptorTests,InternalApiAuthorizationIntegrationTests test
+```
+
 ## 실제 주문 연결 전역 안전장치
 
 실제 매수·매도·취소·정정 어댑터를 연결하기 전에 다음 세 설정을 중앙 정책에서 함께 검사합니다.

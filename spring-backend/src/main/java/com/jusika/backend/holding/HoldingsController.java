@@ -5,6 +5,8 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.jusika.backend.internalauth.InternalApiAuthority;
+import com.jusika.backend.internalauth.RequiresInternalApiAuthority;
 import com.jusika.backend.toss.asset.TossHoldingsClient;
 
 /**
@@ -12,6 +14,7 @@ import com.jusika.backend.toss.asset.TossHoldingsClient;
  */
 @RestController
 @RequestMapping("/api/accounts")
+@RequiresInternalApiAuthority(InternalApiAuthority.READ)
 public class HoldingsController {
 
 	private final TossHoldingsClient holdingsClient;

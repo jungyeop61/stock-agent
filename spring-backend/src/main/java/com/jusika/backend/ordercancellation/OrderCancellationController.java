@@ -7,9 +7,13 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.jusika.backend.internalauth.InternalApiAuthority;
+import com.jusika.backend.internalauth.RequiresInternalApiAuthority;
+
 /** 주문 취소 미리보기·승인·실행·조회 HTTP 주소를 제공합니다. */
 @RestController
 @RequestMapping("/api/orders/cancellations")
+@RequiresInternalApiAuthority(InternalApiAuthority.ORDER)
 public class OrderCancellationController {
 
 	private final OrderCancellationService service;
@@ -40,6 +44,7 @@ public class OrderCancellationController {
 
 	/** 저장된 취소 실행 결과를 읽기 전용으로 조회합니다. */
 	@GetMapping("/executions/{executionId}")
+	@RequiresInternalApiAuthority(InternalApiAuthority.READ)
 	public OrderCancellationExecutionResponse getExecution(@PathVariable String executionId) {
 		return service.getExecution(executionId);
 	}

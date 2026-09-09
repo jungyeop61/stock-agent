@@ -24,13 +24,20 @@ import com.jusika.backend.orderpreview.OrderSide;
 import com.jusika.backend.orderpreview.OrderType;
 import com.jusika.backend.order.OrderTimeInForce;
 import com.jusika.backend.order.QuantityOrderSubmissionRequest;
+import com.jusika.backend.internalauth.InternalApiAuthorizationInterceptor;
 
 /**
  * 우리 데이터베이스의 주문 실행 기록 조회 HTTP 주소와 오류 상태를 검사합니다.
  */
-@SpringBootTest
+@SpringBootTest(properties = {
+		"jusika.internal-api.read-key=테스트-읽기-키",
+		"jusika.internal-api.order-key=테스트-주문-키"
+})
 @AutoConfigureMockMvc
 class OrderExecutionControllerTests {
+
+	private static final String TEST_READ_KEY = "테스트-읽기-키";
+	private static final String TEST_ORDER_KEY = "테스트-주문-키";
 
 	@Autowired
 	private MockMvc mockMvc;
@@ -57,7 +64,8 @@ class OrderExecutionControllerTests {
 				"MOCK", OrderExecutionStatus.PREPARED, null, null, now, now, null, null, null);
 		executionStore.claim(execution, "a".repeat(64));
 
-		mockMvc.perform(get("/api/orders/executions/{executionId}", execution.executionId()))
+		mockMvc.perform(get("/api/orders/executions/{executionId}", execution.executionId())
+				.header(InternalApiAuthorizationInterceptor.API_KEY_HEADER, TEST_READ_KEY))
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.executionId").value(execution.executionId()))
 				.andExpect(jsonPath("$.previewId").value(preview.previewId()))
@@ -72,9 +80,11 @@ class OrderExecutionControllerTests {
 	@Test
 	@DisplayName("주문 실행 기록 조회에서 없음과 형식 오류를 구분한다")
 	void 주문_실행_기록_조회에서_없음과_형식_오류를_구분한다() throws Exception {
-		mockMvc.perform(get("/api/orders/executions/{executionId}", UUID.randomUUID()))
+		mockMvc.perform(get("/api/orders/executions/{executionId}", UUID.randomUUID())
+				.header(InternalApiAuthorizationInterceptor.API_KEY_HEADER, TEST_READ_KEY))
 				.andExpect(status().isNotFound());
-		mockMvc.perform(get("/api/orders/executions/{executionId}", "잘못된-식별값"))
+		mockMvc.perform(get("/api/orders/executions/{executionId}", "잘못된-식별값")
+				.header(InternalApiAuthorizationInterceptor.API_KEY_HEADER, TEST_READ_KEY))
 				.andExpect(status().isBadRequest());
 	}
 
@@ -101,7 +111,8 @@ class OrderExecutionControllerTests {
 		executionStore.markUnknown(execution.executionId(), now.minusSeconds(1));
 
 		mockMvc.perform(post(
-				"/api/orders/executions/{executionId}/recover", execution.executionId()))
+				"/api/orders/executions/{executionId}/recover", execution.executionId())
+				.header(InternalApiAuthorizationInterceptor.API_KEY_HEADER, TEST_ORDER_KEY))
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.executionId").value(execution.executionId()))
 				.andExpect(jsonPath("$.status").value("ACCEPTED"))

@@ -6,6 +6,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.jusika.backend.internalauth.InternalApiAuthority;
+import com.jusika.backend.internalauth.RequiresInternalApiAuthority;
 import com.jusika.backend.toss.conditionalorder.TossConditionalOrderClient;
 
 /**
@@ -13,6 +15,7 @@ import com.jusika.backend.toss.conditionalorder.TossConditionalOrderClient;
  */
 @RestController
 @RequestMapping("/api/accounts/{accountSeq}/conditional-orders")
+@RequiresInternalApiAuthority(InternalApiAuthority.READ)
 public class ConditionalOrderController {
 
 	private final TossConditionalOrderClient conditionalOrderClient;

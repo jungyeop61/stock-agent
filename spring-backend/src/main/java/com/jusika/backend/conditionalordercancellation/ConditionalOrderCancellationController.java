@@ -7,9 +7,13 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.jusika.backend.internalauth.InternalApiAuthority;
+import com.jusika.backend.internalauth.RequiresInternalApiAuthority;
+
 /** 조건 주문 취소의 미리보기·승인·모의 실행·결과 조회 주소를 제공합니다. */
 @RestController
 @RequestMapping("/api/conditional-orders/cancellations")
+@RequiresInternalApiAuthority(InternalApiAuthority.ORDER)
 public class ConditionalOrderCancellationController {
 
 	private final ConditionalOrderCancellationService service;
@@ -42,6 +46,7 @@ public class ConditionalOrderCancellationController {
 
 	/** 저장된 조건 주문 취소 실행 결과를 읽기 전용으로 조회합니다. */
 	@GetMapping("/executions/{executionId}")
+	@RequiresInternalApiAuthority(InternalApiAuthority.READ)
 	public ConditionalOrderCancellationExecutionResponse getExecution(
 			@PathVariable String executionId) {
 		return service.getExecution(executionId);

@@ -6,6 +6,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.jusika.backend.internalauth.InternalApiAuthority;
+import com.jusika.backend.internalauth.RequiresInternalApiAuthority;
 import com.jusika.backend.toss.orderinfo.TossBuyingPowerClient;
 
 /**
@@ -13,6 +15,7 @@ import com.jusika.backend.toss.orderinfo.TossBuyingPowerClient;
  */
 @RestController
 @RequestMapping("/api/accounts")
+@RequiresInternalApiAuthority(InternalApiAuthority.READ)
 public class BuyingPowerController {
 
 	private final TossBuyingPowerClient buyingPowerClient;

@@ -5,13 +5,18 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 
 import com.jusika.backend.brokersafety.BrokerSafetyProperties;
+import com.jusika.backend.internalauth.InternalApiKeyProperties;
 import com.jusika.backend.orderpreview.OrderPreviewProperties;
 
 /**
  * 주식아 스프링 백엔드를 시작하는 진입점입니다.
  */
 @SpringBootApplication
-@EnableConfigurationProperties({OrderPreviewProperties.class, BrokerSafetyProperties.class})
+@EnableConfigurationProperties({
+		OrderPreviewProperties.class,
+		BrokerSafetyProperties.class,
+		InternalApiKeyProperties.class
+})
 public class JusikaBackendApplication {
 
 	/**

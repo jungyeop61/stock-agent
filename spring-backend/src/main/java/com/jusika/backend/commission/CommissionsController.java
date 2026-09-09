@@ -5,6 +5,8 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.jusika.backend.internalauth.InternalApiAuthority;
+import com.jusika.backend.internalauth.RequiresInternalApiAuthority;
 import com.jusika.backend.toss.orderinfo.TossCommissionsClient;
 
 /**
@@ -12,6 +14,7 @@ import com.jusika.backend.toss.orderinfo.TossCommissionsClient;
  */
 @RestController
 @RequestMapping("/api/accounts")
+@RequiresInternalApiAuthority(InternalApiAuthority.READ)
 public class CommissionsController {
 
 	private final TossCommissionsClient commissionsClient;

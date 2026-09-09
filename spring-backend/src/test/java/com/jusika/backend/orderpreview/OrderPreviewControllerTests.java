@@ -15,12 +15,19 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.test.web.servlet.MockMvc;
 
+import com.jusika.backend.internalauth.InternalApiAuthorizationInterceptor;
+
 /**
  * 주문 미리보기 승인 HTTP 주소의 응답 본문과 상태 코드를 검사합니다.
  */
-@SpringBootTest
+@SpringBootTest(properties = {
+		"jusika.internal-api.read-key=테스트-읽기-키",
+		"jusika.internal-api.order-key=테스트-주문-키"
+})
 @AutoConfigureMockMvc
 class OrderPreviewControllerTests {
+
+	private static final String TEST_ORDER_KEY = "테스트-주문-키";
 
 	@Autowired
 	private MockMvc mockMvc;
@@ -38,7 +45,8 @@ class OrderPreviewControllerTests {
 		OrderPreviewResponse pending = 승인_대기_미리보기를_만든다(now.minusSeconds(10), now.plusMinutes(1));
 		previewStore.save(pending);
 
-		mockMvc.perform(post("/api/orders/previews/{previewId}/approve", pending.previewId()))
+		mockMvc.perform(post("/api/orders/previews/{previewId}/approve", pending.previewId())
+				.header(InternalApiAuthorizationInterceptor.API_KEY_HEADER, TEST_ORDER_KEY))
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.previewId").value(pending.previewId()))
 				.andExpect(jsonPath("$.symbol").value("005930"))
@@ -47,7 +55,8 @@ class OrderPreviewControllerTests {
 				.andExpect(jsonPath("$.status").value("APPROVED"))
 				.andExpect(jsonPath("$.approvedAt").isNotEmpty());
 
-		mockMvc.perform(post("/api/orders/previews/{previewId}/approve", pending.previewId()))
+		mockMvc.perform(post("/api/orders/previews/{previewId}/approve", pending.previewId())
+				.header(InternalApiAuthorizationInterceptor.API_KEY_HEADER, TEST_ORDER_KEY))
 				.andExpect(status().isConflict());
 	}
 
@@ -62,11 +71,14 @@ class OrderPreviewControllerTests {
 				now.minusMinutes(3), now.minusMinutes(1));
 		previewStore.save(expired);
 
-		mockMvc.perform(post("/api/orders/previews/{previewId}/approve", expired.previewId()))
+		mockMvc.perform(post("/api/orders/previews/{previewId}/approve", expired.previewId())
+				.header(InternalApiAuthorizationInterceptor.API_KEY_HEADER, TEST_ORDER_KEY))
 				.andExpect(status().isGone());
-		mockMvc.perform(post("/api/orders/previews/{previewId}/approve", UUID.randomUUID()))
+		mockMvc.perform(post("/api/orders/previews/{previewId}/approve", UUID.randomUUID())
+				.header(InternalApiAuthorizationInterceptor.API_KEY_HEADER, TEST_ORDER_KEY))
 				.andExpect(status().isNotFound());
-		mockMvc.perform(post("/api/orders/previews/{previewId}/approve", "잘못된-식별값"))
+		mockMvc.perform(post("/api/orders/previews/{previewId}/approve", "잘못된-식별값")
+				.header(InternalApiAuthorizationInterceptor.API_KEY_HEADER, TEST_ORDER_KEY))
 				.andExpect(status().isBadRequest());
 	}
 
@@ -81,9 +93,11 @@ class OrderPreviewControllerTests {
 				now.minusSeconds(10), now.plusMinutes(1));
 		previewStore.save(pending);
 
-		mockMvc.perform(post("/api/orders/previews/{previewId}/execute", pending.previewId()))
+		mockMvc.perform(post("/api/orders/previews/{previewId}/execute", pending.previewId())
+				.header(InternalApiAuthorizationInterceptor.API_KEY_HEADER, TEST_ORDER_KEY))
 				.andExpect(status().isConflict());
-		mockMvc.perform(post("/api/orders/previews/{previewId}/execute", "잘못된-식별값"))
+		mockMvc.perform(post("/api/orders/previews/{previewId}/execute", "잘못된-식별값")
+				.header(InternalApiAuthorizationInterceptor.API_KEY_HEADER, TEST_ORDER_KEY))
 				.andExpect(status().isBadRequest());
 	}
 

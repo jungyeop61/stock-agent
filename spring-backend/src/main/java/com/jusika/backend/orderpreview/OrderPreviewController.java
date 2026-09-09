@@ -8,12 +8,15 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.jusika.backend.orderexecution.OrderExecutionResponse;
 import com.jusika.backend.orderexecution.OrderExecutionService;
+import com.jusika.backend.internalauth.InternalApiAuthority;
+import com.jusika.backend.internalauth.RequiresInternalApiAuthority;
 
 /**
  * 실제 주문을 보내지 않고 주문 가능 여부와 예상 금액을 확인할 HTTP 주소를 제공합니다.
  */
 @RestController
 @RequestMapping("/api/orders")
+@RequiresInternalApiAuthority(InternalApiAuthority.ORDER)
 public class OrderPreviewController {
 
 	private final OrderPreviewService orderPreviewService;

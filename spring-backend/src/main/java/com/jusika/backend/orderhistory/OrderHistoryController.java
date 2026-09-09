@@ -9,6 +9,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.jusika.backend.internalauth.InternalApiAuthority;
+import com.jusika.backend.internalauth.RequiresInternalApiAuthority;
 import com.jusika.backend.toss.orderhistory.TossOrderHistoryClient;
 
 /**
@@ -16,6 +18,7 @@ import com.jusika.backend.toss.orderhistory.TossOrderHistoryClient;
  */
 @RestController
 @RequestMapping("/api/accounts/{accountSeq}/orders")
+@RequiresInternalApiAuthority(InternalApiAuthority.READ)
 public class OrderHistoryController {
 
 	private final TossOrderHistoryClient orderHistoryClient;

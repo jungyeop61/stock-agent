@@ -7,11 +7,15 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.jusika.backend.internalauth.InternalApiAuthority;
+import com.jusika.backend.internalauth.RequiresInternalApiAuthority;
+
 /**
  * 미국 주식 달러 금액 매수 미리보기를 생성하고 승인·조회할 HTTP 주소를 제공합니다.
  */
 @RestController
 @RequestMapping("/api/orders/amount")
+@RequiresInternalApiAuthority(InternalApiAuthority.ORDER)
 public class AmountOrderPreviewController {
 
 	private final AmountOrderPreviewService previewService;
@@ -55,6 +59,7 @@ public class AmountOrderPreviewController {
 	 * @return 저장 당시의 변경 불가 계산 결과
 	 */
 	@GetMapping("/previews/{previewId}")
+	@RequiresInternalApiAuthority(InternalApiAuthority.READ)
 	public AmountOrderPreviewResponse getPreview(@PathVariable String previewId) {
 		return previewService.getPreview(previewId);
 	}
