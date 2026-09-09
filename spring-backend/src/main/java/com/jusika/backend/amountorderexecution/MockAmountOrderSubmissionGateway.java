@@ -13,6 +13,12 @@ import com.jusika.backend.order.OrderCreationResponse;
 @ConditionalOnProperty(prefix = "jusika.broker", name = "mode", havingValue = "mock", matchIfMissing = true)
 class MockAmountOrderSubmissionGateway implements AmountOrderSubmissionGateway {
 
+	/** 모의 금액 주문은 실제 증권사 상태를 바꾸지 않으므로 별도 차단 없이 사용할 수 있습니다. */
+	@Override
+	public void requireSubmissionAvailable() {
+		// MOCK 모드는 실제 네트워크 요청을 만들지 않습니다.
+	}
+
 	/**
 	 * 네트워크 호출 없이 멱등성 식별값으로 모의 금액 주문번호를 만듭니다.
 	 *

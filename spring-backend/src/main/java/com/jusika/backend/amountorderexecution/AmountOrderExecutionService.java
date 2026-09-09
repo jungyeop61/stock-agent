@@ -109,6 +109,7 @@ public class AmountOrderExecutionService {
 		OffsetDateTime startedAt = OffsetDateTime.now(clock);
 		validateExecutableState(preview, startedAt);
 		validateImmutablePreview(preview);
+		submissionGateway.requireSubmissionAvailable();
 		revalidateLatestConditions(preview, startedAt);
 		String brokerMode = requireMockMode();
 

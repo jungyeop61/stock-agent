@@ -162,11 +162,31 @@ curl http://localhost:8080/api/broker/safety
 - 중앙 정책이 향후 변경되더라도 토스 클라이언트가 연결되기 전에는 LIVE 게이트웨이 자체의 마지막 차단 오류가 동작합니다.
 
 따라서 이번 단계는 일반 수량 주문의 의존성 선택과 안전한 호출 순서만 만들었으며 실제 토스증권 매수·매도 요청, 토큰 조회와 네트워크 호출은 하지 않습니다.
-금액 주문·일반 주문 취소와 정정·조건 주문의 LIVE 게이트웨이는 아직 없으므로 전체 애플리케이션의 LIVE 모드를 사용할 수 있는 단계도 아닙니다.
+일반 주문 취소와 정정·조건 주문의 LIVE 게이트웨이는 아직 없으므로 전체 애플리케이션의 LIVE 모드를 사용할 수 있는 단계도 아닙니다.
 데이터베이스 구조 변경은 없습니다.
 
 ```bash
 ./mvnw -Dtest=LiveOrderSubmissionGatewayTests,OrderExecutionServiceTests,OrderRecoveryServiceTests test
+```
+
+### 미국 주식 금액 주문 LIVE 제출 경계 골격
+
+`jusika.broker.mode=mock`이면 기존 `MockAmountOrderSubmissionGateway`만 선택됩니다.
+`jusika.broker.mode=live`이면 미국 주식 달러 금액 주문에 `LiveAmountOrderSubmissionGateway`가 선택되지만 실제 주문 기능은 열리지 않습니다.
+
+- LIVE 게이트웨이는 `TossOrderClient`나 토스 인증 객체를 생성자와 필드로 받지 않습니다.
+- 미리보기 실행은 최신 장 운영시간·현재가·수수료·매수 가능 금액·환율을 조회하기 전에 중앙 LIVE 안전정책을 확인합니다.
+- 사전 검사가 실패하면 승인된 미리보기는 소비되지 않고 실행 기록도 생성되지 않습니다.
+- UNKNOWN 수동 복구도 복구권을 확보하기 전에 같은 정책을 확인하므로 결과 불명 상태를 그대로 유지합니다.
+- 제출과 복구 메서드 내부에서도 중앙 정책을 다시 확인합니다.
+- 실제 어댑터 연결값은 계속 `false`이고 토스 클라이언트도 없으므로 실제 주문 요청은 발생하지 않습니다.
+
+이번 변경은 미국 주식 금액 주문의 조건부 의존성 선택과 상태 변경 전 차단 순서만 추가합니다.
+일반 주문 취소와 정정·조건 주문의 LIVE 게이트웨이는 아직 없으므로 전체 애플리케이션의 LIVE 모드는 사용할 수 없습니다.
+데이터베이스 구조 변경은 없습니다.
+
+```bash
+./mvnw -Dtest=LiveAmountOrderSubmissionGatewayTests,AmountOrderExecutionServiceTests,AmountOrderRecoveryServiceTests test
 ```
 
 ## 토스증권 인증 테스트

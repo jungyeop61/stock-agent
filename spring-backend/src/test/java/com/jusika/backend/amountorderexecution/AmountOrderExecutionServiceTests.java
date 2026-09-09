@@ -23,6 +23,7 @@ import com.jusika.backend.amountorderpreview.AmountOrderPreviewStore;
 import com.jusika.backend.amountorderwindow.UsAmountOrderWindowResponse;
 import com.jusika.backend.amountorderwindow.UsAmountOrderWindowService;
 import com.jusika.backend.amountorderwindow.UsAmountOrderWindowStatus;
+import com.jusika.backend.brokersafety.BrokerMutationBlockedException;
 import com.jusika.backend.buyingpower.BuyingPowerResponse;
 import com.jusika.backend.commission.CommissionsResponse;
 import com.jusika.backend.commission.CommissionsResponse.CommissionItem;
@@ -110,6 +111,25 @@ class AmountOrderExecutionServiceTests {
 		assertThat(buyingPowerClient.callCount).isOne();
 		assertThat(commissionsClient.callCount).isOne();
 		assertThat(exchangeRateClient.callCount).isOne();
+	}
+
+	/** LIVE 가용성 검사가 실패하면 금융 조회나 미리보기·실행 상태를 변경하지 않는지 검사합니다. */
+	@Test
+	@DisplayName("LIVE 안전정책 차단은 금액 주문 미리보기 소비 전에 적용된다")
+	void LIVE_안전정책_차단은_금액_주문_미리보기_소비_전에_적용된다() {
+		AmountOrderPreviewResponse preview = 승인된_미리보기를_저장한다(false);
+		submissionGateway.availabilityFailure = new BrokerMutationBlockedException(
+				"테스트 LIVE 금액 주문 차단");
+
+		assertThatThrownBy(() -> service.executeApprovedPreview(preview.previewId()))
+				.isInstanceOf(BrokerMutationBlockedException.class)
+				.hasMessage("테스트 LIVE 금액 주문 차단");
+		assertThat(previewStore.findById(preview.previewId()).orElseThrow().status())
+				.isEqualTo(OrderPreviewStatus.APPROVED);
+		assertThat(executionStore.findByPreviewId(preview.previewId())).isEmpty();
+		assertThat(submissionGateway.callCount).isZero();
+		assertThat(windowService.callCount).isZero();
+		assertThat(priceClient.callCount).isZero();
 	}
 
 	/** 같은 미리보기를 두 번 실행해도 제출 경계는 한 번만 호출되는지 검사합니다. */
@@ -635,6 +655,15 @@ class AmountOrderExecutionServiceTests {
 		private AmountOrderSubmissionRequest lastRequest;
 		private OrderSubmissionException failure;
 		private String mode = "MOCK";
+		private RuntimeException availabilityFailure;
+
+		/** 준비 단계에서 설정된 LIVE 안전 차단을 재현하거나 MOCK 사용 가능 상태를 유지합니다. */
+		@Override
+		public void requireSubmissionAvailable() {
+			if (availabilityFailure != null) {
+				throw availabilityFailure;
+			}
+		}
 
 		/** 전달된 금액 주문을 기록하고 준비한 성공 또는 실패를 반환합니다. */
 		@Override

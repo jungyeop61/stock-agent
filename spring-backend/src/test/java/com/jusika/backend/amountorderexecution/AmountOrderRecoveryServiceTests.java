@@ -19,6 +19,7 @@ import org.junit.jupiter.api.Test;
 
 import com.jusika.backend.amountorderpreview.AmountOrderPreviewResponse;
 import com.jusika.backend.amountorderpreview.AmountOrderPreviewStore;
+import com.jusika.backend.brokersafety.BrokerMutationBlockedException;
 import com.jusika.backend.order.AmountOrderSubmissionRequest;
 import com.jusika.backend.order.OrderCreationResponse;
 import com.jusika.backend.orderexecution.OrderExecutionFailureType;
@@ -77,6 +78,24 @@ class AmountOrderRecoveryServiceTests {
 		assertThat(recoveryGateway.lastRequest.orderAmount()).isEqualByComparingTo("100");
 		assertThat(recoveryGateway.lastRequest.confirmHighValueOrder()).isFalse();
 		assertThat(recoveryGateway.submitCallCount).isZero();
+	}
+
+	/** LIVE 가용성 검사가 실패하면 복구권과 결과 불명 상태를 그대로 유지하는지 검사합니다. */
+	@Test
+	@DisplayName("LIVE 안전정책 차단은 금액 주문 복구권 확보 전에 적용된다")
+	void LIVE_안전정책_차단은_금액_주문_복구권_확보_전에_적용된다() {
+		AmountOrderExecutionResponse unknown = 결과_불명_실행을_저장한다(NOW.minusMinutes(1));
+		recoveryGateway.availabilityFailure = new BrokerMutationBlockedException(
+				"테스트 LIVE 금액 주문 복구 차단");
+
+		assertThatThrownBy(() -> service.recoverUnknownExecution(unknown.executionId()))
+				.isInstanceOf(BrokerMutationBlockedException.class)
+				.hasMessage("테스트 LIVE 금액 주문 복구 차단");
+		AmountOrderExecutionResponse stored = executionStore.findById(
+				unknown.executionId()).orElseThrow();
+		assertThat(stored.status()).isEqualTo(OrderExecutionStatus.UNKNOWN);
+		assertThat(stored.recoveryAttemptedAt()).isNull();
+		assertThat(recoveryGateway.recoveryCallCount).isZero();
 	}
 
 	/** 성공한 복구를 다시 요청해도 복구 경계가 두 번 호출되지 않는지 검사합니다. */
@@ -415,6 +434,15 @@ class AmountOrderRecoveryServiceTests {
 		private String mode = "MOCK";
 		private OrderSubmissionException failure;
 		private OrderCreationResponse response;
+		private RuntimeException availabilityFailure;
+
+		/** 준비한 LIVE 안전 차단을 복구권 확보 전에 재현하거나 MOCK 사용을 허용합니다. */
+		@Override
+		public void requireSubmissionAvailable() {
+			if (availabilityFailure != null) {
+				throw availabilityFailure;
+			}
+		}
 
 		/** 복구 중 새 금액 주문 제출이 호출되면 테스트를 실패시킵니다. */
 		@Override
