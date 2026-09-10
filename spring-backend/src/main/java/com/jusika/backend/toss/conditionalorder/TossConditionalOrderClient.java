@@ -195,7 +195,7 @@ public class TossConditionalOrderClient {
 
 	/**
 	 * 기존 조건 주문을 취소하고 검증된 새 전체 구성으로 대체 정정을 요청합니다.
-	 * 공식 수정 주소와 새 조건 주문 식별값 응답을 구현하지만 MOCK 안전 서비스에는 연결하지 않습니다.
+	 * 공식 수정 주소와 새 조건 주문 식별값 응답을 사용하며 현재 LIVE 준비 상태에서는 호출 전에 차단됩니다.
 	 *
 	 * @param accountSeq 정정할 조건 주문의 계좌 식별값
 	 * @param conditionalOrderId 정정할 기존 조건 주문 식별값
