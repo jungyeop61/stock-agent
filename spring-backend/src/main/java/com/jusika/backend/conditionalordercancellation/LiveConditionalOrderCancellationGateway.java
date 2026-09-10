@@ -4,6 +4,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import com.jusika.backend.brokersafety.BrokerMutationSafetyPolicy;
+import com.jusika.backend.brokersafety.BrokerMutationCapability;
 import com.jusika.backend.toss.conditionalorder.TossConditionalOrderClient;
 
 /**
@@ -36,7 +37,8 @@ class LiveConditionalOrderCancellationGateway implements ConditionalOrderCancell
 	 */
 	@Override
 	public void requireCancellationAvailable() {
-		safetyPolicy.requireLiveMutationAvailable();
+		safetyPolicy.requireLiveMutationAvailable(
+				BrokerMutationCapability.CONDITIONAL_ORDER_CANCELLATION);
 	}
 
 	/**
@@ -48,7 +50,8 @@ class LiveConditionalOrderCancellationGateway implements ConditionalOrderCancell
 	 */
 	@Override
 	public void cancelConditionalOrder(long accountSeq, String conditionalOrderId) {
-		safetyPolicy.requireLiveMutationAvailable();
+		safetyPolicy.requireLiveMutationAvailable(
+				BrokerMutationCapability.CONDITIONAL_ORDER_CANCELLATION);
 		conditionalOrderClient.cancelConditionalOrder(accountSeq, conditionalOrderId);
 	}
 

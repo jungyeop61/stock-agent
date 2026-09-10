@@ -15,6 +15,7 @@ import org.springframework.context.annotation.Import;
 
 import com.jusika.backend.brokersafety.BrokerExecutionMode;
 import com.jusika.backend.brokersafety.BrokerMutationBlockedException;
+import com.jusika.backend.brokersafety.BrokerMutationCapability;
 import com.jusika.backend.brokersafety.BrokerMutationSafetyPolicy;
 import com.jusika.backend.brokersafety.BrokerSafetyProperties;
 import com.jusika.backend.order.OrderCreationResponse;
@@ -246,8 +247,8 @@ class LiveOrderSubmissionGatewayTests {
 
 		/** 테스트에서만 안전정책 통과 상황을 재현하며 운영 설정에는 영향을 주지 않습니다. */
 		@Override
-		public void requireLiveMutationAvailable() {
-			// 기록용 클라이언트 위임을 검사하기 위한 테스트 전용 통과입니다.
+		public void requireLiveMutationAvailable(BrokerMutationCapability capability) {
+			assertThat(capability).isEqualTo(BrokerMutationCapability.QUANTITY_ORDER_SUBMISSION);
 		}
 	}
 }

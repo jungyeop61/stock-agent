@@ -4,6 +4,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import com.jusika.backend.brokersafety.BrokerMutationSafetyPolicy;
+import com.jusika.backend.brokersafety.BrokerMutationCapability;
 import com.jusika.backend.conditionalorder.ConditionalOrderCreationResponse;
 import com.jusika.backend.conditionalorder.OcoConditionalOrderSubmissionRequest;
 import com.jusika.backend.toss.conditionalorder.TossConditionalOrderClient;
@@ -38,7 +39,8 @@ class LiveOcoConditionalOrderGateway implements OcoConditionalOrderGateway {
 	 */
 	@Override
 	public void requireSubmissionAvailable() {
-		safetyPolicy.requireLiveMutationAvailable();
+		safetyPolicy.requireLiveMutationAvailable(
+				BrokerMutationCapability.OCO_CONDITIONAL_ORDER_CREATION);
 	}
 
 	/**
@@ -53,7 +55,8 @@ class LiveOcoConditionalOrderGateway implements OcoConditionalOrderGateway {
 	public ConditionalOrderCreationResponse submit(
 			long accountSeq,
 			OcoConditionalOrderSubmissionRequest request) {
-		safetyPolicy.requireLiveMutationAvailable();
+		safetyPolicy.requireLiveMutationAvailable(
+				BrokerMutationCapability.OCO_CONDITIONAL_ORDER_CREATION);
 		return conditionalOrderClient.createOcoConditionalOrder(accountSeq, request);
 	}
 

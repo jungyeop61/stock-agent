@@ -26,7 +26,8 @@ class BrokerMutationSafetyPolicyTests {
 		assertThat(status.liveAdapterConnected()).isFalse();
 		assertThat(status.liveMutationAvailable()).isFalse();
 		assertThat(status.blockReason()).isEqualTo(BrokerSafetyBlockReason.MOCK_MODE);
-		assertThatThrownBy(policy::requireLiveMutationAvailable)
+		assertThatThrownBy(() -> policy.requireLiveMutationAvailable(
+				BrokerMutationCapability.QUANTITY_ORDER_SUBMISSION))
 				.isInstanceOf(BrokerMutationBlockedException.class)
 				.hasMessage("현재 증권사 실행 모드는 MOCK입니다.");
 	}
@@ -39,7 +40,8 @@ class BrokerMutationSafetyPolicyTests {
 
 		assertThat(policy.getStatus().blockReason())
 				.isEqualTo(BrokerSafetyBlockReason.LIVE_FEATURE_DISABLED);
-		assertThatThrownBy(policy::requireLiveMutationAvailable)
+		assertThatThrownBy(() -> policy.requireLiveMutationAvailable(
+				BrokerMutationCapability.QUANTITY_ORDER_SUBMISSION))
 				.isInstanceOf(BrokerMutationBlockedException.class)
 				.hasMessage("실제 주문 기능이 비활성화되어 있습니다.");
 	}
@@ -52,7 +54,8 @@ class BrokerMutationSafetyPolicyTests {
 
 		assertThat(policy.getStatus().blockReason())
 				.isEqualTo(BrokerSafetyBlockReason.KILL_SWITCH_ACTIVE);
-		assertThatThrownBy(policy::requireLiveMutationAvailable)
+		assertThatThrownBy(() -> policy.requireLiveMutationAvailable(
+				BrokerMutationCapability.QUANTITY_ORDER_SUBMISSION))
 				.isInstanceOf(BrokerMutationBlockedException.class)
 				.hasMessage("긴급 주문 차단 스위치가 활성화되어 있습니다.");
 	}
@@ -70,7 +73,8 @@ class BrokerMutationSafetyPolicyTests {
 		assertThat(status.liveMutationAvailable()).isFalse();
 		assertThat(status.blockReason())
 				.isEqualTo(BrokerSafetyBlockReason.LIVE_ADAPTER_NOT_CONNECTED);
-		assertThatThrownBy(policy::requireLiveMutationAvailable)
+		assertThatThrownBy(() -> policy.requireLiveMutationAvailable(
+				BrokerMutationCapability.QUANTITY_ORDER_SUBMISSION))
 				.isInstanceOf(BrokerMutationBlockedException.class)
 				.hasMessage("실제 주문 어댑터가 연결되어 있지 않습니다.");
 	}
@@ -90,6 +94,17 @@ class BrokerMutationSafetyPolicyTests {
 				.allMatch(capabilityStatus -> !capabilityStatus.liveAdapterConnected());
 		assertThat(status.liveAdapterConnected()).isFalse();
 		assertThat(status.liveMutationAvailable()).isFalse();
+	}
+
+	/** 기능 종류가 누락되면 전역 설정을 검사하기 전에 잘못된 호출로 거절하는지 검사합니다. */
+	@Test
+	@DisplayName("확인할 주문 변경 기능이 누락되면 거절한다")
+	void 확인할_주문_변경_기능이_누락되면_거절한다() {
+		BrokerMutationSafetyPolicy policy = 정책을_만든다(BrokerExecutionMode.LIVE, true, false);
+
+		assertThatThrownBy(() -> policy.requireLiveMutationAvailable(null))
+				.isInstanceOf(IllegalArgumentException.class)
+				.hasMessage("확인할 주문 변경 기능이 필요합니다.");
 	}
 
 	/** 실행 모드가 누락된 설정 객체를 생성 단계에서 거절하는지 검사합니다. */

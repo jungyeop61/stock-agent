@@ -4,6 +4,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import com.jusika.backend.brokersafety.BrokerMutationSafetyPolicy;
+import com.jusika.backend.brokersafety.BrokerMutationCapability;
 import com.jusika.backend.conditionalorder.ConditionalOrderModificationResponse;
 import com.jusika.backend.conditionalorder.ConditionalOrderModificationSubmissionRequest;
 import com.jusika.backend.toss.conditionalorder.TossConditionalOrderClient;
@@ -38,7 +39,8 @@ class LiveConditionalOrderModificationGateway implements ConditionalOrderModific
 	 */
 	@Override
 	public void requireModificationAvailable() {
-		safetyPolicy.requireLiveMutationAvailable();
+		safetyPolicy.requireLiveMutationAvailable(
+				BrokerMutationCapability.CONDITIONAL_ORDER_MODIFICATION);
 	}
 
 	/**
@@ -55,7 +57,8 @@ class LiveConditionalOrderModificationGateway implements ConditionalOrderModific
 			long accountSeq,
 			String originalConditionalOrderId,
 			ConditionalOrderModificationSubmissionRequest request) {
-		safetyPolicy.requireLiveMutationAvailable();
+		safetyPolicy.requireLiveMutationAvailable(
+				BrokerMutationCapability.CONDITIONAL_ORDER_MODIFICATION);
 		return conditionalOrderClient.modifyConditionalOrder(
 				accountSeq, originalConditionalOrderId, request);
 	}

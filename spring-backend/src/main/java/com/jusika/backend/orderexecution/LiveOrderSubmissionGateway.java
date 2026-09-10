@@ -4,6 +4,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import com.jusika.backend.brokersafety.BrokerMutationSafetyPolicy;
+import com.jusika.backend.brokersafety.BrokerMutationCapability;
 import com.jusika.backend.order.OrderCreationResponse;
 import com.jusika.backend.order.QuantityOrderSubmissionRequest;
 import com.jusika.backend.toss.order.TossOrderClient;
@@ -39,7 +40,8 @@ class LiveOrderSubmissionGateway implements OrderSubmissionGateway {
 	 */
 	@Override
 	public void requireSubmissionAvailable() {
-		safetyPolicy.requireLiveMutationAvailable();
+		safetyPolicy.requireLiveMutationAvailable(
+				BrokerMutationCapability.QUANTITY_ORDER_SUBMISSION);
 	}
 
 	/**
@@ -54,7 +56,8 @@ class LiveOrderSubmissionGateway implements OrderSubmissionGateway {
 	public OrderCreationResponse submitQuantityOrder(
 			long accountSeq,
 			QuantityOrderSubmissionRequest request) {
-		safetyPolicy.requireLiveMutationAvailable();
+		safetyPolicy.requireLiveMutationAvailable(
+				BrokerMutationCapability.QUANTITY_ORDER_SUBMISSION);
 		return createQuantityOrder(accountSeq, request);
 	}
 
@@ -70,7 +73,8 @@ class LiveOrderSubmissionGateway implements OrderSubmissionGateway {
 	public OrderCreationResponse recoverQuantityOrder(
 			long accountSeq,
 			QuantityOrderSubmissionRequest request) {
-		safetyPolicy.requireLiveMutationAvailable();
+		safetyPolicy.requireLiveMutationAvailable(
+				BrokerMutationCapability.QUANTITY_ORDER_SUBMISSION);
 		return createQuantityOrder(accountSeq, request);
 	}
 

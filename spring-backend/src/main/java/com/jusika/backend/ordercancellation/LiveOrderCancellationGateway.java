@@ -4,6 +4,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import com.jusika.backend.brokersafety.BrokerMutationSafetyPolicy;
+import com.jusika.backend.brokersafety.BrokerMutationCapability;
 import com.jusika.backend.order.OrderOperationResponse;
 import com.jusika.backend.orderexecution.OrderSubmissionException;
 import com.jusika.backend.toss.order.TossOrderClient;
@@ -39,7 +40,8 @@ class LiveOrderCancellationGateway implements OrderCancellationGateway {
 	 */
 	@Override
 	public void requireCancellationAvailable() {
-		safetyPolicy.requireLiveMutationAvailable();
+		safetyPolicy.requireLiveMutationAvailable(
+				BrokerMutationCapability.NORMAL_ORDER_CANCELLATION);
 	}
 
 	/**
@@ -52,7 +54,8 @@ class LiveOrderCancellationGateway implements OrderCancellationGateway {
 	 */
 	@Override
 	public OrderOperationResponse cancelOrder(long accountSeq, String orderId) {
-		safetyPolicy.requireLiveMutationAvailable();
+		safetyPolicy.requireLiveMutationAvailable(
+				BrokerMutationCapability.NORMAL_ORDER_CANCELLATION);
 		try {
 			return orderClient.cancelOrder(accountSeq, orderId);
 		} catch (TossOrderException exception) {

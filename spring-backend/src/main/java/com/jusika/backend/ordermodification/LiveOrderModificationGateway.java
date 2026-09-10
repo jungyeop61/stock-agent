@@ -4,6 +4,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import com.jusika.backend.brokersafety.BrokerMutationSafetyPolicy;
+import com.jusika.backend.brokersafety.BrokerMutationCapability;
 import com.jusika.backend.order.OrderModificationSubmissionRequest;
 import com.jusika.backend.order.OrderOperationResponse;
 import com.jusika.backend.orderexecution.OrderSubmissionException;
@@ -40,7 +41,8 @@ class LiveOrderModificationGateway implements OrderModificationGateway {
 	 */
 	@Override
 	public void requireModificationAvailable() {
-		safetyPolicy.requireLiveMutationAvailable();
+		safetyPolicy.requireLiveMutationAvailable(
+				BrokerMutationCapability.NORMAL_ORDER_MODIFICATION);
 	}
 
 	/**
@@ -57,7 +59,8 @@ class LiveOrderModificationGateway implements OrderModificationGateway {
 			long accountSeq,
 			String originalOrderId,
 			OrderModificationSubmissionRequest request) {
-		safetyPolicy.requireLiveMutationAvailable();
+		safetyPolicy.requireLiveMutationAvailable(
+				BrokerMutationCapability.NORMAL_ORDER_MODIFICATION);
 		try {
 			return orderClient.modifyOrder(accountSeq, originalOrderId, request);
 		} catch (TossOrderException exception) {

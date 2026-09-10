@@ -4,6 +4,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import com.jusika.backend.brokersafety.BrokerMutationSafetyPolicy;
+import com.jusika.backend.brokersafety.BrokerMutationCapability;
 import com.jusika.backend.order.AmountOrderSubmissionRequest;
 import com.jusika.backend.order.OrderCreationResponse;
 import com.jusika.backend.orderexecution.OrderSubmissionException;
@@ -40,7 +41,8 @@ class LiveAmountOrderSubmissionGateway implements AmountOrderSubmissionGateway {
 	 */
 	@Override
 	public void requireSubmissionAvailable() {
-		safetyPolicy.requireLiveMutationAvailable();
+		safetyPolicy.requireLiveMutationAvailable(
+				BrokerMutationCapability.AMOUNT_ORDER_SUBMISSION);
 	}
 
 	/**
@@ -55,7 +57,8 @@ class LiveAmountOrderSubmissionGateway implements AmountOrderSubmissionGateway {
 	public OrderCreationResponse submitAmountOrder(
 			long accountSeq,
 			AmountOrderSubmissionRequest request) {
-		safetyPolicy.requireLiveMutationAvailable();
+		safetyPolicy.requireLiveMutationAvailable(
+				BrokerMutationCapability.AMOUNT_ORDER_SUBMISSION);
 		return createAmountOrder(accountSeq, request);
 	}
 
@@ -71,7 +74,8 @@ class LiveAmountOrderSubmissionGateway implements AmountOrderSubmissionGateway {
 	public OrderCreationResponse recoverAmountOrder(
 			long accountSeq,
 			AmountOrderSubmissionRequest request) {
-		safetyPolicy.requireLiveMutationAvailable();
+		safetyPolicy.requireLiveMutationAvailable(
+				BrokerMutationCapability.AMOUNT_ORDER_SUBMISSION);
 		return createAmountOrder(accountSeq, request);
 	}
 

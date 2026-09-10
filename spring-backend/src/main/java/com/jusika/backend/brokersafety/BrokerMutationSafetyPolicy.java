@@ -50,21 +50,34 @@ public class BrokerMutationSafetyPolicy {
 	}
 
 	/**
-	 * 향후 실제 주문 어댑터가 호출되기 전에 전역 설정과 어댑터 연결 상태를 모두 검사합니다.
-	 * 현재는 실제 어댑터 연결값이 코드에서 false로 고정되어 항상 마지막 단계에서 차단됩니다.
+	 * 지정한 주문 변경 기능의 실제 어댑터가 호출되기 전에 전역 설정과 해당 연결 상태를 검사합니다.
+	 * 현재는 모든 기능의 실제 어댑터 연결값이 false로 고정되어 항상 마지막 단계에서 차단됩니다.
+	 *
+	 * @param capability 실제 호출 직전 검사할 주문 변경 기능
 	 */
-	public void requireLiveMutationAvailable() {
-		BrokerSafetyBlockReason blockReason = determineBlockReason();
-		switch (blockReason) {
-			case MOCK_MODE -> throw new BrokerMutationBlockedException(
-					"현재 증권사 실행 모드는 MOCK입니다.");
-			case LIVE_FEATURE_DISABLED -> throw new BrokerMutationBlockedException(
-					"실제 주문 기능이 비활성화되어 있습니다.");
-			case KILL_SWITCH_ACTIVE -> throw new BrokerMutationBlockedException(
-					"긴급 주문 차단 스위치가 활성화되어 있습니다.");
-			case LIVE_ADAPTER_NOT_CONNECTED -> throw new BrokerMutationBlockedException(
-					"실제 주문 어댑터가 연결되어 있지 않습니다.");
+	public void requireLiveMutationAvailable(BrokerMutationCapability capability) {
+		if (capability == null) {
+			throw new IllegalArgumentException("확인할 주문 변경 기능이 필요합니다.");
 		}
+		if (properties.mode() != BrokerExecutionMode.LIVE) {
+			throw new BrokerMutationBlockedException("현재 증권사 실행 모드는 MOCK입니다.");
+		}
+		if (!properties.liveEnabled()) {
+			throw new BrokerMutationBlockedException("실제 주문 기능이 비활성화되어 있습니다.");
+		}
+		if (properties.killSwitchActive()) {
+			throw new BrokerMutationBlockedException("긴급 주문 차단 스위치가 활성화되어 있습니다.");
+		}
+		if (!isLiveAdapterConnected(capability)) {
+			throw new BrokerMutationBlockedException("실제 주문 어댑터가 연결되어 있지 않습니다.");
+		}
+	}
+
+	/** 지정한 주문 변경 기능의 실제 어댑터 연결 상태를 내부 목록에서 확인합니다. */
+	private boolean isLiveAdapterConnected(BrokerMutationCapability capability) {
+		return MUTATION_CAPABILITIES.stream()
+				.anyMatch(status -> status.capability() == capability
+						&& status.liveAdapterConnected());
 	}
 
 	/**
