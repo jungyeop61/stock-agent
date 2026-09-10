@@ -312,7 +312,7 @@ public class TossConditionalOrderClient {
 
 	/**
 	 * 토스증권 조건 주문 식별값으로 조건 주문 취소를 요청합니다.
-	 * 공식 명세의 DELETE 요청과 204 응답만 사용하며 현재 MOCK 취소 서비스에는 연결하지 않습니다.
+	 * 공식 명세의 DELETE 요청과 204 응답만 사용하며 현재 LIVE 준비 상태에서는 호출 전에 차단됩니다.
 	 *
 	 * @param accountSeq 취소할 조건 주문의 계좌 식별값
 	 * @param conditionalOrderId 취소할 토스증권 조건 주문 식별값
