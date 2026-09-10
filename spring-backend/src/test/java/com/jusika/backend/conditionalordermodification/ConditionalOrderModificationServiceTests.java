@@ -19,6 +19,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import com.jusika.backend.brokersafety.BrokerMutationBlockedException;
 import com.jusika.backend.buyingpower.BuyingPowerResponse;
 import com.jusika.backend.commission.CommissionsResponse;
 import com.jusika.backend.commission.CommissionsResponse.CommissionItem;
@@ -56,6 +57,10 @@ class ConditionalOrderModificationServiceTests {
 			2026, 9, 7, 12, 0, 0, 0, ZoneOffset.UTC);
 
 	private RecordingConditionalOrderClient conditionalOrderClient;
+	private FixedPriceClient priceClient;
+	private FixedBuyingPowerClient buyingPowerClient;
+	private FixedSellableQuantityClient sellableQuantityClient;
+	private FixedCommissionsClient commissionsClient;
 	private MemoryPreviewStore previewStore;
 	private MemoryExecutionStore executionStore;
 	private RecordingGateway gateway;
@@ -65,13 +70,17 @@ class ConditionalOrderModificationServiceTests {
 	@BeforeEach
 	void 각_테스트에_필요한_조건_주문_정정_서비스를_준비한다() {
 		conditionalOrderClient = new RecordingConditionalOrderClient();
+		priceClient = new FixedPriceClient();
+		buyingPowerClient = new FixedBuyingPowerClient();
+		sellableQuantityClient = new FixedSellableQuantityClient();
+		commissionsClient = new FixedCommissionsClient();
 		previewStore = new MemoryPreviewStore();
 		executionStore = new MemoryExecutionStore();
 		gateway = new RecordingGateway();
 		Clock clock = Clock.fixed(Instant.parse("2026-09-07T12:00:00Z"), ZoneOffset.UTC);
 		service = new ConditionalOrderModificationService(
-				conditionalOrderClient, new FixedPriceClient(), new FixedBuyingPowerClient(),
-				new FixedSellableQuantityClient(), new FixedCommissionsClient(), previewStore,
+				conditionalOrderClient, priceClient, buyingPowerClient,
+				sellableQuantityClient, commissionsClient, previewStore,
 				executionStore, gateway, new OrderPreviewProperties(Duration.ofMinutes(2)), clock);
 	}
 
@@ -176,6 +185,34 @@ class ConditionalOrderModificationServiceTests {
 		assertThat(gateway.callCount).isZero();
 	}
 
+	/** LIVE 가용성 검사가 실패하면 원주문·금융 조회나 미리보기·실행 상태를 변경하지 않는지 검사합니다. */
+	@Test
+	@DisplayName("LIVE 안전정책 차단은 조건 주문 정정 재조회와 미리보기 소비 전에 적용된다")
+	void LIVE_안전정책_차단은_조건_주문_정정_재조회와_미리보기_소비_전에_적용된다() {
+		conditionalOrderClient.response = 원조건_주문을_만든다(ConditionalOrderType.SINGLE);
+		ConditionalOrderModificationPreviewResponse preview = 승인된_OCO_미리보기를_저장한다();
+		gateway.availabilityFailure = new BrokerMutationBlockedException(
+				"테스트 LIVE 조건 주문 정정 차단");
+		int previewOrderCalls = conditionalOrderClient.callCount;
+		int previewPriceCalls = priceClient.callCount;
+		int previewBuyingPowerCalls = buyingPowerClient.callCount;
+		int previewSellableQuantityCalls = sellableQuantityClient.callCount;
+		int previewCommissionCalls = commissionsClient.callCount;
+
+		assertThatThrownBy(() -> service.executeApprovedPreview(preview.previewId()))
+				.isInstanceOf(BrokerMutationBlockedException.class)
+				.hasMessage("테스트 LIVE 조건 주문 정정 차단");
+		assertThat(previewStore.findById(preview.previewId()).orElseThrow().status())
+				.isEqualTo(ConditionalOrderModificationPreviewStatus.APPROVED);
+		assertThat(executionStore.values).isEmpty();
+		assertThat(conditionalOrderClient.callCount).isEqualTo(previewOrderCalls);
+		assertThat(priceClient.callCount).isEqualTo(previewPriceCalls);
+		assertThat(buyingPowerClient.callCount).isEqualTo(previewBuyingPowerCalls);
+		assertThat(sellableQuantityClient.callCount).isEqualTo(previewSellableQuantityCalls);
+		assertThat(commissionsClient.callCount).isEqualTo(previewCommissionCalls);
+		assertThat(gateway.callCount).isZero();
+	}
+
 	/** 제출 결과 불명은 UNKNOWN으로 저장하고 정정 경계를 한 번만 호출하는지 검사합니다. */
 	@Test
 	@DisplayName("조건 주문 정정 결과 불명은 UNKNOWN으로 저장하고 자동 재시도하지 않는다")
@@ -234,6 +271,7 @@ class ConditionalOrderModificationServiceTests {
 	/** 한 건의 조건 주문 상세 조회 응답을 반환합니다. */
 	private static final class RecordingConditionalOrderClient extends TossConditionalOrderClient {
 		private ConditionalOrderDetailResponse response;
+		private int callCount;
 
 		/** 실제 REST 의존 객체 없이 기록용 조건 주문 클라이언트를 초기화합니다. */
 		private RecordingConditionalOrderClient() { super(null, null); }
@@ -241,54 +279,67 @@ class ConditionalOrderModificationServiceTests {
 		/** 준비된 조건 주문 상세를 반환합니다. */
 		@Override
 		public ConditionalOrderDetailResponse getConditionalOrder(long accountSeq, String id) {
+			callCount++;
 			return response;
 		}
 	}
 
 	/** AAPL의 고정된 미국 달러 현재가를 반환합니다. */
 	private static final class FixedPriceClient extends TossPriceClient {
+		private int callCount;
+
 		/** 실제 REST 의존 객체 없이 현재가 클라이언트를 초기화합니다. */
 		private FixedPriceClient() { super(null, null); }
 
 		/** 테스트에 사용할 고정 현재가를 반환합니다. */
 		@Override
 		public StockPriceResponse getCurrentPrice(String symbol) {
+			callCount++;
 			return new StockPriceResponse("AAPL", new BigDecimal("200"), "USD", NOW);
 		}
 	}
 
 	/** 충분한 달러 매수 가능 금액을 반환합니다. */
 	private static final class FixedBuyingPowerClient extends TossBuyingPowerClient {
+		private int callCount;
+
 		/** 실제 REST 의존 객체 없이 매수 가능 금액 클라이언트를 초기화합니다. */
 		private FixedBuyingPowerClient() { super(null, null); }
 
 		/** 테스트에 충분한 매수 가능 금액을 반환합니다. */
 		@Override
 		public BuyingPowerResponse getBuyingPower(long accountSeq, String currency) {
+			callCount++;
 			return new BuyingPowerResponse(accountSeq, currency, new BigDecimal("100000"));
 		}
 	}
 
 	/** 충분한 AAPL 매도 가능 수량을 반환합니다. */
 	private static final class FixedSellableQuantityClient extends TossSellableQuantityClient {
+		private int callCount;
+
 		/** 실제 REST 의존 객체 없이 매도 가능 수량 클라이언트를 초기화합니다. */
 		private FixedSellableQuantityClient() { super(null, null); }
 
 		/** 테스트에 충분한 매도 가능 수량을 반환합니다. */
 		@Override
 		public SellableQuantityResponse getSellableQuantity(long accountSeq, String symbol) {
+			callCount++;
 			return new SellableQuantityResponse(accountSeq, symbol, new BigDecimal("100"));
 		}
 	}
 
 	/** 미국 시장의 고정 수수료율을 반환합니다. */
 	private static final class FixedCommissionsClient extends TossCommissionsClient {
+		private int callCount;
+
 		/** 실제 REST 의존 객체 없이 수수료 클라이언트를 초기화합니다. */
 		private FixedCommissionsClient() { super(null, null); }
 
 		/** 테스트에 사용할 미국 시장 수수료율을 반환합니다. */
 		@Override
 		public CommissionsResponse getCommissions(long accountSeq) {
+			callCount++;
 			return new CommissionsResponse(accountSeq, List.of(
 					new CommissionItem("US", new BigDecimal("0.001"), null, null)));
 		}
@@ -441,6 +492,15 @@ class ConditionalOrderModificationServiceTests {
 		private int callCount;
 		private boolean unknown;
 		private ConditionalOrderModificationSubmissionRequest request;
+		private RuntimeException availabilityFailure;
+
+		/** 준비한 LIVE 안전 차단을 재현하거나 MOCK 조건 주문 정정 사용 가능 상태를 유지합니다. */
+		@Override
+		public void requireModificationAvailable() {
+			if (availabilityFailure != null) {
+				throw availabilityFailure;
+			}
+		}
 
 		/** 정정 호출을 기록하고 새 식별값 또는 결과 불명 오류를 반환합니다. */
 		@Override
