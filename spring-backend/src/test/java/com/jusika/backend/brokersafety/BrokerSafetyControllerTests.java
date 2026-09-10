@@ -33,6 +33,15 @@ class BrokerSafetyControllerTests {
 				.andExpect(jsonPath("$.liveSafetyGateOpen").value(false))
 				.andExpect(jsonPath("$.liveAdapterConnected").value(false))
 				.andExpect(jsonPath("$.liveMutationAvailable").value(false))
-				.andExpect(jsonPath("$.blockReason").value("MOCK_MODE"));
+				.andExpect(jsonPath("$.blockReason").value("MOCK_MODE"))
+				.andExpect(jsonPath("$.mutationCapabilities.length()").value(9))
+				.andExpect(jsonPath("$.mutationCapabilities[0].capability")
+						.value("QUANTITY_ORDER_SUBMISSION"))
+				.andExpect(jsonPath("$.mutationCapabilities[0].liveAdapterConnected")
+						.value(false))
+				.andExpect(jsonPath("$.mutationCapabilities[8].capability")
+						.value("CONDITIONAL_ORDER_MODIFICATION"))
+				.andExpect(jsonPath("$.mutationCapabilities[8].liveAdapterConnected")
+						.value(false));
 	}
 }

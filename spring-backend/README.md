@@ -121,6 +121,7 @@ event=internal_api_audit occurredAt=<요청-시각> requestId=<요청-UUID> meth
 현재는 세 안전 설정이 모두 열려 있더라도 실제 주문 어댑터 연결값이 코드에서 `false`로 고정되어 있습니다.
 따라서 환경변수만 바꿔서는 실제 토스증권 주문을 생성하거나 변경할 수 없습니다.
 향후 실제 어댑터는 증권사 변경 요청 직전에 반드시 중앙 안전 정책의 최종 검사를 통과해야 합니다.
+수량·금액 주문, 일반 주문 취소·정정, 세 조건 주문 생성, 조건 주문 취소·정정의 준비 상태를 각각 반환하므로 실제 연결 작업을 한 기능씩 추적할 수 있습니다.
 
 현재 상태는 계좌번호, 토큰이나 주문 식별값 없이 조회할 수 있습니다.
 
@@ -138,11 +139,50 @@ curl http://localhost:8080/api/broker/safety
   "liveSafetyGateOpen": false,
   "liveAdapterConnected": false,
   "liveMutationAvailable": false,
-  "blockReason": "MOCK_MODE"
+  "blockReason": "MOCK_MODE",
+  "mutationCapabilities": [
+    {
+      "capability": "QUANTITY_ORDER_SUBMISSION",
+      "liveAdapterConnected": false
+    },
+    {
+      "capability": "AMOUNT_ORDER_SUBMISSION",
+      "liveAdapterConnected": false
+    },
+    {
+      "capability": "NORMAL_ORDER_CANCELLATION",
+      "liveAdapterConnected": false
+    },
+    {
+      "capability": "NORMAL_ORDER_MODIFICATION",
+      "liveAdapterConnected": false
+    },
+    {
+      "capability": "SINGLE_CONDITIONAL_ORDER_CREATION",
+      "liveAdapterConnected": false
+    },
+    {
+      "capability": "OCO_CONDITIONAL_ORDER_CREATION",
+      "liveAdapterConnected": false
+    },
+    {
+      "capability": "OTO_CONDITIONAL_ORDER_CREATION",
+      "liveAdapterConnected": false
+    },
+    {
+      "capability": "CONDITIONAL_ORDER_CANCELLATION",
+      "liveAdapterConnected": false
+    },
+    {
+      "capability": "CONDITIONAL_ORDER_MODIFICATION",
+      "liveAdapterConnected": false
+    }
+  ]
 }
 ```
 
 `blockReason`은 `MOCK_MODE`, `LIVE_FEATURE_DISABLED`, `KILL_SWITCH_ACTIVE`, `LIVE_ADAPTER_NOT_CONNECTED` 중 현재 가장 우선적인 차단 사유를 반환합니다.
+`liveAdapterConnected`는 모든 기능이 연결됐을 때만 `true`가 되는 전역 값이며, `mutationCapabilities`에서 기능별 준비 상태를 확인할 수 있습니다.
 이 단계는 설정과 읽기 전용 상태 조회만 추가하므로 데이터베이스 마이그레이션이 없습니다.
 
 ```bash

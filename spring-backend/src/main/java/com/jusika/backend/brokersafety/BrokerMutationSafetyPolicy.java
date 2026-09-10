@@ -1,5 +1,8 @@
 package com.jusika.backend.brokersafety;
 
+import java.util.Arrays;
+import java.util.List;
+
 import org.springframework.stereotype.Service;
 
 /**
@@ -8,7 +11,10 @@ import org.springframework.stereotype.Service;
 @Service
 public class BrokerMutationSafetyPolicy {
 
-	private static final boolean LIVE_ADAPTER_CONNECTED = false;
+	private static final List<BrokerMutationCapabilityStatus> MUTATION_CAPABILITIES =
+			Arrays.stream(BrokerMutationCapability.values())
+					.map(capability -> new BrokerMutationCapabilityStatus(capability, false))
+					.toList();
 
 	private final BrokerSafetyProperties properties;
 
@@ -29,15 +35,18 @@ public class BrokerMutationSafetyPolicy {
 	public BrokerSafetyStatusResponse getStatus() {
 		BrokerSafetyBlockReason blockReason = determineBlockReason();
 		boolean safetyGateOpen = blockReason == BrokerSafetyBlockReason.LIVE_ADAPTER_NOT_CONNECTED;
-		boolean mutationAvailable = safetyGateOpen && LIVE_ADAPTER_CONNECTED;
+		boolean allAdaptersConnected = MUTATION_CAPABILITIES.stream()
+				.allMatch(BrokerMutationCapabilityStatus::liveAdapterConnected);
+		boolean mutationAvailable = safetyGateOpen && allAdaptersConnected;
 		return new BrokerSafetyStatusResponse(
 				properties.mode(),
 				properties.liveEnabled(),
 				properties.killSwitchActive(),
 				safetyGateOpen,
-				LIVE_ADAPTER_CONNECTED,
+				allAdaptersConnected,
 				mutationAvailable,
-				blockReason);
+				blockReason,
+				MUTATION_CAPABILITIES);
 	}
 
 	/**

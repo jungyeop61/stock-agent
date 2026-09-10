@@ -1,5 +1,7 @@
 package com.jusika.backend.brokersafety;
 
+import java.util.List;
+
 /**
  * 비밀정보 없이 현재 증권사 주문 변경 안전장치 상태를 표현합니다.
  *
@@ -10,6 +12,7 @@ package com.jusika.backend.brokersafety;
  * @param liveAdapterConnected 실제 주문 변경 어댑터가 연결되어 있는지 여부
  * @param liveMutationAvailable 현재 실제 주문 변경이 가능한지 여부
  * @param blockReason 실제 주문 변경을 차단하는 우선 사유
+ * @param mutationCapabilities 주문 변경 기능별 실제 어댑터 연결 상태
  */
 public record BrokerSafetyStatusResponse(
 		BrokerExecutionMode mode,
@@ -18,5 +21,11 @@ public record BrokerSafetyStatusResponse(
 		boolean liveSafetyGateOpen,
 		boolean liveAdapterConnected,
 		boolean liveMutationAvailable,
-		BrokerSafetyBlockReason blockReason) {
+		BrokerSafetyBlockReason blockReason,
+		List<BrokerMutationCapabilityStatus> mutationCapabilities) {
+
+	/** 응답 생성 뒤 기능별 상태 목록을 외부에서 변경할 수 없도록 복사합니다. */
+	public BrokerSafetyStatusResponse {
+		mutationCapabilities = List.copyOf(mutationCapabilities);
+	}
 }

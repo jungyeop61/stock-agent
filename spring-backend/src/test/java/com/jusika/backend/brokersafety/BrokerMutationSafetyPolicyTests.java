@@ -3,6 +3,8 @@ package com.jusika.backend.brokersafety;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.util.EnumSet;
+
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -71,6 +73,23 @@ class BrokerMutationSafetyPolicyTests {
 		assertThatThrownBy(policy::requireLiveMutationAvailable)
 				.isInstanceOf(BrokerMutationBlockedException.class)
 				.hasMessage("실제 주문 어댑터가 연결되어 있지 않습니다.");
+	}
+
+	/** 실제 연결 전에 모든 주문 변경 기능이 빠짐없이 미연결 상태로 공개되는지 검사합니다. */
+	@Test
+	@DisplayName("모든 주문 변경 기능의 LIVE 어댑터가 미연결 상태다")
+	void 모든_주문_변경_기능의_LIVE_어댑터가_미연결_상태다() {
+		BrokerMutationSafetyPolicy policy = 정책을_만든다(BrokerExecutionMode.LIVE, true, false);
+
+		BrokerSafetyStatusResponse status = policy.getStatus();
+
+		assertThat(status.mutationCapabilities())
+				.extracting(BrokerMutationCapabilityStatus::capability)
+				.containsExactlyInAnyOrderElementsOf(EnumSet.allOf(BrokerMutationCapability.class));
+		assertThat(status.mutationCapabilities())
+				.allMatch(capabilityStatus -> !capabilityStatus.liveAdapterConnected());
+		assertThat(status.liveAdapterConnected()).isFalse();
+		assertThat(status.liveMutationAvailable()).isFalse();
 	}
 
 	/** 실행 모드가 누락된 설정 객체를 생성 단계에서 거절하는지 검사합니다. */
