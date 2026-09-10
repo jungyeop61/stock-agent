@@ -111,6 +111,7 @@ public class ConditionalOrderCancellationService {
 		ConditionalOrderCancellationPreviewResponse preview = findPreview(previewId);
 		OffsetDateTime startedAt = OffsetDateTime.now(clock);
 		validateExecutablePreview(preview, startedAt);
+		cancellationGateway.requireCancellationAvailable();
 
 		ConditionalOrderDetailResponse current = conditionalOrderClient.getConditionalOrder(
 				preview.accountSeq(), preview.conditionalOrderId());

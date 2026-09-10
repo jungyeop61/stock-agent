@@ -18,6 +18,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import com.jusika.backend.brokersafety.BrokerMutationBlockedException;
 import com.jusika.backend.conditionalorder.ConditionalOrderConditionStatus;
 import com.jusika.backend.conditionalorder.ConditionalOrderConditionType;
 import com.jusika.backend.conditionalorder.ConditionalOrderDetailResponse;
@@ -121,6 +122,26 @@ class ConditionalOrderCancellationServiceTests {
 				.isInstanceOf(OrderExecutionConflictException.class)
 				.hasMessageContaining("내용이나 상태가 변경");
 		assertThat(executionStore.values).isEmpty();
+		assertThat(gateway.callCount).isZero();
+	}
+
+	/** LIVE 가용성 검사가 실패하면 외부 조회나 미리보기·실행 상태를 변경하지 않는지 검사합니다. */
+	@Test
+	@DisplayName("LIVE 안전정책 차단은 조건 주문 취소 재조회와 미리보기 소비 전에 적용된다")
+	void LIVE_안전정책_차단은_조건_주문_취소_재조회와_미리보기_소비_전에_적용된다() {
+		conditionalOrderClient.response = 감시_중인_조건_주문을_만든다();
+		ConditionalOrderCancellationPreviewResponse preview = 승인된_미리보기를_만든다();
+		gateway.availabilityFailure = new BrokerMutationBlockedException(
+				"테스트 LIVE 조건 주문 취소 차단");
+		int previewLookupCalls = conditionalOrderClient.callCount;
+
+		assertThatThrownBy(() -> service.executeApprovedPreview(preview.previewId()))
+				.isInstanceOf(BrokerMutationBlockedException.class)
+				.hasMessage("테스트 LIVE 조건 주문 취소 차단");
+		assertThat(previewStore.findById(preview.previewId()).orElseThrow().status())
+				.isEqualTo(ConditionalOrderCancellationPreviewStatus.APPROVED);
+		assertThat(executionStore.values).isEmpty();
+		assertThat(conditionalOrderClient.callCount).isEqualTo(previewLookupCalls);
 		assertThat(gateway.callCount).isZero();
 	}
 
@@ -391,6 +412,15 @@ class ConditionalOrderCancellationServiceTests {
 			implements ConditionalOrderCancellationGateway {
 		private int callCount;
 		private boolean unknown;
+		private RuntimeException availabilityFailure;
+
+		/** 준비한 LIVE 안전 차단을 재현하거나 MOCK 조건 주문 취소 사용 가능 상태를 유지합니다. */
+		@Override
+		public void requireCancellationAvailable() {
+			if (availabilityFailure != null) {
+				throw availabilityFailure;
+			}
+		}
 
 		/** 취소 호출을 기록하고 설정에 따라 정상 처리하거나 결과 불명 오류를 냅니다. */
 		@Override
