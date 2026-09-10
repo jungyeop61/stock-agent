@@ -26,8 +26,8 @@ import com.jusika.backend.toss.order.TossOrderApiResponse.TossOrderResult;
 import com.jusika.backend.toss.order.TossOrderOperationApiResponse.TossOrderOperationResult;
 
 /**
- * 토스증권 주문 생성·취소 API의 요청 형식과 응답을 담당합니다.
- * 이 객체를 호출하면 실제 주문이 생성되거나 취소되므로 승인·재검증 서비스에서만 사용해야 합니다.
+ * 토스증권 주문 생성·취소·정정 API의 요청 형식과 응답을 담당합니다.
+ * 이 객체를 호출하면 실제 주문이 생성·취소·정정되므로 승인·재검증 서비스에서만 사용해야 합니다.
  */
 @Component
 public class TossOrderClient {
@@ -122,7 +122,7 @@ public class TossOrderClient {
 
 	/**
 	 * 토스증권 주문 식별값으로 아직 체결되지 않은 주문의 취소를 요청합니다.
-	 * 현재 안전 취소 서비스에는 연결하지 않았으므로 이 메서드는 자동 실행되지 않습니다.
+	 * 현재 LIVE 준비 상태가 false이므로 안전 취소 서비스에서는 이 메서드까지 도달할 수 없습니다.
 	 *
 	 * @param accountSeq 취소할 주문의 계좌 식별값
 	 * @param orderId 취소할 토스증권 주문 식별값
@@ -158,7 +158,7 @@ public class TossOrderClient {
 
 	/**
 	 * 국내 주식의 유형·수량·가격 또는 미국 주식의 유형·가격을 정정합니다.
-	 * 현재 정정 서비스에는 연결하지 않았으므로 이 메서드는 자동 실행되지 않습니다.
+	 * 현재 LIVE 준비 상태가 false이므로 안전 정정 서비스에서는 이 메서드까지 도달할 수 없습니다.
 	 *
 	 * @param accountSeq 정정할 주문의 계좌 식별값
 	 * @param orderId 정정할 토스증권 원주문 식별값

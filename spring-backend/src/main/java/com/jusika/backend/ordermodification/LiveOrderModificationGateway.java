@@ -3,28 +3,35 @@ package com.jusika.backend.ordermodification;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
-import com.jusika.backend.brokersafety.BrokerMutationBlockedException;
 import com.jusika.backend.brokersafety.BrokerMutationSafetyPolicy;
 import com.jusika.backend.order.OrderModificationSubmissionRequest;
 import com.jusika.backend.order.OrderOperationResponse;
+import com.jusika.backend.orderexecution.OrderSubmissionException;
+import com.jusika.backend.toss.order.TossOrderClient;
+import com.jusika.backend.toss.order.TossOrderException;
 
 /**
- * 일반 미체결 주문 정정의 향후 실제 실행 위치를 표시하되 현재는 전역 안전정책에서 항상 차단합니다.
- * 토스 주문 클라이언트를 의존성으로 받지 않으므로 이 구현만으로 실제 주문을 정정할 수 없습니다.
+ * 일반 미체결 주문 정정의 실제 토스 클라이언트 연결 위치이며 현재는 전역 안전정책에서 항상 차단합니다.
+ * 일반 주문 정정 어댑터 준비 상태가 false이므로 클라이언트 호출 코드까지 도달할 수 없습니다.
  */
 @Component
 @ConditionalOnProperty(prefix = "jusika.broker", name = "mode", havingValue = "live")
 class LiveOrderModificationGateway implements OrderModificationGateway {
 
 	private final BrokerMutationSafetyPolicy safetyPolicy;
+	private final TossOrderClient orderClient;
 
 	/**
-	 * 실제 정정 경계 진입을 최종 차단할 중앙 안전정책만 전달받습니다.
+	 * 실제 정정 경계 진입을 차단할 중앙 안전정책과 연결 대상 클라이언트를 전달받습니다.
 	 *
 	 * @param safetyPolicy LIVE 기능 플래그, 긴급 차단 스위치와 어댑터 연결 상태 검사기
+	 * @param orderClient 안전정책 통과 뒤에만 호출할 토스증권 주문 클라이언트
 	 */
-	LiveOrderModificationGateway(BrokerMutationSafetyPolicy safetyPolicy) {
+	LiveOrderModificationGateway(
+			BrokerMutationSafetyPolicy safetyPolicy,
+			TossOrderClient orderClient) {
 		this.safetyPolicy = safetyPolicy;
+		this.orderClient = orderClient;
 	}
 
 	/**
@@ -34,16 +41,16 @@ class LiveOrderModificationGateway implements OrderModificationGateway {
 	@Override
 	public void requireModificationAvailable() {
 		safetyPolicy.requireLiveMutationAvailable();
-		throw clientNotConnectedException();
 	}
 
 	/**
-	 * 실제 클라이언트 호출 없이 중앙 안전정책을 다시 확인하고 주문 정정을 차단합니다.
+	 * 중앙 안전정책을 다시 확인한 뒤 최종 검증된 정정 내용을 토스 클라이언트에 전달합니다.
+	 * 현재 준비 상태에서는 정책 검사가 항상 먼저 차단합니다.
 	 *
 	 * @param accountSeq 정정할 주문의 계좌 식별값
 	 * @param originalOrderId 정정할 원주문 식별값
 	 * @param request 최종 재검증을 마친 정정 요청 본문
-	 * @return 현재 단계에서는 절대 반환되지 않는 정정 접수 결과
+	 * @return 토스증권이 정정 접수 뒤 새로 발급한 주문 식별값
 	 */
 	@Override
 	public OrderOperationResponse modifyOrder(
@@ -51,7 +58,13 @@ class LiveOrderModificationGateway implements OrderModificationGateway {
 			String originalOrderId,
 			OrderModificationSubmissionRequest request) {
 		safetyPolicy.requireLiveMutationAvailable();
-		throw clientNotConnectedException();
+		try {
+			return orderClient.modifyOrder(accountSeq, originalOrderId, request);
+		} catch (TossOrderException exception) {
+			throw new OrderSubmissionException(
+					"토스증권 일반 주문 정정에 실패했습니다.",
+					exception.isSubmissionStateUnknown());
+		}
 	}
 
 	/**
@@ -64,12 +77,4 @@ class LiveOrderModificationGateway implements OrderModificationGateway {
 		return "LIVE";
 	}
 
-	/**
-	 * 중앙 정책이 향후 열리더라도 클라이언트 연결 전에는 정정하지 못하게 하는 최종 오류를 만듭니다.
-	 *
-	 * @return 민감정보가 없는 실제 주문 정정 차단 오류
-	 */
-	private BrokerMutationBlockedException clientNotConnectedException() {
-		return new BrokerMutationBlockedException("일반 주문 정정 LIVE 클라이언트가 연결되어 있지 않습니다.");
-	}
 }
