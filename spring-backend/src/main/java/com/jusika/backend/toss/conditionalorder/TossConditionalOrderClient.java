@@ -429,7 +429,7 @@ public class TossConditionalOrderClient {
 
 	/**
 	 * 검증을 마친 OTO 조건 주문을 토스증권 생성 주소로 제출합니다.
-	 * 이 함수는 실제 계좌에 영향을 줄 수 있으므로 현재 MOCK 실행 서비스에는 연결하지 않습니다.
+	 * 현재 LIVE 준비 상태가 false이므로 안전 실행 서비스에서는 이 메서드까지 도달할 수 없습니다.
 	 *
 	 * @param accountSeq OTO 조건 주문을 만들 계좌 식별값
 	 * @param request 최종 재검증을 마친 OTO 조건 주문

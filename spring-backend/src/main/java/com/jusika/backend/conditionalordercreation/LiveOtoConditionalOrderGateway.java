@@ -3,28 +3,33 @@ package com.jusika.backend.conditionalordercreation;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
-import com.jusika.backend.brokersafety.BrokerMutationBlockedException;
 import com.jusika.backend.brokersafety.BrokerMutationSafetyPolicy;
 import com.jusika.backend.conditionalorder.ConditionalOrderCreationResponse;
 import com.jusika.backend.conditionalorder.OtoConditionalOrderSubmissionRequest;
+import com.jusika.backend.toss.conditionalorder.TossConditionalOrderClient;
 
 /**
- * OTO 조건 주문의 향후 실제 생성 위치를 표시하되 현재는 전역 안전정책에서 항상 차단합니다.
- * 토스 조건 주문 클라이언트를 의존성으로 받지 않으므로 이 구현만으로 실제 주문을 생성할 수 없습니다.
+ * OTO 조건 주문의 실제 토스 클라이언트 연결 위치이며 현재는 전역 안전정책에서 항상 차단합니다.
+ * OTO 조건 주문 어댑터 준비 상태가 false이므로 클라이언트 호출 코드까지 도달할 수 없습니다.
  */
 @Component
 @ConditionalOnProperty(prefix = "jusika.broker", name = "mode", havingValue = "live")
 class LiveOtoConditionalOrderGateway implements OtoConditionalOrderGateway {
 
 	private final BrokerMutationSafetyPolicy safetyPolicy;
+	private final TossConditionalOrderClient conditionalOrderClient;
 
 	/**
-	 * 실제 OTO 생성 경계 진입을 최종 차단할 중앙 안전정책만 전달받습니다.
+	 * 실제 OTO 생성 경계 진입을 차단할 중앙 안전정책과 연결 대상 클라이언트를 전달받습니다.
 	 *
 	 * @param safetyPolicy LIVE 기능 플래그, 긴급 차단 스위치와 어댑터 연결 상태 검사기
+	 * @param conditionalOrderClient 안전정책 통과 뒤에만 호출할 토스증권 조건 주문 클라이언트
 	 */
-	LiveOtoConditionalOrderGateway(BrokerMutationSafetyPolicy safetyPolicy) {
+	LiveOtoConditionalOrderGateway(
+			BrokerMutationSafetyPolicy safetyPolicy,
+			TossConditionalOrderClient conditionalOrderClient) {
 		this.safetyPolicy = safetyPolicy;
+		this.conditionalOrderClient = conditionalOrderClient;
 	}
 
 	/**
@@ -34,22 +39,22 @@ class LiveOtoConditionalOrderGateway implements OtoConditionalOrderGateway {
 	@Override
 	public void requireSubmissionAvailable() {
 		safetyPolicy.requireLiveMutationAvailable();
-		throw clientNotConnectedException();
 	}
 
 	/**
-	 * 실제 클라이언트 호출 없이 중앙 안전정책을 다시 확인하고 OTO 조건 주문 생성을 차단합니다.
+	 * 중앙 안전정책을 다시 확인한 뒤 최종 검증된 OTO 조건 주문을 토스 클라이언트에 전달합니다.
+	 * 현재 준비 상태에서는 정책 검사가 항상 먼저 차단합니다.
 	 *
 	 * @param accountSeq 조건 주문에 사용할 계좌 식별값
 	 * @param request 최종 재검증을 마친 OTO 조건 주문
-	 * @return 현재 단계에서는 절대 반환되지 않는 조건 주문 생성 결과
+	 * @return 토스증권이 발급한 조건 주문 식별값과 요청 멱등성 식별값
 	 */
 	@Override
 	public ConditionalOrderCreationResponse submit(
 			long accountSeq,
 			OtoConditionalOrderSubmissionRequest request) {
 		safetyPolicy.requireLiveMutationAvailable();
-		throw clientNotConnectedException();
+		return conditionalOrderClient.createOtoConditionalOrder(accountSeq, request);
 	}
 
 	/**
@@ -62,12 +67,4 @@ class LiveOtoConditionalOrderGateway implements OtoConditionalOrderGateway {
 		return "LIVE";
 	}
 
-	/**
-	 * 중앙 정책이 향후 열리더라도 클라이언트 연결 전에는 생성하지 못하게 하는 최종 오류를 만듭니다.
-	 *
-	 * @return 민감정보가 없는 OTO 조건 주문 생성 차단 오류
-	 */
-	private BrokerMutationBlockedException clientNotConnectedException() {
-		return new BrokerMutationBlockedException("OTO 조건 주문 LIVE 클라이언트가 연결되어 있지 않습니다.");
-	}
 }
