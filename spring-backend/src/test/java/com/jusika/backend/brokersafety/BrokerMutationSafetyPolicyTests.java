@@ -1,6 +1,7 @@
 package com.jusika.backend.brokersafety;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.EnumSet;
@@ -96,6 +97,69 @@ class BrokerMutationSafetyPolicyTests {
 		assertThat(status.liveMutationAvailable()).isFalse();
 	}
 
+	/** 한 기능의 준비 상태가 true여도 다른 주문 변경 기능은 계속 차단되는지 검사합니다. */
+	@Test
+	@DisplayName("기능별 LIVE 어댑터 준비 상태를 독립적으로 적용한다")
+	void 기능별_LIVE_어댑터_준비_상태를_독립적으로_적용한다() {
+		BrokerLiveAdapterProperties liveAdapters = new BrokerLiveAdapterProperties(
+				true,
+				false,
+				false,
+				false,
+				false,
+				false,
+				false,
+				false,
+				false);
+		BrokerMutationSafetyPolicy policy = new BrokerMutationSafetyPolicy(
+				new BrokerSafetyProperties(
+						BrokerExecutionMode.LIVE,
+						true,
+						false,
+						liveAdapters));
+
+		assertThatCode(() -> policy.requireLiveMutationAvailable(
+				BrokerMutationCapability.QUANTITY_ORDER_SUBMISSION))
+				.doesNotThrowAnyException();
+		assertThatThrownBy(() -> policy.requireLiveMutationAvailable(
+				BrokerMutationCapability.AMOUNT_ORDER_SUBMISSION))
+				.isInstanceOf(BrokerMutationBlockedException.class)
+				.hasMessage("실제 주문 어댑터가 연결되어 있지 않습니다.");
+		assertThat(policy.getStatus().mutationCapabilities())
+				.filteredOn(BrokerMutationCapabilityStatus::liveAdapterConnected)
+				.extracting(BrokerMutationCapabilityStatus::capability)
+				.containsExactly(BrokerMutationCapability.QUANTITY_ORDER_SUBMISSION);
+	}
+
+	/** 모든 기능과 전역 안전 설정이 열렸을 때 상태 응답의 모순이 없는지 검사합니다. */
+	@Test
+	@DisplayName("모든 LIVE 안전 검사가 통과하면 차단 사유가 없다")
+	void 모든_LIVE_안전_검사가_통과하면_차단_사유가_없다() {
+		BrokerLiveAdapterProperties liveAdapters = new BrokerLiveAdapterProperties(
+				true,
+				true,
+				true,
+				true,
+				true,
+				true,
+				true,
+				true,
+				true);
+		BrokerMutationSafetyPolicy policy = new BrokerMutationSafetyPolicy(
+				new BrokerSafetyProperties(
+						BrokerExecutionMode.LIVE,
+						true,
+						false,
+						liveAdapters));
+
+		BrokerSafetyStatusResponse status = policy.getStatus();
+
+		assertThat(status.liveSafetyGateOpen()).isTrue();
+		assertThat(status.liveAdapterConnected()).isTrue();
+		assertThat(status.liveMutationAvailable()).isTrue();
+		assertThat(status.blockReason()).isEqualTo(BrokerSafetyBlockReason.NONE);
+	}
+
 	/** 기능 종류가 누락되면 전역 설정을 검사하기 전에 잘못된 호출로 거절하는지 검사합니다. */
 	@Test
 	@DisplayName("확인할 주문 변경 기능이 누락되면 거절한다")
@@ -114,6 +178,19 @@ class BrokerMutationSafetyPolicyTests {
 		assertThatThrownBy(() -> new BrokerSafetyProperties(null, false, true))
 				.isInstanceOf(IllegalArgumentException.class)
 				.hasMessage("증권사 실행 모드 설정이 필요합니다.");
+	}
+
+	/** 기능별 어댑터 설정이 명시적으로 null이면 잘못된 설정으로 거절하는지 검사합니다. */
+	@Test
+	@DisplayName("기능별 LIVE 어댑터 설정이 누락되면 거절한다")
+	void 기능별_LIVE_어댑터_설정이_누락되면_거절한다() {
+		assertThatThrownBy(() -> new BrokerSafetyProperties(
+				BrokerExecutionMode.LIVE,
+				true,
+				false,
+				null))
+				.isInstanceOf(IllegalArgumentException.class)
+				.hasMessage("기능별 실제 주문 어댑터 설정이 필요합니다.");
 	}
 
 	/** 지정한 세 안전 설정으로 중앙 주문 변경 정책을 만듭니다. */

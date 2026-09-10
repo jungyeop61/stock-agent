@@ -118,13 +118,28 @@ event=internal_api_audit occurredAt=<요청-시각> requestId=<요청-UUID> meth
 - `JUSIKA_LIVE_TRADING_ENABLED`: 기본값은 `false`이며 사용자의 명시적 허락 전에는 활성화하지 않습니다.
 - `JUSIKA_TRADING_KILL_SWITCH_ACTIVE`: 기본값은 `true`이며 활성화된 동안 실제 주문을 즉시 차단합니다.
 
-현재는 세 안전 설정이 모두 열려 있더라도 실제 주문 어댑터 연결값이 코드에서 `false`로 고정되어 있습니다.
-따라서 환경변수만 바꿔서는 실제 토스증권 주문을 생성하거나 변경할 수 없습니다.
-향후 실제 어댑터는 증권사 변경 요청 직전에 반드시 중앙 안전 정책의 최종 검사를 통과해야 합니다.
+실제 주문 어댑터 준비 상태는 주문 변경 기능별 설정으로 분리되어 있으며 모든 기본값은 `false`입니다.
+기능별 설정 하나를 바꿔도 다른 기능의 준비 상태에는 영향을 주지 않으며, 전역 세 설정과 해당 기능 설정이 모두 열려야 중앙 안전 정책을 통과합니다.
+사용자의 명시적인 실제 주문 허락 전에는 전역 설정과 아래 기능별 설정을 현재 기본값에서 변경하지 않습니다.
+실제 어댑터는 증권사 변경 요청 직전에 반드시 중앙 안전 정책의 최종 검사를 통과해야 합니다.
 수량·금액 주문, 일반 주문 취소·정정, 세 조건 주문 생성, 조건 주문 취소·정정의 준비 상태를 각각 반환하므로 실제 연결 작업을 한 기능씩 추적할 수 있습니다.
 아홉 LIVE 게이트웨이는 사전 검사와 실제 클라이언트 호출 직전에 각각 자신의 `BrokerMutationCapability`을 중앙 정책에 전달합니다.
 따라서 이후 운영 승인을 기능별로 분리할 수 있고, 잘못된 기능이나 누락된 기능을 전역 검사로 뭉뚱그리지 않습니다.
-현재 기능별 어댑터 연결값은 모두 `false`이므로 이 구조 변경만으로 실제 주문이 활성화되지는 않습니다.
+현재 저장소 설정의 기능별 어댑터 연결값은 모두 `false`이므로 이 구조 변경만으로 실제 주문이 활성화되지는 않습니다.
+
+기능별 설정과 대응 기능은 다음과 같습니다.
+
+- `JUSIKA_LIVE_QUANTITY_ORDER_SUBMISSION_CONNECTED`: 일반 수량 주문 제출
+- `JUSIKA_LIVE_AMOUNT_ORDER_SUBMISSION_CONNECTED`: 미국 주식 금액 주문 제출
+- `JUSIKA_LIVE_NORMAL_ORDER_CANCELLATION_CONNECTED`: 일반 주문 취소
+- `JUSIKA_LIVE_NORMAL_ORDER_MODIFICATION_CONNECTED`: 일반 주문 정정
+- `JUSIKA_LIVE_SINGLE_CONDITIONAL_ORDER_CREATION_CONNECTED`: SINGLE 조건 주문 생성
+- `JUSIKA_LIVE_OCO_CONDITIONAL_ORDER_CREATION_CONNECTED`: OCO 조건 주문 생성
+- `JUSIKA_LIVE_OTO_CONDITIONAL_ORDER_CREATION_CONNECTED`: OTO 조건 주문 생성
+- `JUSIKA_LIVE_CONDITIONAL_ORDER_CANCELLATION_CONNECTED`: 조건 주문 취소
+- `JUSIKA_LIVE_CONDITIONAL_ORDER_MODIFICATION_CONNECTED`: 조건 주문 정정
+
+이 값들은 실제 클라이언트 코드가 존재한다는 사실만 표현하지 않습니다. 운영자가 해당 기능의 실제 실행을 별도로 승인하고 사전 점검을 마친 뒤에만 `true`로 바꿔야 합니다.
 
 현재 상태는 계좌번호, 토큰이나 주문 식별값 없이 조회할 수 있습니다.
 
@@ -184,7 +199,7 @@ curl http://localhost:8080/api/broker/safety
 }
 ```
 
-`blockReason`은 `MOCK_MODE`, `LIVE_FEATURE_DISABLED`, `KILL_SWITCH_ACTIVE`, `LIVE_ADAPTER_NOT_CONNECTED` 중 현재 가장 우선적인 차단 사유를 반환합니다.
+`blockReason`은 `MOCK_MODE`, `LIVE_FEATURE_DISABLED`, `KILL_SWITCH_ACTIVE`, `LIVE_ADAPTER_NOT_CONNECTED` 중 현재 가장 우선적인 차단 사유를 반환합니다. 모든 전역 설정과 아홉 기능별 준비 상태가 열렸다면 `NONE`을 반환합니다.
 `liveAdapterConnected`는 모든 기능이 연결됐을 때만 `true`가 되는 전역 값이며, `mutationCapabilities`에서 기능별 준비 상태를 확인할 수 있습니다.
 이 단계는 설정과 읽기 전용 상태 조회만 추가하므로 데이터베이스 마이그레이션이 없습니다.
 

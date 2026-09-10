@@ -11,7 +11,7 @@ import java.util.List;
  * @param liveSafetyGateOpen 실제 주문 안전 설정 세 가지가 모두 통과했는지 여부
  * @param liveAdapterConnected 실제 주문 변경 어댑터가 연결되어 있는지 여부
  * @param liveMutationAvailable 현재 실제 주문 변경이 가능한지 여부
- * @param blockReason 실제 주문 변경을 차단하는 우선 사유
+ * @param blockReason 실제 주문 변경을 차단하는 우선 사유 또는 모든 검사 통과 상태
  * @param mutationCapabilities 주문 변경 기능별 실제 어댑터 연결 상태
  */
 public record BrokerSafetyStatusResponse(

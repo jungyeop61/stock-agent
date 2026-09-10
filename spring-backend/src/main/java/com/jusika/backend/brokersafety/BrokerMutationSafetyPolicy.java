@@ -1,6 +1,5 @@
 package com.jusika.backend.brokersafety;
 
-import java.util.Arrays;
 import java.util.List;
 
 import org.springframework.stereotype.Service;
@@ -10,11 +9,6 @@ import org.springframework.stereotype.Service;
  */
 @Service
 public class BrokerMutationSafetyPolicy {
-
-	private static final List<BrokerMutationCapabilityStatus> MUTATION_CAPABILITIES =
-			Arrays.stream(BrokerMutationCapability.values())
-					.map(capability -> new BrokerMutationCapabilityStatus(capability, false))
-					.toList();
 
 	private final BrokerSafetyProperties properties;
 
@@ -28,16 +22,18 @@ public class BrokerMutationSafetyPolicy {
 	}
 
 	/**
-	 * 현재 안전 설정과 실제 어댑터 미연결 상태를 민감정보 없이 반환합니다.
+	 * 현재 안전 설정과 기능별 실제 어댑터 준비 상태를 민감정보 없이 반환합니다.
 	 *
 	 * @return 실제 주문 가능 여부와 가장 우선적인 차단 사유
 	 */
 	public BrokerSafetyStatusResponse getStatus() {
-		BrokerSafetyBlockReason blockReason = determineBlockReason();
-		boolean safetyGateOpen = blockReason == BrokerSafetyBlockReason.LIVE_ADAPTER_NOT_CONNECTED;
-		boolean allAdaptersConnected = MUTATION_CAPABILITIES.stream()
+		List<BrokerMutationCapabilityStatus> mutationCapabilities = createCapabilityStatuses();
+		boolean allAdaptersConnected = mutationCapabilities.stream()
 				.allMatch(BrokerMutationCapabilityStatus::liveAdapterConnected);
-		boolean mutationAvailable = safetyGateOpen && allAdaptersConnected;
+		BrokerSafetyBlockReason blockReason = determineBlockReason(allAdaptersConnected);
+		boolean safetyGateOpen = blockReason == BrokerSafetyBlockReason.LIVE_ADAPTER_NOT_CONNECTED
+				|| blockReason == BrokerSafetyBlockReason.NONE;
+		boolean mutationAvailable = blockReason == BrokerSafetyBlockReason.NONE;
 		return new BrokerSafetyStatusResponse(
 				properties.mode(),
 				properties.liveEnabled(),
@@ -46,12 +42,12 @@ public class BrokerMutationSafetyPolicy {
 				allAdaptersConnected,
 				mutationAvailable,
 				blockReason,
-				MUTATION_CAPABILITIES);
+				mutationCapabilities);
 	}
 
 	/**
 	 * 지정한 주문 변경 기능의 실제 어댑터가 호출되기 전에 전역 설정과 해당 연결 상태를 검사합니다.
-	 * 현재는 모든 기능의 실제 어댑터 연결값이 false로 고정되어 항상 마지막 단계에서 차단됩니다.
+	 * 기능별 준비 상태는 독립적으로 검사하며 기본 설정에서는 모든 기능이 마지막 단계에서 차단됩니다.
 	 *
 	 * @param capability 실제 호출 직전 검사할 주문 변경 기능
 	 */
@@ -73,19 +69,27 @@ public class BrokerMutationSafetyPolicy {
 		}
 	}
 
-	/** 지정한 주문 변경 기능의 실제 어댑터 연결 상태를 내부 목록에서 확인합니다. */
+	/** 지정한 주문 변경 기능의 실제 어댑터 연결 상태를 설정에서 확인합니다. */
 	private boolean isLiveAdapterConnected(BrokerMutationCapability capability) {
-		return MUTATION_CAPABILITIES.stream()
-				.anyMatch(status -> status.capability() == capability
-						&& status.liveAdapterConnected());
+		return properties.liveAdapters().isConnected(capability);
+	}
+
+	/** 모든 주문 변경 기능의 현재 어댑터 준비 상태를 설정값에서 만듭니다. */
+	private List<BrokerMutationCapabilityStatus> createCapabilityStatuses() {
+		return java.util.Arrays.stream(BrokerMutationCapability.values())
+				.map(capability -> new BrokerMutationCapabilityStatus(
+						capability,
+						properties.liveAdapters().isConnected(capability)))
+				.toList();
 	}
 
 	/**
-	 * 실행 모드, 기능 플래그, 긴급 차단 스위치 순서로 가장 우선적인 차단 사유를 결정합니다.
+	 * 실행 모드, 기능 플래그, 긴급 차단 스위치와 어댑터 순서로 차단 사유를 결정합니다.
 	 *
-	 * @return 실제 주문 안전 설정 또는 어댑터 상태가 막힌 이유
+	 * @param allAdaptersConnected 모든 주문 변경 어댑터가 준비됐는지 여부
+	 * @return 실제 주문이 막힌 이유 또는 모든 검사가 통과한 NONE
 	 */
-	private BrokerSafetyBlockReason determineBlockReason() {
+	private BrokerSafetyBlockReason determineBlockReason(boolean allAdaptersConnected) {
 		if (properties.mode() != BrokerExecutionMode.LIVE) {
 			return BrokerSafetyBlockReason.MOCK_MODE;
 		}
@@ -95,6 +99,8 @@ public class BrokerMutationSafetyPolicy {
 		if (properties.killSwitchActive()) {
 			return BrokerSafetyBlockReason.KILL_SWITCH_ACTIVE;
 		}
-		return BrokerSafetyBlockReason.LIVE_ADAPTER_NOT_CONNECTED;
+		return allAdaptersConnected
+				? BrokerSafetyBlockReason.NONE
+				: BrokerSafetyBlockReason.LIVE_ADAPTER_NOT_CONNECTED;
 	}
 }

@@ -40,6 +40,16 @@ jusika:
     mode: ${JUSIKA_BROKER_MODE:mock}
     live-enabled: ${JUSIKA_LIVE_TRADING_ENABLED:false}
     kill-switch-active: ${JUSIKA_TRADING_KILL_SWITCH_ACTIVE:true}
+    live-adapters:
+      quantity-order-submission: ${JUSIKA_LIVE_QUANTITY_ORDER_SUBMISSION_CONNECTED:false}
+      amount-order-submission: ${JUSIKA_LIVE_AMOUNT_ORDER_SUBMISSION_CONNECTED:false}
+      normal-order-cancellation: ${JUSIKA_LIVE_NORMAL_ORDER_CANCELLATION_CONNECTED:false}
+      normal-order-modification: ${JUSIKA_LIVE_NORMAL_ORDER_MODIFICATION_CONNECTED:false}
+      single-conditional-order-creation: ${JUSIKA_LIVE_SINGLE_CONDITIONAL_ORDER_CREATION_CONNECTED:false}
+      oco-conditional-order-creation: ${JUSIKA_LIVE_OCO_CONDITIONAL_ORDER_CREATION_CONNECTED:false}
+      oto-conditional-order-creation: ${JUSIKA_LIVE_OTO_CONDITIONAL_ORDER_CREATION_CONNECTED:false}
+      conditional-order-cancellation: ${JUSIKA_LIVE_CONDITIONAL_ORDER_CANCELLATION_CONNECTED:false}
+      conditional-order-modification: ${JUSIKA_LIVE_CONDITIONAL_ORDER_MODIFICATION_CONNECTED:false}
   toss:
     base-url: ${TOSSINVEST_BASE_URL:https://openapi.tossinvest.com}
     client-id: ${TOSSINVEST_CLIENT_ID:}
