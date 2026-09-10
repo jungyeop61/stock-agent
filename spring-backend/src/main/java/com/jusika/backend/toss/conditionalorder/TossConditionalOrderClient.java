@@ -48,7 +48,7 @@ import com.jusika.backend.toss.conditionalorder.TossConditionalOrderCreationApiR
 import com.jusika.backend.toss.conditionalorder.TossConditionalOrderModificationApiResponse.ModificationResult;
 
 /**
- * 토스증권 조건 주문을 조회하고 실행 서비스와 분리된 생성·취소 요청을 안전하게 처리합니다.
+ * 토스증권 조건 주문을 조회하고 안전 실행 경계에서 사용할 생성·취소·정정 요청을 처리합니다.
  */
 @Component
 public class TossConditionalOrderClient {
@@ -363,7 +363,7 @@ public class TossConditionalOrderClient {
 
 	/**
 	 * 검증을 마친 단일 조건 주문을 토스증권 생성 주소로 제출합니다.
-	 * 이 함수는 실제 계좌에 영향을 줄 수 있으므로 현재 MOCK 실행 서비스에는 연결하지 않습니다.
+	 * 현재 LIVE 준비 상태가 false이므로 안전 실행 서비스에서는 이 메서드까지 도달할 수 없습니다.
 	 *
 	 * @param accountSeq 조건 주문을 만들 계좌 식별값
 	 * @param request 최종 재검증을 마친 단일 조건 주문
