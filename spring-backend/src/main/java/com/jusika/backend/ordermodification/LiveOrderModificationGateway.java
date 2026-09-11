@@ -5,6 +5,7 @@ import org.springframework.stereotype.Component;
 
 import com.jusika.backend.brokersafety.BrokerMutationSafetyPolicy;
 import com.jusika.backend.brokersafety.BrokerMutationCapability;
+import com.jusika.backend.brokersafety.BrokerOrderRiskSnapshot;
 import com.jusika.backend.order.OrderModificationSubmissionRequest;
 import com.jusika.backend.order.OrderOperationResponse;
 import com.jusika.backend.orderexecution.OrderSubmissionException;
@@ -52,6 +53,12 @@ class LiveOrderModificationGateway implements OrderModificationGateway {
 		safetyPolicy.requireLiveAccountAllowed(accountSeq);
 	}
 
+	/** 최종 계산한 정정 수량과 주문금액이 LIVE 1회 한도를 넘지 않는지 검사합니다. */
+	@Override
+	public void requireOrderWithinLimits(BrokerOrderRiskSnapshot riskSnapshot) {
+		safetyPolicy.requireLiveOrderWithinLimits(riskSnapshot);
+	}
+
 	/**
 	 * 중앙 안전정책을 다시 확인한 뒤 최종 검증된 정정 내용을 토스 클라이언트에 전달합니다.
 	 * 현재 준비 상태에서는 정책 검사가 항상 먼저 차단합니다.
@@ -67,6 +74,7 @@ class LiveOrderModificationGateway implements OrderModificationGateway {
 			String originalOrderId,
 			OrderModificationSubmissionRequest request) {
 		requireModificationAvailable(accountSeq);
+		requireOrderWithinLimits(request.riskSnapshot());
 		try {
 			return orderClient.modifyOrder(accountSeq, originalOrderId, request);
 		} catch (TossOrderException exception) {

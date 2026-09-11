@@ -1,5 +1,6 @@
 package com.jusika.backend.conditionalordermodification;
 
+import com.jusika.backend.brokersafety.BrokerOrderRiskSnapshot;
 import com.jusika.backend.conditionalorder.ConditionalOrderModificationResponse;
 import com.jusika.backend.conditionalorder.ConditionalOrderModificationSubmissionRequest;
 
@@ -19,6 +20,11 @@ interface ConditionalOrderModificationGateway {
 	 */
 	default void requireModificationAvailable(long accountSeq) {
 		requireModificationAvailable();
+	}
+
+	/** 실행 기록 생성 전에 정정 후 최대 조건 주문값이 LIVE 1회 한도 이내인지 확인합니다. */
+	default void requireOrderWithinLimits(BrokerOrderRiskSnapshot riskSnapshot) {
+		// MOCK 정정은 실제 주문 조건을 만들지 않으므로 LIVE 한도를 적용하지 않습니다.
 	}
 
 	/** 검증된 새 전체 구성으로 기존 조건 주문을 대체합니다. */

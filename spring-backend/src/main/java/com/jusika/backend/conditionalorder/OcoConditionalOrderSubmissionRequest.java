@@ -3,6 +3,7 @@ package com.jusika.backend.conditionalorder;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 
+import com.jusika.backend.brokersafety.BrokerOrderRiskSnapshot;
 import com.jusika.backend.orderpreview.OrderSide;
 import com.jusika.backend.orderpreview.OrderType;
 
@@ -17,6 +18,7 @@ import com.jusika.backend.orderpreview.OrderType;
  * @param first 현재가보다 높은 첫 번째 매도 조건
  * @param second 현재가보다 낮은 두 번째 매도 조건
  * @param confirmHighValueOrder 1억원 이상 국내 주문을 사용자가 확인했는지 여부
+ * @param riskSnapshot 실행 직전 확정한 수량과 최대 주문금액 한도 검사값
  */
 public record OcoConditionalOrderSubmissionRequest(
 		String clientOrderId,
@@ -26,7 +28,22 @@ public record OcoConditionalOrderSubmissionRequest(
 		LocalDate expireDate,
 		Condition first,
 		Condition second,
-		boolean confirmHighValueOrder) {
+		boolean confirmHighValueOrder,
+		BrokerOrderRiskSnapshot riskSnapshot) {
+
+	/** 기존 호출 형식을 유지하되 LIVE 한도 검사값은 미지정 상태로 만듭니다. */
+	public OcoConditionalOrderSubmissionRequest(
+			String clientOrderId,
+			String symbol,
+			BigDecimal quantity,
+			OrderType orderType,
+			LocalDate expireDate,
+			Condition first,
+			Condition second,
+			boolean confirmHighValueOrder) {
+		this(clientOrderId, symbol, quantity, orderType, expireDate, first, second,
+				confirmHighValueOrder, null);
+	}
 
 	/** 로그에 식별값과 금융값이 노출되지 않도록 안전한 설명만 반환합니다. */
 	@Override

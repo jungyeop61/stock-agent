@@ -112,12 +112,15 @@ event=internal_api_audit occurredAt=<요청-시각> requestId=<요청-UUID> meth
 
 ## 실제 주문 연결 전역 안전장치
 
-실제 매수·매도·취소·정정 어댑터를 연결하기 전에 다음 전역 설정과 계좌 허용 목록을 중앙 정책에서 함께 검사합니다.
+실제 매수·매도·취소·정정 어댑터를 연결하기 전에 다음 전역 설정, 계좌 허용 목록과 1회 주문 한도를 중앙 정책에서 함께 검사합니다.
 
 - `JUSIKA_BROKER_MODE`: 기본값은 `mock`이며 `live`가 아니면 실제 주문을 차단합니다.
 - `JUSIKA_LIVE_TRADING_ENABLED`: 기본값은 `false`이며 사용자의 명시적 허락 전에는 활성화하지 않습니다.
 - `JUSIKA_TRADING_KILL_SWITCH_ACTIVE`: 기본값은 `true`이며 활성화된 동안 실제 주문을 즉시 차단합니다.
 - `JUSIKA_LIVE_ALLOWED_ACCOUNT_SEQS`: 실제 주문을 허용한 계좌 식별값의 쉼표 구분 목록이며 기본값은 빈 목록입니다.
+- `JUSIKA_LIVE_MAX_ORDER_QUANTITY`: 실제 주문 한 건의 최대 주식 수량이며 기본값 `0`은 미설정 차단 상태입니다.
+- `JUSIKA_LIVE_MAX_KRW_ORDER_AMOUNT`: 실제 주문 한 건의 최대 원화 주문금액이며 기본값 `0`은 미설정 차단 상태입니다.
+- `JUSIKA_LIVE_MAX_USD_ORDER_AMOUNT`: 실제 주문 한 건의 최대 달러 주문금액이며 기본값 `0`은 미설정 차단 상태입니다.
 
 실제 주문 어댑터 준비 상태는 주문 변경 기능별 설정으로 분리되어 있으며 모든 기본값은 `false`입니다.
 기능별 설정 하나를 바꿔도 다른 기능의 준비 상태에는 영향을 주지 않으며, 전역 세 설정과 해당 기능 설정이 모두 열려야 중앙 안전 정책을 통과합니다.
@@ -151,6 +154,18 @@ event=internal_api_audit occurredAt=<요청-시각> requestId=<요청-UUID> meth
 - MOCK 실행은 실제 증권사 상태를 바꾸지 않으므로 계좌 허용 목록의 영향을 받지 않습니다.
 - 안전 상태 응답에는 실제 계좌 식별값과 허용 계좌 개수를 포함하지 않고 목록 설정 여부만 반환합니다.
 
+1회 주문 한도는 다음 규칙을 적용합니다.
+
+- 수량과 원화·달러 주문금액 상한 중 하나라도 `0`이면 모든 LIVE 생성·정정 주문을 차단합니다.
+- 수량 주문과 일반·조건 주문 정정은 최종 수량과 주문금액을 함께 검사합니다.
+- 미국 주식 달러 금액 주문은 수량이 정해지지 않으므로 최종 달러 주문금액을 검사합니다.
+- OCO·OTO 생성과 조건 주문 정정은 두 조건 중 더 큰 최종 주문금액을 검사합니다.
+- 승인된 미리보기를 소비하거나 실행 기록을 만들기 전에 최신 금융정보로 계산한 값을 검사합니다.
+- 실제 토스 클라이언트 호출 직전에도 제출 요청에 담긴 같은 위험값을 다시 검사합니다.
+- 주문 취소는 신규 수량·금액 노출을 만들지 않으므로 이번 1회 주문 한도 대상에서 제외합니다.
+- MOCK 실행은 실제 증권사 주문을 만들지 않으므로 1회 LIVE 주문 한도의 영향을 받지 않습니다.
+- 안전 상태 응답에는 실제 상한 숫자를 포함하지 않고 세 상한의 설정 여부만 반환합니다.
+
 현재 상태는 계좌번호, 토큰이나 주문 식별값 없이 조회할 수 있습니다.
 
 ```bash
@@ -167,6 +182,7 @@ curl http://localhost:8080/api/broker/safety
   "liveSafetyGateOpen": false,
   "liveAdapterConnected": false,
   "liveAccountAllowlistConfigured": false,
+  "liveOrderLimitsConfigured": false,
   "liveMutationAvailable": false,
   "blockReason": "MOCK_MODE",
   "mutationCapabilities": [
@@ -210,10 +226,11 @@ curl http://localhost:8080/api/broker/safety
 }
 ```
 
-`blockReason`은 `MOCK_MODE`, `LIVE_FEATURE_DISABLED`, `KILL_SWITCH_ACTIVE`, `LIVE_ADAPTER_NOT_CONNECTED`, `LIVE_ACCOUNT_ALLOWLIST_EMPTY` 중 현재 가장 우선적인 차단 사유를 반환합니다. 모든 전역 설정, 아홉 기능별 준비 상태와 계좌 허용 목록이 열렸다면 `NONE`을 반환합니다.
+`blockReason`은 `MOCK_MODE`, `LIVE_FEATURE_DISABLED`, `KILL_SWITCH_ACTIVE`, `LIVE_ADAPTER_NOT_CONNECTED`, `LIVE_ACCOUNT_ALLOWLIST_EMPTY`, `LIVE_ORDER_LIMITS_NOT_CONFIGURED` 중 현재 가장 우선적인 차단 사유를 반환합니다. 모든 전역 설정, 아홉 기능별 준비 상태, 계좌 허용 목록과 세 주문 한도가 열렸다면 `NONE`을 반환합니다.
 `liveAdapterConnected`는 모든 기능이 연결됐을 때만 `true`가 되는 전역 값이며, `mutationCapabilities`에서 기능별 준비 상태를 확인할 수 있습니다.
 `liveAccountAllowlistConfigured`는 허용 계좌가 하나 이상 설정됐는지만 나타내며 실제 계좌 정보는 반환하지 않습니다.
-이 단계는 설정과 읽기 전용 상태 조회만 추가하므로 데이터베이스 마이그레이션이 없습니다.
+`liveOrderLimitsConfigured`는 수량과 원화·달러 금액 상한이 모두 양수로 설정됐는지만 나타내며 실제 한도는 반환하지 않습니다.
+이 단계는 설정, 읽기 전용 상태 조회와 실행 경계 검사만 추가하므로 데이터베이스 마이그레이션이 없습니다.
 
 ```bash
 ./mvnw -Dtest=BrokerMutationSafetyPolicyTests,BrokerSafetyControllerTests test

@@ -11,6 +11,7 @@ import java.util.UUID;
 
 import org.springframework.stereotype.Service;
 
+import com.jusika.backend.brokersafety.BrokerOrderRiskSnapshot;
 import com.jusika.backend.buyingpower.BuyingPowerResponse;
 import com.jusika.backend.commission.CommissionsResponse;
 import com.jusika.backend.commission.CommissionsResponse.CommissionItem;
@@ -167,6 +168,9 @@ public class ConditionalOrderModificationService {
 			throw new OrderExecutionConflictException(
 					"실행 직전 국내 주문금액이 1억원 이상이 되었습니다. 새 정정 미리보기를 만들어 주세요.");
 		}
+		BrokerOrderRiskSnapshot riskSnapshot = new BrokerOrderRiskSnapshot(
+				preview.requestedQuantity(), result.maximumOrderAmount(), market.currency());
+		modificationGateway.requireOrderWithinLimits(riskSnapshot);
 
 		String executionId = UUID.randomUUID().toString();
 		ConditionalOrderModificationExecutionResponse prepared =
@@ -188,7 +192,7 @@ public class ConditionalOrderModificationService {
 			throw new OrderExecutionSubmissionException(
 					"조건 주문 정정 실행 상태를 제출 중으로 변경하지 못했습니다.");
 		}
-		return modifyAndRecord(executionId, preview);
+		return modifyAndRecord(executionId, preview, riskSnapshot);
 	}
 
 	/** 실행 식별값으로 저장된 조건 주문 정정 결과를 조회합니다. */
@@ -201,8 +205,11 @@ public class ConditionalOrderModificationService {
 
 	/** MOCK 정정 결과를 성공·확정 거절·결과 불명으로 나눠 저장합니다. */
 	private ConditionalOrderModificationExecutionResponse modifyAndRecord(
-			String executionId, ConditionalOrderModificationPreviewResponse preview) {
-		ConditionalOrderModificationSubmissionRequest request = toSubmissionRequest(preview);
+			String executionId,
+			ConditionalOrderModificationPreviewResponse preview,
+			BrokerOrderRiskSnapshot riskSnapshot) {
+		ConditionalOrderModificationSubmissionRequest request = toSubmissionRequest(
+				preview, riskSnapshot);
 		try {
 			ConditionalOrderModificationResponse response = modificationGateway.modify(
 					preview.accountSeq(), preview.originalConditionalOrderId(), request);
@@ -380,7 +387,7 @@ public class ConditionalOrderModificationService {
 				market, firstAmount, secondAmount, finalValidation);
 		validateAccountCapacity(accountSeq, symbol, type, quantity, first,
 				firstAmount, commissionRate, market.currency(), finalValidation);
-		return new ValidationResult(highValue);
+		return new ValidationResult(highValue, firstAmount.max(secondAmount));
 	}
 
 	/** 유형에 맞는 정수 또는 허용된 미국 소수 수량인지 검사합니다. */
@@ -584,12 +591,13 @@ public class ConditionalOrderModificationService {
 
 	/** 승인된 미리보기의 새 전체 구성을 실행 경계 요청으로 변환합니다. */
 	private ConditionalOrderModificationSubmissionRequest toSubmissionRequest(
-			ConditionalOrderModificationPreviewResponse preview) {
+			ConditionalOrderModificationPreviewResponse preview,
+			BrokerOrderRiskSnapshot riskSnapshot) {
 		return new ConditionalOrderModificationSubmissionRequest(
 				preview.requestedType(), preview.requestedQuantity(), preview.requestedOrderType(),
 				preview.requestedExpireDate(), toSubmissionCondition(preview.requestedFirst()),
 				toSubmissionCondition(preview.requestedSecond()),
-				preview.requiresHighValueConfirmation());
+				preview.requiresHighValueConfirmation(), riskSnapshot);
 	}
 
 	/** 저장된 새 감시 조건을 증권사 경계의 조건 요청으로 변환합니다. */
@@ -666,6 +674,8 @@ public class ConditionalOrderModificationService {
 	}
 
 	/** 새 전체 조건 검증에서 사용자 고액 확인 필요 여부를 전달합니다. */
-	private record ValidationResult(boolean requiresHighValueConfirmation) {
+	private record ValidationResult(
+			boolean requiresHighValueConfirmation,
+			BigDecimal maximumOrderAmount) {
 	}
 }

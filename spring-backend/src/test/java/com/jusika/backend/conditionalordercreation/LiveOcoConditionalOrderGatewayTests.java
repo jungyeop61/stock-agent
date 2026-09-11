@@ -18,6 +18,7 @@ import com.jusika.backend.brokersafety.BrokerExecutionMode;
 import com.jusika.backend.brokersafety.BrokerMutationBlockedException;
 import com.jusika.backend.brokersafety.BrokerMutationCapability;
 import com.jusika.backend.brokersafety.BrokerMutationSafetyPolicy;
+import com.jusika.backend.brokersafety.BrokerOrderRiskSnapshot;
 import com.jusika.backend.brokersafety.BrokerSafetyProperties;
 import com.jusika.backend.conditionalorder.ConditionalOrderCreationResponse;
 import com.jusika.backend.conditionalorder.OcoConditionalOrderSubmissionRequest;
@@ -250,6 +251,12 @@ class LiveOcoConditionalOrderGatewayTests {
 		@Override
 		public void requireLiveAccountAllowed(long accountSeq) {
 			assertThat(accountSeq).isPositive();
+		}
+
+		/** 기존 클라이언트 위임 검사가 주문 한도 설정과 독립적으로 실행되게 합니다. */
+		@Override
+		public void requireLiveOrderWithinLimits(BrokerOrderRiskSnapshot riskSnapshot) {
+			// 이 테스트는 중앙 정책이 아니라 게이트웨이의 클라이언트 위임만 검사합니다.
 		}
 	}
 }

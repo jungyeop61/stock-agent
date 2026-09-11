@@ -10,6 +10,7 @@ import java.util.UUID;
 
 import org.springframework.stereotype.Service;
 
+import com.jusika.backend.brokersafety.BrokerOrderRiskSnapshot;
 import com.jusika.backend.buyingpower.BuyingPowerResponse;
 import com.jusika.backend.commission.CommissionsResponse;
 import com.jusika.backend.commission.CommissionsResponse.CommissionItem;
@@ -173,6 +174,9 @@ public class SingleConditionalOrderService {
 			throw new OrderExecutionValidationException(
 					"시장가 기준 금액이 1억원 이상으로 변경되었습니다. 새 미리보기를 만들어 주세요.");
 		}
+		BrokerOrderRiskSnapshot riskSnapshot = new BrokerOrderRiskSnapshot(
+				preview.quantity(), calculation.orderAmount(), preview.currency());
+		submissionGateway.requireOrderWithinLimits(riskSnapshot);
 
 		String executionId = UUID.randomUUID().toString();
 		String clientOrderId = UUID.randomUUID().toString();
@@ -199,8 +203,9 @@ public class SingleConditionalOrderService {
 		SingleConditionalOrderSubmissionRequest submission =
 				new SingleConditionalOrderSubmissionRequest(
 						clientOrderId, preview.symbol(), preview.quantity(), preview.orderType(),
-						preview.expireDate(), preview.side(), preview.triggerPrice(),
-						preview.orderPrice(), preview.requiresHighValueConfirmation());
+					preview.expireDate(), preview.side(), preview.triggerPrice(),
+					preview.orderPrice(), preview.requiresHighValueConfirmation(),
+					riskSnapshot);
 		return submitAndRecord(executionId, preview.accountSeq(), clientOrderId, submission);
 	}
 

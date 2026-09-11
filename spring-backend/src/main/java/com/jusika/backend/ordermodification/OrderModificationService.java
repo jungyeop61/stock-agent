@@ -8,6 +8,7 @@ import java.util.UUID;
 
 import org.springframework.stereotype.Service;
 
+import com.jusika.backend.brokersafety.BrokerOrderRiskSnapshot;
 import com.jusika.backend.order.OrderModificationSubmissionRequest;
 import com.jusika.backend.order.OrderOperationResponse;
 import com.jusika.backend.orderexecution.OrderExecutionConflictException;
@@ -119,6 +120,11 @@ public class OrderModificationService {
 			throw new OrderExecutionConflictException(
 					"시장가 기준 금액이 1억원 이상으로 변경되었습니다. 새 정정 미리보기를 만들어 주세요.");
 		}
+		BrokerOrderRiskSnapshot riskSnapshot = new BrokerOrderRiskSnapshot(
+				calculation.calculationQuantity(),
+				calculation.estimatedOrderAmount(),
+				preview.currency());
+		modificationGateway.requireOrderWithinLimits(riskSnapshot);
 
 		String executionId = UUID.randomUUID().toString();
 		OrderModificationExecutionResponse prepared = new OrderModificationExecutionResponse(
@@ -138,7 +144,8 @@ public class OrderModificationService {
 		}
 		OrderModificationSubmissionRequest submission = new OrderModificationSubmissionRequest(
 				preview.currency(), preview.requestedOrderType(), preview.requestedQuantity(),
-				preview.requestedPrice(), preview.requiresHighValueConfirmation());
+				preview.requestedPrice(), preview.requiresHighValueConfirmation(),
+				riskSnapshot);
 		return modifyAndRecord(executionId, preview.accountSeq(), preview.originalOrderId(), submission);
 	}
 
@@ -279,7 +286,7 @@ public class OrderModificationService {
 			requiresHighValueConfirmation = estimated.compareTo(HIGH_VALUE_KRW_THRESHOLD) >= 0;
 		}
 		return new ModificationCalculation(
-				referencePrice, estimated, requiresHighValueConfirmation);
+				referencePrice, calculationQuantity, estimated, requiresHighValueConfirmation);
 	}
 
 	/** 정정 결과가 원주문과 완전히 같아 불필요한 요청인지 검사합니다. */
@@ -369,6 +376,7 @@ public class OrderModificationService {
 	/** 시장가 참조 가격과 계산된 예상 주문금액을 함께 전달합니다. */
 	private record ModificationCalculation(
 			BigDecimal referencePrice,
+			BigDecimal calculationQuantity,
 			BigDecimal estimatedOrderAmount,
 			boolean requiresHighValueConfirmation) {
 	}

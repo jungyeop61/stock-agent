@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.math.BigDecimal;
 import java.util.EnumSet;
 import java.util.Set;
 
@@ -137,31 +138,101 @@ class BrokerMutationSafetyPolicyTests {
 	@Test
 	@DisplayName("모든 LIVE 안전 검사가 통과하면 차단 사유가 없다")
 	void 모든_LIVE_안전_검사가_통과하면_차단_사유가_없다() {
-		BrokerLiveAdapterProperties liveAdapters = new BrokerLiveAdapterProperties(
-				true,
-				true,
-				true,
-				true,
-				true,
-				true,
-				true,
-				true,
-				true);
 		BrokerMutationSafetyPolicy policy = new BrokerMutationSafetyPolicy(
 				new BrokerSafetyProperties(
 						BrokerExecutionMode.LIVE,
 						true,
 						false,
-						liveAdapters,
-						Set.of(1L)));
+						모든_어댑터를_연결한다(),
+						Set.of(1L),
+						설정된_주문_한도를_만든다()));
 
 		BrokerSafetyStatusResponse status = policy.getStatus();
 
 		assertThat(status.liveSafetyGateOpen()).isTrue();
 		assertThat(status.liveAdapterConnected()).isTrue();
 		assertThat(status.liveAccountAllowlistConfigured()).isTrue();
+		assertThat(status.liveOrderLimitsConfigured()).isTrue();
 		assertThat(status.liveMutationAvailable()).isTrue();
 		assertThat(status.blockReason()).isEqualTo(BrokerSafetyBlockReason.NONE);
+	}
+
+	/** 수량이나 통화별 금액 상한이 0이면 LIVE 전체 상태가 열리지 않는지 검사합니다. */
+	@Test
+	@DisplayName("LIVE 주문 한도가 설정되지 않으면 실제 주문을 차단한다")
+	void LIVE_주문_한도가_설정되지_않으면_실제_주문을_차단한다() {
+		BrokerMutationSafetyPolicy policy = new BrokerMutationSafetyPolicy(
+				new BrokerSafetyProperties(
+						BrokerExecutionMode.LIVE,
+						true,
+						false,
+						모든_어댑터를_연결한다(),
+						Set.of(1L)));
+
+		BrokerSafetyStatusResponse status = policy.getStatus();
+
+		assertThat(status.liveOrderLimitsConfigured()).isFalse();
+		assertThat(status.liveMutationAvailable()).isFalse();
+		assertThat(status.blockReason())
+				.isEqualTo(BrokerSafetyBlockReason.LIVE_ORDER_LIMITS_NOT_CONFIGURED);
+	}
+
+	/** 수량 주문과 수량 없는 달러 금액 주문이 설정한 경계값 안에서 통과하는지 검사합니다. */
+	@Test
+	@DisplayName("LIVE 주문 수량과 통화별 금액이 한도 이내면 통과한다")
+	void LIVE_주문_수량과_통화별_금액이_한도_이내면_통과한다() {
+		BrokerMutationSafetyPolicy policy = 한도_검사용_정책을_만든다();
+
+		assertThatCode(() -> policy.requireLiveOrderWithinLimits(
+				new BrokerOrderRiskSnapshot(
+						new BigDecimal("100"), new BigDecimal("1000000"), "KRW")))
+				.doesNotThrowAnyException();
+		assertThatCode(() -> policy.requireLiveOrderWithinLimits(
+				new BrokerOrderRiskSnapshot(null, new BigDecimal("10000"), "USD")))
+				.doesNotThrowAnyException();
+	}
+
+	/** 실제 수량이나 한도 숫자를 오류에 노출하지 않고 초과 주문을 차단하는지 검사합니다. */
+	@Test
+	@DisplayName("LIVE 주문 수량이 한도를 넘으면 민감값 없이 차단한다")
+	void LIVE_주문_수량이_한도를_넘으면_민감값_없이_차단한다() {
+		BrokerMutationSafetyPolicy policy = 한도_검사용_정책을_만든다();
+
+		assertThatThrownBy(() -> policy.requireLiveOrderWithinLimits(
+				new BrokerOrderRiskSnapshot(
+						new BigDecimal("101"), new BigDecimal("1000"), "KRW")))
+				.isInstanceOf(BrokerMutationBlockedException.class)
+				.hasMessage("실제 주문 수량이 1회 안전 한도를 초과합니다.")
+				.hasMessageNotContaining("101");
+	}
+
+	/** 실제 주문금액이나 설정 상한을 오류에 노출하지 않고 초과 주문을 차단하는지 검사합니다. */
+	@Test
+	@DisplayName("LIVE 주문금액이 통화별 한도를 넘으면 민감값 없이 차단한다")
+	void LIVE_주문금액이_통화별_한도를_넘으면_민감값_없이_차단한다() {
+		BrokerMutationSafetyPolicy policy = 한도_검사용_정책을_만든다();
+
+		assertThatThrownBy(() -> policy.requireLiveOrderWithinLimits(
+				new BrokerOrderRiskSnapshot(
+						BigDecimal.ONE, new BigDecimal("1000001"), "KRW")))
+				.isInstanceOf(BrokerMutationBlockedException.class)
+				.hasMessage("실제 주문금액이 1회 안전 한도를 초과합니다.")
+				.hasMessageNotContaining("1000001");
+	}
+
+	/** 누락되거나 양수가 아닌 최종 계산값은 한도 비교 전에 거절하는지 검사합니다. */
+	@Test
+	@DisplayName("LIVE 주문 한도 검사에는 올바른 위험값이 필요하다")
+	void LIVE_주문_한도_검사에는_올바른_위험값이_필요하다() {
+		BrokerMutationSafetyPolicy policy = 한도_검사용_정책을_만든다();
+
+		assertThatThrownBy(() -> policy.requireLiveOrderWithinLimits(null))
+				.isInstanceOf(IllegalArgumentException.class)
+				.hasMessage("LIVE 주문 한도 검사값이 올바르지 않습니다.");
+		assertThatThrownBy(() -> policy.requireLiveOrderWithinLimits(
+				new BrokerOrderRiskSnapshot(BigDecimal.ZERO, BigDecimal.ONE, "KRW")))
+				.isInstanceOf(IllegalArgumentException.class)
+				.hasMessage("LIVE 주문 한도 검사값이 올바르지 않습니다.");
 	}
 
 	/** 허용 목록에 포함된 계좌만 통과하고 다른 계좌는 식별값 노출 없이 차단하는지 검사합니다. */
@@ -240,6 +311,31 @@ class BrokerMutationSafetyPolicyTests {
 				Set.of(0L)))
 				.isInstanceOf(IllegalArgumentException.class)
 				.hasMessage("계좌 허용 목록에는 1 이상의 식별값만 사용할 수 있습니다.");
+	}
+
+	/** 수량과 원화·달러 금액 상한 검사용 중앙 정책을 만듭니다. */
+	private BrokerMutationSafetyPolicy 한도_검사용_정책을_만든다() {
+		return new BrokerMutationSafetyPolicy(new BrokerSafetyProperties(
+				BrokerExecutionMode.LIVE,
+				true,
+				false,
+				모든_어댑터를_연결한다(),
+				Set.of(1L),
+				설정된_주문_한도를_만든다()));
+	}
+
+	/** 아홉 주문 변경 기능을 모두 준비된 상태로 만드는 테스트 설정을 반환합니다. */
+	private BrokerLiveAdapterProperties 모든_어댑터를_연결한다() {
+		return new BrokerLiveAdapterProperties(
+				true, true, true, true, true, true, true, true, true);
+	}
+
+	/** 수량과 원화·달러 금액에 사용할 테스트용 양수 상한을 반환합니다. */
+	private BrokerLiveOrderLimitProperties 설정된_주문_한도를_만든다() {
+		return new BrokerLiveOrderLimitProperties(
+				new BigDecimal("100"),
+				new BigDecimal("1000000"),
+				new BigDecimal("10000"));
 	}
 
 	/** 지정한 세 안전 설정으로 중앙 주문 변경 정책을 만듭니다. */

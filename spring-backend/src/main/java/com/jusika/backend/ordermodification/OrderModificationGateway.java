@@ -1,5 +1,6 @@
 package com.jusika.backend.ordermodification;
 
+import com.jusika.backend.brokersafety.BrokerOrderRiskSnapshot;
 import com.jusika.backend.order.OrderModificationSubmissionRequest;
 import com.jusika.backend.order.OrderOperationResponse;
 
@@ -18,6 +19,11 @@ interface OrderModificationGateway {
 	 */
 	default void requireModificationAvailable(long accountSeq) {
 		requireModificationAvailable();
+	}
+
+	/** 실행 기록 생성 전에 정정 후 주문값이 LIVE 1회 한도 이내인지 확인합니다. */
+	default void requireOrderWithinLimits(BrokerOrderRiskSnapshot riskSnapshot) {
+		// MOCK 정정은 실제 주문 조건을 만들지 않으므로 LIVE 한도를 적용하지 않습니다.
 	}
 
 	/** 원주문을 검증된 새 유형·수량·가격으로 정정합니다. */

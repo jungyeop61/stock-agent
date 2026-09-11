@@ -10,6 +10,7 @@ import java.util.UUID;
 
 import org.springframework.stereotype.Service;
 
+import com.jusika.backend.brokersafety.BrokerOrderRiskSnapshot;
 import com.jusika.backend.amountorderpreview.AmountOrderPreviewResponse;
 import com.jusika.backend.amountorderpreview.AmountOrderPreviewStore;
 import com.jusika.backend.order.AmountOrderSubmissionRequest;
@@ -75,6 +76,7 @@ public class AmountOrderRecoveryService {
 		AmountOrderSubmissionRequest request = createOriginalRequest(execution, preview);
 		validateRecoveryCandidate(candidate, preview, request, startedAt);
 		submissionGateway.requireSubmissionAvailable(preview.accountSeq());
+		submissionGateway.requireOrderWithinLimits(request.riskSnapshot());
 
 		OffsetDateTime submittedAfter = startedAt.minus(IDEMPOTENCY_WINDOW);
 		if (!executionStore.claimRecovery(executionId, submittedAfter, startedAt)) {
@@ -99,7 +101,9 @@ public class AmountOrderRecoveryService {
 				preview.symbol(),
 				preview.side(),
 				preview.orderAmount(),
-				preview.requiresHighValueConfirmation());
+				preview.requiresHighValueConfirmation(),
+				new BrokerOrderRiskSnapshot(
+						null, preview.orderAmount(), preview.currency()));
 	}
 
 	/**

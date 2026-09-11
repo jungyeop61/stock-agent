@@ -14,6 +14,7 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
  * @param killSwitchActive 실제 주문을 즉시 차단하는 긴급 스위치 상태
  * @param liveAdapters 실제 주문 변경 기능별 어댑터 준비 상태
  * @param allowedAccountSeqs 실제 주문 변경을 허용한 계좌 식별값 집합
+ * @param liveOrderLimits 실제 주문 한 건에 적용할 수량과 통화별 금액 상한
  */
 @ConfigurationProperties(prefix = "jusika.broker")
 public record BrokerSafetyProperties(
@@ -21,7 +22,8 @@ public record BrokerSafetyProperties(
 		@DefaultValue("false") boolean liveEnabled,
 		@DefaultValue("true") boolean killSwitchActive,
 		@DefaultValue BrokerLiveAdapterProperties liveAdapters,
-		@DefaultValue Set<Long> allowedAccountSeqs) {
+		@DefaultValue Set<Long> allowedAccountSeqs,
+		@DefaultValue BrokerLiveOrderLimitProperties liveOrderLimits) {
 
 	/** 기존 호출부에서도 모든 기능이 닫힌 안전 설정을 만들 수 있게 합니다. */
 	public BrokerSafetyProperties(
@@ -33,7 +35,8 @@ public record BrokerSafetyProperties(
 				liveEnabled,
 				killSwitchActive,
 				BrokerLiveAdapterProperties.allDisabled(),
-				Set.of());
+				Set.of(),
+				BrokerLiveOrderLimitProperties.allDisabled());
 	}
 
 	/** 기능별 설정을 직접 지정해도 계좌 허용 목록은 닫힌 상태로 만듭니다. */
@@ -42,7 +45,29 @@ public record BrokerSafetyProperties(
 			boolean liveEnabled,
 			boolean killSwitchActive,
 			BrokerLiveAdapterProperties liveAdapters) {
-		this(mode, liveEnabled, killSwitchActive, liveAdapters, Set.of());
+		this(
+				mode,
+				liveEnabled,
+				killSwitchActive,
+				liveAdapters,
+				Set.of(),
+				BrokerLiveOrderLimitProperties.allDisabled());
+	}
+
+	/** 계좌 허용 목록을 직접 지정해도 주문 한도는 닫힌 상태로 만듭니다. */
+	public BrokerSafetyProperties(
+			BrokerExecutionMode mode,
+			boolean liveEnabled,
+			boolean killSwitchActive,
+			BrokerLiveAdapterProperties liveAdapters,
+			Set<Long> allowedAccountSeqs) {
+		this(
+				mode,
+				liveEnabled,
+				killSwitchActive,
+				liveAdapters,
+				allowedAccountSeqs,
+				BrokerLiveOrderLimitProperties.allDisabled());
 	}
 
 	/**
@@ -58,6 +83,9 @@ public record BrokerSafetyProperties(
 		}
 		if (allowedAccountSeqs == null) {
 			throw new IllegalArgumentException("실제 주문 계좌 허용 목록 설정이 필요합니다.");
+		}
+		if (liveOrderLimits == null) {
+			throw new IllegalArgumentException("실제 주문 한도 설정이 필요합니다.");
 		}
 		if (allowedAccountSeqs.stream().anyMatch(accountSeq -> accountSeq == null || accountSeq <= 0)) {
 			throw new IllegalArgumentException("계좌 허용 목록에는 1 이상의 식별값만 사용할 수 있습니다.");

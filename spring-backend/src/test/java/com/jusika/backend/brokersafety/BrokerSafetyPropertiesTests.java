@@ -2,6 +2,7 @@ package com.jusika.backend.brokersafety;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.math.BigDecimal;
 import java.util.EnumSet;
 
 import org.junit.jupiter.api.DisplayName;
@@ -27,6 +28,10 @@ class BrokerSafetyPropertiesTests {
 			assertThat(EnumSet.allOf(BrokerMutationCapability.class))
 					.allMatch(capability -> !liveAdapters.isConnected(capability));
 			assertThat(properties.allowedAccountSeqs()).isEmpty();
+			assertThat(properties.liveOrderLimits().maxQuantity()).isZero();
+			assertThat(properties.liveOrderLimits().maxKrwOrderAmount()).isZero();
+			assertThat(properties.liveOrderLimits().maxUsdOrderAmount()).isZero();
+			assertThat(properties.liveOrderLimits().isConfigured()).isFalse();
 		});
 	}
 
@@ -65,6 +70,29 @@ class BrokerSafetyPropertiesTests {
 						.getBean(BrokerSafetyProperties.class)
 						.allowedAccountSeqs())
 						.containsExactlyInAnyOrder(1L, 2L));
+	}
+
+	/** 수량과 통화별 한도가 각 설정명에서 정확한 숫자로 바인딩되는지 검사합니다. */
+	@Test
+	@DisplayName("LIVE 1회 주문 수량과 통화별 금액 한도를 바인딩한다")
+	void LIVE_1회_주문_수량과_통화별_금액_한도를_바인딩한다() {
+		contextRunner
+				.withPropertyValues(
+						"jusika.broker.live-order-limits.max-quantity=25",
+						"jusika.broker.live-order-limits.max-krw-order-amount=5000000",
+						"jusika.broker.live-order-limits.max-usd-order-amount=3000")
+				.run(context -> {
+					BrokerLiveOrderLimitProperties limits = context
+							.getBean(BrokerSafetyProperties.class)
+							.liveOrderLimits();
+
+					assertThat(limits.maxQuantity()).isEqualByComparingTo(new BigDecimal("25"));
+					assertThat(limits.maxKrwOrderAmount())
+							.isEqualByComparingTo(new BigDecimal("5000000"));
+					assertThat(limits.maxUsdOrderAmount())
+							.isEqualByComparingTo(new BigDecimal("3000"));
+					assertThat(limits.isConfigured()).isTrue();
+				});
 	}
 
 	/** 기능별 LIVE 어댑터 설정 바인딩만 격리해서 검사하는 구성을 제공합니다. */

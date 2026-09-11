@@ -20,6 +20,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import com.jusika.backend.brokersafety.BrokerMutationBlockedException;
+import com.jusika.backend.brokersafety.BrokerOrderRiskSnapshot;
 import com.jusika.backend.buyingpower.BuyingPowerResponse;
 import com.jusika.backend.commission.CommissionsResponse;
 import com.jusika.backend.commission.CommissionsResponse.CommissionItem;
@@ -123,6 +124,26 @@ class OrderExecutionServiceTests {
 		assertThat(executionStore.findByPreviewId(preview.previewId())).isEmpty();
 		assertThat(submissionGateway.callCount).isZero();
 		assertThat(priceClient.callCount).isZero();
+	}
+
+	/** 최종 금융 재검증 뒤 한도 초과가 확인되면 실행권이나 미리보기를 변경하지 않는지 검사합니다. */
+	@Test
+	@DisplayName("LIVE 1회 주문 한도 차단은 실행 기록 생성 전에 적용된다")
+	void LIVE_1회_주문_한도_차단은_실행_기록_생성_전에_적용된다() {
+		OrderPreviewResponse preview = 승인된_미리보기를_저장한다(OrderSide.BUY, "KRW", "KR");
+		국내_최종_조회값을_준비한다();
+		submissionGateway.limitFailure = new BrokerMutationBlockedException(
+				"테스트 LIVE 1회 주문 한도 차단");
+
+		assertThatThrownBy(() -> service.executeApprovedPreview(preview.previewId()))
+				.isInstanceOf(BrokerMutationBlockedException.class)
+				.hasMessage("테스트 LIVE 1회 주문 한도 차단");
+		assertThat(previewStore.findById(preview.previewId()).orElseThrow().status())
+				.isEqualTo(OrderPreviewStatus.APPROVED);
+		assertThat(executionStore.findByPreviewId(preview.previewId())).isEmpty();
+		assertThat(submissionGateway.callCount).isZero();
+		assertThat(submissionGateway.lastRiskSnapshot).isNotNull();
+		assertThat(priceClient.callCount).isOne();
 	}
 
 	/**
@@ -605,12 +626,23 @@ class OrderExecutionServiceTests {
 		private QuantityOrderSubmissionRequest lastRequest;
 		private OrderSubmissionException failure;
 		private RuntimeException availabilityFailure;
+		private RuntimeException limitFailure;
+		private BrokerOrderRiskSnapshot lastRiskSnapshot;
 
 		/** 준비 단계에서 설정된 LIVE 안전 차단을 재현하거나 MOCK 사용 가능 상태를 유지합니다. */
 		@Override
 		public void requireSubmissionAvailable() {
 			if (availabilityFailure != null) {
 				throw availabilityFailure;
+			}
+		}
+
+		/** 최종 계산 위험값을 기록하고 설정된 한도 차단을 실행 서비스에 전달합니다. */
+		@Override
+		public void requireOrderWithinLimits(BrokerOrderRiskSnapshot riskSnapshot) {
+			lastRiskSnapshot = riskSnapshot;
+			if (limitFailure != null) {
+				throw limitFailure;
 			}
 		}
 

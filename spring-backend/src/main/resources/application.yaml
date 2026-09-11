@@ -41,6 +41,10 @@ jusika:
     live-enabled: ${JUSIKA_LIVE_TRADING_ENABLED:false}
     kill-switch-active: ${JUSIKA_TRADING_KILL_SWITCH_ACTIVE:true}
     allowed-account-seqs: ${JUSIKA_LIVE_ALLOWED_ACCOUNT_SEQS:}
+    live-order-limits:
+      max-quantity: ${JUSIKA_LIVE_MAX_ORDER_QUANTITY:0}
+      max-krw-order-amount: ${JUSIKA_LIVE_MAX_KRW_ORDER_AMOUNT:0}
+      max-usd-order-amount: ${JUSIKA_LIVE_MAX_USD_ORDER_AMOUNT:0}
     live-adapters:
       quantity-order-submission: ${JUSIKA_LIVE_QUANTITY_ORDER_SUBMISSION_CONNECTED:false}
       amount-order-submission: ${JUSIKA_LIVE_AMOUNT_ORDER_SUBMISSION_CONNECTED:false}

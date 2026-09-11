@@ -1,5 +1,6 @@
 package com.jusika.backend.conditionalordercreation;
 
+import com.jusika.backend.brokersafety.BrokerOrderRiskSnapshot;
 import com.jusika.backend.conditionalorder.ConditionalOrderCreationResponse;
 import com.jusika.backend.conditionalorder.OtoConditionalOrderSubmissionRequest;
 
@@ -18,6 +19,11 @@ interface OtoConditionalOrderGateway {
 	 */
 	default void requireSubmissionAvailable(long accountSeq) {
 		requireSubmissionAvailable();
+	}
+
+	/** 실행 기록 생성 전에 OTO의 최대 조건 주문값이 LIVE 1회 한도 이내인지 확인합니다. */
+	default void requireOrderWithinLimits(BrokerOrderRiskSnapshot riskSnapshot) {
+		// MOCK 생성은 실제 주문 조건을 만들지 않으므로 LIVE 한도를 적용하지 않습니다.
 	}
 
 	/** 최종 검증을 마친 OTO 조건 주문을 현재 모드로 한 번 제출합니다. */

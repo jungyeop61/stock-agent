@@ -8,6 +8,7 @@ import java.util.UUID;
 
 import org.springframework.stereotype.Service;
 
+import com.jusika.backend.brokersafety.BrokerOrderRiskSnapshot;
 import com.jusika.backend.buyingpower.BuyingPowerResponse;
 import com.jusika.backend.commission.CommissionsResponse;
 import com.jusika.backend.commission.CommissionsResponse.CommissionItem;
@@ -95,7 +96,8 @@ public class OrderExecutionService {
 		OffsetDateTime startedAt = OffsetDateTime.now(clock);
 		validateExecutableState(preview, startedAt);
 		submissionGateway.requireSubmissionAvailable(preview.accountSeq());
-		revalidateAccountConditions(preview);
+		BrokerOrderRiskSnapshot riskSnapshot = revalidateAccountConditions(preview);
+		submissionGateway.requireOrderWithinLimits(riskSnapshot);
 
 		String executionId = UUID.randomUUID().toString();
 		String clientOrderId = UUID.randomUUID().toString();
@@ -121,7 +123,8 @@ public class OrderExecutionService {
 				OrderTimeInForce.DAY,
 				preview.quantity(),
 				preview.requestedPrice(),
-				preview.requiresHighValueConfirmation());
+				preview.requiresHighValueConfirmation(),
+				riskSnapshot);
 		String fingerprint = requestFingerprint.calculate(preview.accountSeq(), request);
 		if (!executionStore.claim(prepared, fingerprint)) {
 			throw new OrderExecutionConflictException("이미 실행했거나 실행 중인 주문 미리보기입니다.");
@@ -213,8 +216,9 @@ public class OrderExecutionService {
 	 * 승인 뒤 변할 수 있는 현재가, 수수료와 계좌의 금액 또는 수량을 다시 확인합니다.
 	 *
 	 * @param preview 사용자가 승인한 저장된 주문 미리보기
+	 * @return 최종 현재가로 확정한 수량과 주문금액 한도 검사값
 	 */
-	private void revalidateAccountConditions(OrderPreviewResponse preview) {
+	private BrokerOrderRiskSnapshot revalidateAccountConditions(OrderPreviewResponse preview) {
 		try {
 			StockPriceResponse stockPrice = priceClient.getCurrentPrice(preview.symbol());
 			validateStockIdentity(preview, stockPrice);
@@ -250,6 +254,8 @@ public class OrderExecutionService {
 				throw new OrderExecutionValidationException(
 						"최종 주문금액이 1억원 이상이므로 새 미리보기에서 다시 확인해야 합니다.");
 			}
+			return new BrokerOrderRiskSnapshot(
+					preview.quantity(), orderAmount, preview.currency());
 		} catch (OrderExecutionValidationException exception) {
 			throw exception;
 		} catch (RuntimeException exception) {

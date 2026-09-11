@@ -9,6 +9,7 @@ import java.util.UUID;
 
 import org.springframework.stereotype.Service;
 
+import com.jusika.backend.brokersafety.BrokerOrderRiskSnapshot;
 import com.jusika.backend.amountorderpreview.AmountOrderPreviewExpiredException;
 import com.jusika.backend.amountorderpreview.AmountOrderPreviewNotFoundException;
 import com.jusika.backend.amountorderpreview.AmountOrderPreviewResponse;
@@ -120,7 +121,10 @@ public class AmountOrderExecutionService {
 				preview.symbol(),
 				OrderSide.BUY,
 				preview.orderAmount(),
-				preview.requiresHighValueConfirmation());
+				preview.requiresHighValueConfirmation(),
+				new BrokerOrderRiskSnapshot(
+						null, preview.orderAmount(), preview.currency()));
+		submissionGateway.requireOrderWithinLimits(request.riskSnapshot());
 		AmountOrderExecutionResponse prepared = new AmountOrderExecutionResponse(
 				executionId,
 				preview.previewId(),

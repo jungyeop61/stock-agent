@@ -1,5 +1,6 @@
 package com.jusika.backend.conditionalordercreation;
 
+import com.jusika.backend.brokersafety.BrokerOrderRiskSnapshot;
 import com.jusika.backend.conditionalorder.ConditionalOrderCreationResponse;
 import com.jusika.backend.conditionalorder.SingleConditionalOrderSubmissionRequest;
 
@@ -21,6 +22,11 @@ interface SingleConditionalOrderGateway {
 	 */
 	default void requireSubmissionAvailable(long accountSeq) {
 		requireSubmissionAvailable();
+	}
+
+	/** 실행 기록 생성 전에 SINGLE 주문값이 LIVE 1회 한도 이내인지 확인합니다. */
+	default void requireOrderWithinLimits(BrokerOrderRiskSnapshot riskSnapshot) {
+		// MOCK 생성은 실제 주문 조건을 만들지 않으므로 LIVE 한도를 적용하지 않습니다.
 	}
 
 	/**

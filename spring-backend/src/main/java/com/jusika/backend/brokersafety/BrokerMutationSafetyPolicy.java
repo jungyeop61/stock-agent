@@ -31,11 +31,14 @@ public class BrokerMutationSafetyPolicy {
 		boolean allAdaptersConnected = mutationCapabilities.stream()
 				.allMatch(BrokerMutationCapabilityStatus::liveAdapterConnected);
 		boolean accountAllowlistConfigured = !properties.allowedAccountSeqs().isEmpty();
+		boolean orderLimitsConfigured = properties.liveOrderLimits().isConfigured();
 		BrokerSafetyBlockReason blockReason = determineBlockReason(
 				allAdaptersConnected,
-				accountAllowlistConfigured);
+				accountAllowlistConfigured,
+				orderLimitsConfigured);
 		boolean safetyGateOpen = blockReason == BrokerSafetyBlockReason.LIVE_ADAPTER_NOT_CONNECTED
 				|| blockReason == BrokerSafetyBlockReason.LIVE_ACCOUNT_ALLOWLIST_EMPTY
+				|| blockReason == BrokerSafetyBlockReason.LIVE_ORDER_LIMITS_NOT_CONFIGURED
 				|| blockReason == BrokerSafetyBlockReason.NONE;
 		boolean mutationAvailable = blockReason == BrokerSafetyBlockReason.NONE;
 		return new BrokerSafetyStatusResponse(
@@ -45,6 +48,7 @@ public class BrokerMutationSafetyPolicy {
 				safetyGateOpen,
 				allAdaptersConnected,
 				accountAllowlistConfigured,
+				orderLimitsConfigured,
 				mutationAvailable,
 				blockReason,
 				mutationCapabilities);
@@ -89,6 +93,33 @@ public class BrokerMutationSafetyPolicy {
 		}
 	}
 
+	/**
+	 * 실행 직전 계산한 주문 수량과 주문금액이 승인된 LIVE 1회 상한 이내인지 검사합니다.
+	 * 오류에는 실제 수량, 금액과 설정 상한을 포함하지 않습니다.
+	 *
+	 * @param riskSnapshot 최종 금융 재검증에서 계산한 주문 위험값
+	 */
+	public void requireLiveOrderWithinLimits(BrokerOrderRiskSnapshot riskSnapshot) {
+		if (riskSnapshot == null
+				|| riskSnapshot.orderAmount() == null
+				|| riskSnapshot.orderAmount().signum() <= 0
+				|| (riskSnapshot.quantity() != null && riskSnapshot.quantity().signum() <= 0)) {
+			throw new IllegalArgumentException("LIVE 주문 한도 검사값이 올바르지 않습니다.");
+		}
+		BrokerLiveOrderLimitProperties limits = properties.liveOrderLimits();
+		if (!limits.isConfigured()) {
+			throw new BrokerMutationBlockedException("실제 주문 수량·금액 한도가 설정되어 있지 않습니다.");
+		}
+		if (riskSnapshot.quantity() != null
+				&& riskSnapshot.quantity().compareTo(limits.maxQuantity()) > 0) {
+			throw new BrokerMutationBlockedException("실제 주문 수량이 1회 안전 한도를 초과합니다.");
+		}
+		if (riskSnapshot.orderAmount().compareTo(
+				limits.maxOrderAmount(riskSnapshot.currency())) > 0) {
+			throw new BrokerMutationBlockedException("실제 주문금액이 1회 안전 한도를 초과합니다.");
+		}
+	}
+
 	/** 지정한 주문 변경 기능의 실제 어댑터 연결 상태를 설정에서 확인합니다. */
 	private boolean isLiveAdapterConnected(BrokerMutationCapability capability) {
 		return properties.liveAdapters().isConnected(capability);
@@ -108,11 +139,13 @@ public class BrokerMutationSafetyPolicy {
 	 *
 	 * @param allAdaptersConnected 모든 주문 변경 어댑터가 준비됐는지 여부
 	 * @param accountAllowlistConfigured 허용한 실제 주문 계좌가 있는지 여부
+	 * @param orderLimitsConfigured 수량과 통화별 실제 주문 상한이 설정됐는지 여부
 	 * @return 실제 주문이 막힌 이유 또는 모든 검사가 통과한 NONE
 	 */
 	private BrokerSafetyBlockReason determineBlockReason(
 			boolean allAdaptersConnected,
-			boolean accountAllowlistConfigured) {
+			boolean accountAllowlistConfigured,
+			boolean orderLimitsConfigured) {
 		if (properties.mode() != BrokerExecutionMode.LIVE) {
 			return BrokerSafetyBlockReason.MOCK_MODE;
 		}
@@ -125,8 +158,11 @@ public class BrokerMutationSafetyPolicy {
 		if (!allAdaptersConnected) {
 			return BrokerSafetyBlockReason.LIVE_ADAPTER_NOT_CONNECTED;
 		}
-		return accountAllowlistConfigured
+		if (!accountAllowlistConfigured) {
+			return BrokerSafetyBlockReason.LIVE_ACCOUNT_ALLOWLIST_EMPTY;
+		}
+		return orderLimitsConfigured
 				? BrokerSafetyBlockReason.NONE
-				: BrokerSafetyBlockReason.LIVE_ACCOUNT_ALLOWLIST_EMPTY;
+				: BrokerSafetyBlockReason.LIVE_ORDER_LIMITS_NOT_CONFIGURED;
 	}
 }

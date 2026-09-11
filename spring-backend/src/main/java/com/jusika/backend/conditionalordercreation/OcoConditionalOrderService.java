@@ -10,6 +10,7 @@ import java.util.UUID;
 
 import org.springframework.stereotype.Service;
 
+import com.jusika.backend.brokersafety.BrokerOrderRiskSnapshot;
 import com.jusika.backend.commission.CommissionsResponse;
 import com.jusika.backend.commission.CommissionsResponse.CommissionItem;
 import com.jusika.backend.conditionalorder.ConditionalOrderCreationResponse;
@@ -174,6 +175,9 @@ public class OcoConditionalOrderService {
 			throw new OrderExecutionValidationException(
 					"주문금액이 1억원 이상으로 변경되었습니다. 새 OCO 미리보기를 만들어 주세요.");
 		}
+		BrokerOrderRiskSnapshot riskSnapshot = new BrokerOrderRiskSnapshot(
+				preview.quantity(), revalidation.maximumOrderAmount(), preview.currency());
+		submissionGateway.requireOrderWithinLimits(riskSnapshot);
 
 		String executionId = UUID.randomUUID().toString();
 		String clientOrderId = UUID.randomUUID().toString();
@@ -200,9 +204,10 @@ public class OcoConditionalOrderService {
 		OcoConditionalOrderSubmissionRequest submission =
 				new OcoConditionalOrderSubmissionRequest(
 						clientOrderId, preview.symbol(), preview.quantity(), preview.orderType(),
-						preview.expireDate(), toSubmissionCondition(preview.first()),
-						toSubmissionCondition(preview.second()),
-						preview.requiresHighValueConfirmation());
+					preview.expireDate(), toSubmissionCondition(preview.first()),
+					toSubmissionCondition(preview.second()),
+					preview.requiresHighValueConfirmation(),
+					riskSnapshot);
 		return submitAndRecord(executionId, preview.accountSeq(), clientOrderId, submission);
 	}
 
@@ -223,8 +228,10 @@ public class OcoConditionalOrderService {
 					preview.quantity(), preview.first().orderPrice(), commissionRate, true);
 			LegCalculation second = calculateLeg(
 					preview.quantity(), preview.second().orderPrice(), commissionRate, true);
-			return new Revalidation(requiresHighValueConfirmation(
-					market, first.orderAmount(), second.orderAmount(), true));
+			return new Revalidation(
+					requiresHighValueConfirmation(
+							market, first.orderAmount(), second.orderAmount(), true),
+					first.orderAmount().max(second.orderAmount()));
 		} catch (OrderExecutionValidationException exception) {
 			throw exception;
 		} catch (RuntimeException exception) {
@@ -547,6 +554,8 @@ public class OcoConditionalOrderService {
 	}
 
 	/** 최종 재검증에서 사용자가 다시 확인해야 하는 값만 전달합니다. */
-	private record Revalidation(boolean requiresHighValueConfirmation) {
+	private record Revalidation(
+			boolean requiresHighValueConfirmation,
+			BigDecimal maximumOrderAmount) {
 	}
 }

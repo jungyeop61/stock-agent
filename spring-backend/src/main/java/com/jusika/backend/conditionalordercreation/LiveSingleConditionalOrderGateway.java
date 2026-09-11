@@ -5,6 +5,7 @@ import org.springframework.stereotype.Component;
 
 import com.jusika.backend.brokersafety.BrokerMutationSafetyPolicy;
 import com.jusika.backend.brokersafety.BrokerMutationCapability;
+import com.jusika.backend.brokersafety.BrokerOrderRiskSnapshot;
 import com.jusika.backend.conditionalorder.ConditionalOrderCreationResponse;
 import com.jusika.backend.conditionalorder.SingleConditionalOrderSubmissionRequest;
 import com.jusika.backend.toss.conditionalorder.TossConditionalOrderClient;
@@ -50,6 +51,12 @@ class LiveSingleConditionalOrderGateway implements SingleConditionalOrderGateway
 		safetyPolicy.requireLiveAccountAllowed(accountSeq);
 	}
 
+	/** 최종 계산한 SINGLE 수량과 주문금액이 LIVE 1회 한도를 넘지 않는지 검사합니다. */
+	@Override
+	public void requireOrderWithinLimits(BrokerOrderRiskSnapshot riskSnapshot) {
+		safetyPolicy.requireLiveOrderWithinLimits(riskSnapshot);
+	}
+
 	/**
 	 * 중앙 안전정책을 다시 확인한 뒤 최종 검증된 SINGLE 조건 주문을 토스 클라이언트에 전달합니다.
 	 * 현재 준비 상태에서는 정책 검사가 항상 먼저 차단합니다.
@@ -63,6 +70,7 @@ class LiveSingleConditionalOrderGateway implements SingleConditionalOrderGateway
 			long accountSeq,
 			SingleConditionalOrderSubmissionRequest request) {
 		requireSubmissionAvailable(accountSeq);
+		requireOrderWithinLimits(request.riskSnapshot());
 		return conditionalOrderClient.createSingleConditionalOrder(accountSeq, request);
 	}
 
