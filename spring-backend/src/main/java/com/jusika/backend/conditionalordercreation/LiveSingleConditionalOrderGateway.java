@@ -51,6 +51,12 @@ class LiveSingleConditionalOrderGateway implements SingleConditionalOrderGateway
 		safetyPolicy.requireLiveAccountAllowed(accountSeq);
 	}
 
+	/** SINGLE 종목이 시장별 LIVE 허용 목록에 등록됐는지 검사합니다. */
+	@Override
+	public void requireInstrumentAllowed(String symbol, String currency) {
+		safetyPolicy.requireLiveInstrumentAllowed(symbol, currency);
+	}
+
 	/** 최종 계산한 SINGLE 수량과 주문금액이 LIVE 1회 한도를 넘지 않는지 검사합니다. */
 	@Override
 	public void requireOrderWithinLimits(BrokerOrderRiskSnapshot riskSnapshot) {
@@ -87,6 +93,8 @@ class LiveSingleConditionalOrderGateway implements SingleConditionalOrderGateway
 			long accountSeq,
 			SingleConditionalOrderSubmissionRequest request) {
 		requireSubmissionAvailable(accountSeq);
+		requireInstrumentAllowed(request.symbol(),
+				request.riskSnapshot() == null ? null : request.riskSnapshot().currency());
 		requireOrderWithinLimits(request.riskSnapshot());
 		reserveDailyOrderRisk(
 				accountSeq, "SINGLE_CONDITIONAL_ORDER:" + request.clientOrderId(),

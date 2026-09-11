@@ -96,6 +96,7 @@ public class OrderExecutionService {
 		OffsetDateTime startedAt = OffsetDateTime.now(clock);
 		validateExecutableState(preview, startedAt);
 		submissionGateway.requireSubmissionAvailable(preview.accountSeq());
+		submissionGateway.requireInstrumentAllowed(preview.symbol(), preview.currency());
 		BrokerOrderRiskSnapshot riskSnapshot = revalidateAccountConditions(preview);
 		submissionGateway.requireOrderWithinLimits(riskSnapshot);
 		submissionGateway.requireDailyOrderWithinLimits(preview.accountSeq(), riskSnapshot);

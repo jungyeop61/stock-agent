@@ -53,6 +53,12 @@ class LiveOrderModificationGateway implements OrderModificationGateway {
 		safetyPolicy.requireLiveAccountAllowed(accountSeq);
 	}
 
+	/** 일반 정정 원종목이 시장별 LIVE 허용 목록에 등록됐는지 검사합니다. */
+	@Override
+	public void requireInstrumentAllowed(String symbol, String currency) {
+		safetyPolicy.requireLiveInstrumentAllowed(symbol, currency);
+	}
+
 	/** 최종 계산한 정정 수량과 주문금액이 LIVE 1회 한도를 넘지 않는지 검사합니다. */
 	@Override
 	public void requireOrderWithinLimits(BrokerOrderRiskSnapshot riskSnapshot) {
@@ -91,6 +97,7 @@ class LiveOrderModificationGateway implements OrderModificationGateway {
 			String originalOrderId,
 			OrderModificationSubmissionRequest request) {
 		requireModificationAvailable(accountSeq);
+		requireInstrumentAllowed(request.symbol(), request.currency());
 		requireOrderWithinLimits(request.riskSnapshot());
 		reserveDailyOrderRisk(
 				accountSeq, "NORMAL_ORDER_MODIFICATION:" + originalOrderId,

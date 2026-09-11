@@ -76,6 +76,7 @@ public class AmountOrderRecoveryService {
 		AmountOrderSubmissionRequest request = createOriginalRequest(execution, preview);
 		validateRecoveryCandidate(candidate, preview, request, startedAt);
 		submissionGateway.requireSubmissionAvailable(preview.accountSeq());
+		submissionGateway.requireInstrumentAllowed(request.symbol(), request.riskSnapshot().currency());
 		submissionGateway.requireOrderWithinLimits(request.riskSnapshot());
 		submissionGateway.requireDailyOrderWithinLimits(
 				preview.accountSeq(),

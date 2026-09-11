@@ -112,12 +112,13 @@ event=internal_api_audit occurredAt=<요청-시각> requestId=<요청-UUID> meth
 
 ## 실제 주문 연결 전역 안전장치
 
-실제 매수·매도·취소·정정 어댑터를 연결하기 전에 다음 전역 설정, 계좌 허용 목록, 1회 주문 한도와 일일 누적 한도를 중앙 정책에서 함께 검사합니다.
+실제 매수·매도·취소·정정 어댑터를 연결하기 전에 다음 전역 설정, 계좌·종목 허용 목록, 1회 주문 한도와 일일 누적 한도를 중앙 정책에서 함께 검사합니다.
 
 - `JUSIKA_BROKER_MODE`: 기본값은 `mock`이며 `live`가 아니면 실제 주문을 차단합니다.
 - `JUSIKA_LIVE_TRADING_ENABLED`: 기본값은 `false`이며 사용자의 명시적 허락 전에는 활성화하지 않습니다.
 - `JUSIKA_TRADING_KILL_SWITCH_ACTIVE`: 기본값은 `true`이며 활성화된 동안 실제 주문을 즉시 차단합니다.
 - `JUSIKA_LIVE_ALLOWED_ACCOUNT_SEQS`: 실제 주문을 허용한 계좌 식별값의 쉼표 구분 목록이며 기본값은 빈 목록입니다.
+- `JUSIKA_LIVE_ALLOWED_INSTRUMENTS`: 실제 주문 생성·정정을 허용한 `시장:종목`의 쉼표 구분 목록이며 기본값은 빈 목록입니다.
 - `JUSIKA_LIVE_MAX_ORDER_QUANTITY`: 실제 주문 한 건의 최대 주식 수량이며 기본값 `0`은 미설정 차단 상태입니다.
 - `JUSIKA_LIVE_MAX_KRW_ORDER_AMOUNT`: 실제 주문 한 건의 최대 원화 주문금액이며 기본값 `0`은 미설정 차단 상태입니다.
 - `JUSIKA_LIVE_MAX_USD_ORDER_AMOUNT`: 실제 주문 한 건의 최대 달러 주문금액이며 기본값 `0`은 미설정 차단 상태입니다.
@@ -156,6 +157,19 @@ event=internal_api_audit occurredAt=<요청-시각> requestId=<요청-UUID> meth
 - 실제 토스 클라이언트 호출 직전에도 동일한 계좌 검사를 반복합니다.
 - MOCK 실행은 실제 증권사 상태를 바꾸지 않으므로 계좌 허용 목록의 영향을 받지 않습니다.
 - 안전 상태 응답에는 실제 계좌 식별값과 허용 계좌 개수를 포함하지 않고 목록 설정 여부만 반환합니다.
+
+종목 허용 목록은 다음 규칙을 적용합니다.
+
+- 국내 주식은 `KR:005930`, 미국 주식은 `US:AAPL`처럼 시장 접두사와 종목 코드를 함께 설정합니다.
+- 목록이 비어 있으면 모든 LIVE 주문 생성·정정을 차단합니다.
+- 국내 종목은 `KR:` 뒤 6자리 숫자, 미국 종목은 `US:` 뒤 영문자로 시작하는 영문·숫자·점·하이픈만 허용합니다.
+- 영문 시장과 종목 코드는 대문자로 정규화하므로 `us:aapl` 설정도 `US:AAPL`로 검사합니다.
+- 같은 종목 코드라도 시장이 다르면 별도 종목으로 취급하여 시장 혼동을 차단합니다.
+- 승인된 미리보기를 소비하거나 실행 기록을 만들기 전에 최신 원주문의 종목과 통화로 검사합니다.
+- 실제 토스 클라이언트 호출 직전에도 최종 제출 요청의 종목과 통화로 같은 검사를 반복합니다.
+- 취소는 새 종목 위험을 만들지 않으므로 종목 허용 목록 대상에서 제외합니다.
+- MOCK 실행은 실제 증권사 주문을 만들지 않으므로 종목 허용 목록의 영향을 받지 않습니다.
+- 안전 상태 응답에는 실제 허용 종목과 개수를 포함하지 않고 목록 설정 여부만 반환합니다.
 
 1회 주문 한도는 다음 규칙을 적용합니다.
 
@@ -198,6 +212,7 @@ curl http://localhost:8080/api/broker/safety
   "liveSafetyGateOpen": false,
   "liveAdapterConnected": false,
   "liveAccountAllowlistConfigured": false,
+  "liveInstrumentAllowlistConfigured": false,
   "liveOrderLimitsConfigured": false,
   "liveDailyOrderLimitsConfigured": false,
   "liveMutationAvailable": false,
@@ -243,9 +258,10 @@ curl http://localhost:8080/api/broker/safety
 }
 ```
 
-`blockReason`은 `MOCK_MODE`, `LIVE_FEATURE_DISABLED`, `KILL_SWITCH_ACTIVE`, `LIVE_ADAPTER_NOT_CONNECTED`, `LIVE_ACCOUNT_ALLOWLIST_EMPTY`, `LIVE_ORDER_LIMITS_NOT_CONFIGURED`, `LIVE_DAILY_ORDER_LIMITS_NOT_CONFIGURED` 중 현재 가장 우선적인 차단 사유를 반환합니다. 모든 전역 설정, 아홉 기능별 준비 상태, 계좌 허용 목록, 세 1회 주문 한도와 세 일일 누적 한도가 열렸다면 `NONE`을 반환합니다.
+`blockReason`은 `MOCK_MODE`, `LIVE_FEATURE_DISABLED`, `KILL_SWITCH_ACTIVE`, `LIVE_ADAPTER_NOT_CONNECTED`, `LIVE_ACCOUNT_ALLOWLIST_EMPTY`, `LIVE_INSTRUMENT_ALLOWLIST_EMPTY`, `LIVE_ORDER_LIMITS_NOT_CONFIGURED`, `LIVE_DAILY_ORDER_LIMITS_NOT_CONFIGURED` 중 현재 가장 우선적인 차단 사유를 반환합니다. 모든 전역 설정, 아홉 기능별 준비 상태, 계좌·종목 허용 목록, 세 1회 주문 한도와 세 일일 누적 한도가 열렸다면 `NONE`을 반환합니다.
 `liveAdapterConnected`는 모든 기능이 연결됐을 때만 `true`가 되는 전역 값이며, `mutationCapabilities`에서 기능별 준비 상태를 확인할 수 있습니다.
 `liveAccountAllowlistConfigured`는 허용 계좌가 하나 이상 설정됐는지만 나타내며 실제 계좌 정보는 반환하지 않습니다.
+`liveInstrumentAllowlistConfigured`는 허용한 시장별 종목이 하나 이상 설정됐는지만 나타내며 실제 종목과 개수는 반환하지 않습니다.
 `liveOrderLimitsConfigured`는 수량과 원화·달러 금액 상한이 모두 양수로 설정됐는지만 나타내며 실제 한도는 반환하지 않습니다.
 `liveDailyOrderLimitsConfigured`는 일일 누적 수량과 원화·달러 금액 상한이 모두 양수로 설정됐는지만 나타내며 실제 한도와 누적값은 반환하지 않습니다.
 V15는 일일 위험 예약과 동시 요청 직렬화를 위한 테이블만 추가하며 실제 토스 주문 결과나 민감한 주문 식별값 원문을 저장하지 않습니다.

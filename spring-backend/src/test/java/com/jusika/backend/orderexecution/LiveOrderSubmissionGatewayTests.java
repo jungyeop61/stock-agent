@@ -102,6 +102,7 @@ class LiveOrderSubmissionGatewayTests {
 		assertThat(recovered).isEqualTo(orderClient.response);
 		assertThat(orderClient.callCount).isEqualTo(2);
 		assertThat(orderClient.request).isSameAs(request);
+		assertThat(safetyPolicy.instrumentCheckCallCount).isEqualTo(2);
 		assertThat(safetyPolicy.dailyReservationCallCount).isEqualTo(2);
 		assertThat(safetyPolicy.lastReservationKey).startsWith("QUANTITY_ORDER:");
 	}
@@ -244,6 +245,7 @@ class LiveOrderSubmissionGatewayTests {
 	/** 기록용 클라이언트 위임만 검사할 때 중앙 안전정책 통과를 재현합니다. */
 	private static final class AllowingSafetyPolicy extends BrokerMutationSafetyPolicy {
 		private int dailyReservationCallCount;
+		private int instrumentCheckCallCount;
 		private String lastReservationKey;
 
 		/** 실제 설정을 열지 않고 테스트 전용 정책 객체를 초기화합니다. */
@@ -261,6 +263,13 @@ class LiveOrderSubmissionGatewayTests {
 		@Override
 		public void requireLiveAccountAllowed(long accountSeq) {
 			assertThat(accountSeq).isPositive();
+		}
+
+		/** 기존 클라이언트 위임 검사에서는 시장별 종목 허용 검사를 통과시킵니다. */
+		@Override
+		public void requireLiveInstrumentAllowed(String symbol, String currency) {
+			assertThat(symbol).isNotBlank();
+			instrumentCheckCallCount++;
 		}
 
 		/** 기존 클라이언트 위임 검사가 주문 한도 설정과 독립적으로 실행되게 합니다. */

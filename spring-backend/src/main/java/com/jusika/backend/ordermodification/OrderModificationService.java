@@ -106,6 +106,7 @@ public class OrderModificationService {
 		OffsetDateTime startedAt = OffsetDateTime.now(clock);
 		validateExecutablePreview(preview, startedAt);
 		modificationGateway.requireModificationAvailable(preview.accountSeq());
+		modificationGateway.requireInstrumentAllowed(preview.symbol(), preview.currency());
 
 		OrderDetailResponse current = historyClient.getOrder(
 				preview.accountSeq(), preview.originalOrderId());
@@ -146,7 +147,7 @@ public class OrderModificationService {
 		OrderModificationSubmissionRequest submission = new OrderModificationSubmissionRequest(
 				preview.currency(), preview.requestedOrderType(), preview.requestedQuantity(),
 				preview.requestedPrice(), preview.requiresHighValueConfirmation(),
-				riskSnapshot);
+				riskSnapshot, preview.symbol());
 		return modifyAndRecord(executionId, preview.accountSeq(), preview.originalOrderId(), submission);
 	}
 

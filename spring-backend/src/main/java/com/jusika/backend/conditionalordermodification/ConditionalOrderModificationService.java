@@ -150,6 +150,7 @@ public class ConditionalOrderModificationService {
 		OffsetDateTime startedAt = OffsetDateTime.now(clock);
 		validateExecutablePreview(preview, startedAt);
 		modificationGateway.requireModificationAvailable(preview.accountSeq());
+		modificationGateway.requireInstrumentAllowed(preview.symbol(), preview.currency());
 
 		ConditionalOrderDetailResponse current = conditionalOrderClient.getConditionalOrder(
 				preview.accountSeq(), preview.originalConditionalOrderId());
@@ -598,7 +599,7 @@ public class ConditionalOrderModificationService {
 				preview.requestedType(), preview.requestedQuantity(), preview.requestedOrderType(),
 				preview.requestedExpireDate(), toSubmissionCondition(preview.requestedFirst()),
 				toSubmissionCondition(preview.requestedSecond()),
-				preview.requiresHighValueConfirmation(), riskSnapshot);
+				preview.requiresHighValueConfirmation(), riskSnapshot, preview.symbol());
 	}
 
 	/** 저장된 새 감시 조건을 증권사 경계의 조건 요청으로 변환합니다. */

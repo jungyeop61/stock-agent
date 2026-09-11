@@ -1,6 +1,7 @@
 package com.jusika.backend.brokersafety;
 
 import java.util.List;
+import java.util.Locale;
 
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -44,15 +45,18 @@ public class BrokerMutationSafetyPolicy {
 		boolean allAdaptersConnected = mutationCapabilities.stream()
 				.allMatch(BrokerMutationCapabilityStatus::liveAdapterConnected);
 		boolean accountAllowlistConfigured = !properties.allowedAccountSeqs().isEmpty();
+		boolean instrumentAllowlistConfigured = !properties.allowedInstruments().isEmpty();
 		boolean orderLimitsConfigured = properties.liveOrderLimits().isConfigured();
 		boolean dailyOrderLimitsConfigured = properties.liveDailyOrderLimits().isConfigured();
 		BrokerSafetyBlockReason blockReason = determineBlockReason(
 				allAdaptersConnected,
 				accountAllowlistConfigured,
+				instrumentAllowlistConfigured,
 				orderLimitsConfigured,
 				dailyOrderLimitsConfigured);
 		boolean safetyGateOpen = blockReason == BrokerSafetyBlockReason.LIVE_ADAPTER_NOT_CONNECTED
 				|| blockReason == BrokerSafetyBlockReason.LIVE_ACCOUNT_ALLOWLIST_EMPTY
+				|| blockReason == BrokerSafetyBlockReason.LIVE_INSTRUMENT_ALLOWLIST_EMPTY
 				|| blockReason == BrokerSafetyBlockReason.LIVE_ORDER_LIMITS_NOT_CONFIGURED
 				|| blockReason == BrokerSafetyBlockReason.LIVE_DAILY_ORDER_LIMITS_NOT_CONFIGURED
 				|| blockReason == BrokerSafetyBlockReason.NONE;
@@ -64,6 +68,7 @@ public class BrokerMutationSafetyPolicy {
 				safetyGateOpen,
 				allAdaptersConnected,
 				accountAllowlistConfigured,
+				instrumentAllowlistConfigured,
 				orderLimitsConfigured,
 				dailyOrderLimitsConfigured,
 				mutationAvailable,
@@ -107,6 +112,28 @@ public class BrokerMutationSafetyPolicy {
 		}
 		if (!properties.allowedAccountSeqs().contains(accountSeq)) {
 			throw new BrokerMutationBlockedException("실제 주문이 허용된 계좌가 아닙니다.");
+		}
+	}
+
+	/**
+	 * 실제 주문 생성·정정 종목이 시장별 명시적 허용 목록에 포함됐는지 검사합니다.
+	 * 오류에는 검사한 종목 코드를 포함하지 않습니다.
+	 *
+	 * @param symbol 실제 주문에 사용할 종목 코드
+	 * @param currency 종목 시장을 판별할 주문 통화
+	 */
+	public void requireLiveInstrumentAllowed(String symbol, String currency) {
+		if (symbol == null || symbol.isBlank() || currency == null || currency.isBlank()) {
+			throw new IllegalArgumentException("확인할 LIVE 주문 종목과 통화가 필요합니다.");
+		}
+		String market = switch (currency.trim().toUpperCase(Locale.ROOT)) {
+			case "KRW" -> "KR";
+			case "USD" -> "US";
+			default -> throw new IllegalArgumentException("LIVE 종목 검사에는 KRW 또는 USD 통화가 필요합니다.");
+		};
+		String instrument = market + ":" + symbol.trim().toUpperCase(Locale.ROOT);
+		if (!properties.allowedInstruments().contains(instrument)) {
+			throw new BrokerMutationBlockedException("실제 주문이 허용된 종목이 아닙니다.");
 		}
 	}
 
@@ -205,6 +232,7 @@ public class BrokerMutationSafetyPolicy {
 	 *
 	 * @param allAdaptersConnected 모든 주문 변경 어댑터가 준비됐는지 여부
 	 * @param accountAllowlistConfigured 허용한 실제 주문 계좌가 있는지 여부
+	 * @param instrumentAllowlistConfigured 허용한 실제 주문 종목이 있는지 여부
 	 * @param orderLimitsConfigured 수량과 통화별 실제 주문 상한이 설정됐는지 여부
 	 * @param dailyOrderLimitsConfigured 일일 누적 수량과 통화별 상한이 설정됐는지 여부
 	 * @return 실제 주문이 막힌 이유 또는 모든 검사가 통과한 NONE
@@ -212,6 +240,7 @@ public class BrokerMutationSafetyPolicy {
 	private BrokerSafetyBlockReason determineBlockReason(
 			boolean allAdaptersConnected,
 			boolean accountAllowlistConfigured,
+			boolean instrumentAllowlistConfigured,
 			boolean orderLimitsConfigured,
 			boolean dailyOrderLimitsConfigured) {
 		if (properties.mode() != BrokerExecutionMode.LIVE) {
@@ -228,6 +257,9 @@ public class BrokerMutationSafetyPolicy {
 		}
 		if (!accountAllowlistConfigured) {
 			return BrokerSafetyBlockReason.LIVE_ACCOUNT_ALLOWLIST_EMPTY;
+		}
+		if (!instrumentAllowlistConfigured) {
+			return BrokerSafetyBlockReason.LIVE_INSTRUMENT_ALLOWLIST_EMPTY;
 		}
 		if (!orderLimitsConfigured) {
 			return BrokerSafetyBlockReason.LIVE_ORDER_LIMITS_NOT_CONFIGURED;

@@ -111,6 +111,7 @@ public class AmountOrderExecutionService {
 		validateExecutableState(preview, startedAt);
 		validateImmutablePreview(preview);
 		submissionGateway.requireSubmissionAvailable(preview.accountSeq());
+		submissionGateway.requireInstrumentAllowed(preview.symbol(), preview.currency());
 		revalidateLatestConditions(preview, startedAt);
 		String brokerMode = requireMockMode();
 

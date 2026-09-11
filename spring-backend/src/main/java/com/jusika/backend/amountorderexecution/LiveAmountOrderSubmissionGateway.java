@@ -53,6 +53,12 @@ class LiveAmountOrderSubmissionGateway implements AmountOrderSubmissionGateway {
 		safetyPolicy.requireLiveAccountAllowed(accountSeq);
 	}
 
+	/** 금액 주문 종목이 미국 시장 LIVE 허용 목록에 등록됐는지 검사합니다. */
+	@Override
+	public void requireInstrumentAllowed(String symbol, String currency) {
+		safetyPolicy.requireLiveInstrumentAllowed(symbol, currency);
+	}
+
 	/** 최종 계산한 달러 주문금액이 LIVE 1회 한도를 넘지 않는지 검사합니다. */
 	@Override
 	public void requireOrderWithinLimits(BrokerOrderRiskSnapshot riskSnapshot) {
@@ -99,6 +105,7 @@ class LiveAmountOrderSubmissionGateway implements AmountOrderSubmissionGateway {
 			long accountSeq,
 			AmountOrderSubmissionRequest request) {
 		requireSubmissionAvailable(accountSeq);
+		requireInstrumentAllowed(request.symbol(), "USD");
 		requireOrderWithinLimits(request.riskSnapshot());
 		reserveDailyOrderRisk(
 				accountSeq, "AMOUNT_ORDER:" + request.clientOrderId(), request.riskSnapshot());
@@ -118,6 +125,7 @@ class LiveAmountOrderSubmissionGateway implements AmountOrderSubmissionGateway {
 			long accountSeq,
 			AmountOrderSubmissionRequest request) {
 		requireSubmissionAvailable(accountSeq);
+		requireInstrumentAllowed(request.symbol(), "USD");
 		requireOrderWithinLimits(request.riskSnapshot());
 		reserveDailyOrderRisk(
 				accountSeq, "AMOUNT_ORDER:" + request.clientOrderId(), request.riskSnapshot());

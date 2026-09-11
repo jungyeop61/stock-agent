@@ -25,6 +25,11 @@ public interface OrderSubmissionGateway {
 		requireSubmissionAvailable();
 	}
 
+	/** 실행 상태를 만들기 전에 시장별 LIVE 종목 허용 목록을 검사합니다. */
+	default void requireInstrumentAllowed(String symbol, String currency) {
+		// MOCK 모드는 실제 주문을 만들지 않으므로 LIVE 종목 목록을 적용하지 않습니다.
+	}
+
 	/**
 	 * 실행 기록을 만들기 전에 최종 계산한 주문값이 LIVE 1회 한도 이내인지 확인합니다.
 	 *

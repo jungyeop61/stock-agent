@@ -21,6 +21,11 @@ interface OrderModificationGateway {
 		requireModificationAvailable();
 	}
 
+	/** 정정 실행 상태를 만들기 전에 원주문의 시장별 LIVE 종목 허용 목록을 검사합니다. */
+	default void requireInstrumentAllowed(String symbol, String currency) {
+		// MOCK 정정은 실제 주문을 바꾸지 않으므로 LIVE 종목 목록을 적용하지 않습니다.
+	}
+
 	/** 실행 기록 생성 전에 정정 후 주문값이 LIVE 1회 한도 이내인지 확인합니다. */
 	default void requireOrderWithinLimits(BrokerOrderRiskSnapshot riskSnapshot) {
 		// MOCK 정정은 실제 주문 조건을 만들지 않으므로 LIVE 한도를 적용하지 않습니다.

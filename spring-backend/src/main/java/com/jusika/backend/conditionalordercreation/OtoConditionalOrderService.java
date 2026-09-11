@@ -167,6 +167,7 @@ public class OtoConditionalOrderService {
 		OffsetDateTime startedAt = OffsetDateTime.now(clock);
 		validateExecutablePreview(preview, startedAt);
 		submissionGateway.requireSubmissionAvailable(preview.accountSeq());
+		submissionGateway.requireInstrumentAllowed(preview.symbol(), preview.currency());
 		Revalidation revalidation = revalidateConditions(preview);
 		if (revalidation.requiresHighValueConfirmation()
 				&& !preview.requiresHighValueConfirmation()) {

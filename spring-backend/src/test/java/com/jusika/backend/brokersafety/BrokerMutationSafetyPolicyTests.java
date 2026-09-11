@@ -145,6 +145,7 @@ class BrokerMutationSafetyPolicyTests {
 						false,
 						모든_어댑터를_연결한다(),
 						Set.of(1L),
+						Set.of("KR:005930", "US:AAPL"),
 						설정된_주문_한도를_만든다(),
 						설정된_일일_주문_한도를_만든다()));
 
@@ -153,6 +154,7 @@ class BrokerMutationSafetyPolicyTests {
 		assertThat(status.liveSafetyGateOpen()).isTrue();
 		assertThat(status.liveAdapterConnected()).isTrue();
 		assertThat(status.liveAccountAllowlistConfigured()).isTrue();
+		assertThat(status.liveInstrumentAllowlistConfigured()).isTrue();
 		assertThat(status.liveOrderLimitsConfigured()).isTrue();
 		assertThat(status.liveDailyOrderLimitsConfigured()).isTrue();
 		assertThat(status.liveMutationAvailable()).isTrue();
@@ -169,7 +171,10 @@ class BrokerMutationSafetyPolicyTests {
 						true,
 						false,
 						모든_어댑터를_연결한다(),
-						Set.of(1L)));
+						Set.of(1L),
+						Set.of("KR:005930"),
+						BrokerLiveOrderLimitProperties.allDisabled(),
+						설정된_일일_주문_한도를_만든다()));
 
 		BrokerSafetyStatusResponse status = policy.getStatus();
 
@@ -190,7 +195,9 @@ class BrokerMutationSafetyPolicyTests {
 						false,
 						모든_어댑터를_연결한다(),
 						Set.of(1L),
-						설정된_주문_한도를_만든다()));
+						Set.of("KR:005930"),
+						설정된_주문_한도를_만든다(),
+						BrokerLiveDailyOrderLimitProperties.allDisabled()));
 
 		BrokerSafetyStatusResponse status = policy.getStatus();
 
@@ -290,6 +297,43 @@ class BrokerMutationSafetyPolicyTests {
 				.hasMessage("확인할 계좌 식별값은 1 이상이어야 합니다.");
 	}
 
+	/** 등록된 시장과 종목 조합만 통과하고 같은 코드라도 다른 시장이면 차단하는지 검사합니다. */
+	@Test
+	@DisplayName("LIVE 종목 허용 목록은 시장과 종목이 모두 일치해야 통과한다")
+	void LIVE_종목_허용_목록은_시장과_종목이_모두_일치해야_통과한다() {
+		BrokerMutationSafetyPolicy policy = new BrokerMutationSafetyPolicy(
+				new BrokerSafetyProperties(
+						BrokerExecutionMode.LIVE, true, false,
+						BrokerLiveAdapterProperties.allDisabled(), Set.of(1L),
+						Set.of("KR:005930", "US:AAPL"),
+						BrokerLiveOrderLimitProperties.allDisabled(),
+						BrokerLiveDailyOrderLimitProperties.allDisabled()));
+
+		assertThatCode(() -> policy.requireLiveInstrumentAllowed("005930", "KRW"))
+				.doesNotThrowAnyException();
+		assertThatCode(() -> policy.requireLiveInstrumentAllowed("aapl", "usd"))
+				.doesNotThrowAnyException();
+		assertThatThrownBy(() -> policy.requireLiveInstrumentAllowed("005930", "USD"))
+				.isInstanceOf(BrokerMutationBlockedException.class)
+				.hasMessage("실제 주문이 허용된 종목이 아닙니다.")
+				.hasMessageNotContaining("005930");
+	}
+
+	/** 다른 안전 설정이 열려도 종목 목록이 비어 있으면 전체 LIVE 상태를 차단하는지 검사합니다. */
+	@Test
+	@DisplayName("LIVE 종목 허용 목록이 비어 있으면 실제 주문을 차단한다")
+	void LIVE_종목_허용_목록이_비어_있으면_실제_주문을_차단한다() {
+		BrokerMutationSafetyPolicy policy = new BrokerMutationSafetyPolicy(
+				new BrokerSafetyProperties(
+						BrokerExecutionMode.LIVE, true, false,
+						모든_어댑터를_연결한다(), Set.of(1L), Set.of(),
+						설정된_주문_한도를_만든다(), 설정된_일일_주문_한도를_만든다()));
+
+		assertThat(policy.getStatus().liveInstrumentAllowlistConfigured()).isFalse();
+		assertThat(policy.getStatus().blockReason())
+				.isEqualTo(BrokerSafetyBlockReason.LIVE_INSTRUMENT_ALLOWLIST_EMPTY);
+	}
+
 	/** 기능 종류가 누락되면 전역 설정을 검사하기 전에 잘못된 호출로 거절하는지 검사합니다. */
 	@Test
 	@DisplayName("확인할 주문 변경 기능이 누락되면 거절한다")
@@ -345,6 +389,7 @@ class BrokerMutationSafetyPolicyTests {
 				false,
 				모든_어댑터를_연결한다(),
 				Set.of(1L),
+				Set.of("KR:005930", "US:AAPL"),
 				설정된_주문_한도를_만든다(),
 				설정된_일일_주문_한도를_만든다()));
 	}

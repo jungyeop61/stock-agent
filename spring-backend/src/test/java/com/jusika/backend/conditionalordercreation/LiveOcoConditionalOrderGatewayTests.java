@@ -253,6 +253,12 @@ class LiveOcoConditionalOrderGatewayTests {
 			assertThat(accountSeq).isPositive();
 		}
 
+		/** 기존 클라이언트 위임 검사에서는 OCO 종목 허용 검사를 통과시킵니다. */
+		@Override
+		public void requireLiveInstrumentAllowed(String symbol, String currency) {
+			assertThat(symbol).isNotBlank();
+		}
+
 		/** 기존 클라이언트 위임 검사가 주문 한도 설정과 독립적으로 실행되게 합니다. */
 		@Override
 		public void requireLiveOrderWithinLimits(BrokerOrderRiskSnapshot riskSnapshot) {

@@ -1,6 +1,8 @@
 package com.jusika.backend.brokersafety;
 
 import java.util.Set;
+import java.util.Locale;
+import java.util.stream.Collectors;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.bind.ConstructorBinding;
@@ -14,6 +16,7 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
  * @param killSwitchActive 실제 주문을 즉시 차단하는 긴급 스위치 상태
  * @param liveAdapters 실제 주문 변경 기능별 어댑터 준비 상태
  * @param allowedAccountSeqs 실제 주문 변경을 허용한 계좌 식별값 집합
+ * @param allowedInstruments 실제 주문 생성·정정을 허용한 시장별 종목 집합
  * @param liveOrderLimits 실제 주문 한 건에 적용할 수량과 통화별 금액 상한
  * @param liveDailyOrderLimits 실제 주문의 하루 누적 수량과 통화별 금액 상한
  */
@@ -24,6 +27,7 @@ public record BrokerSafetyProperties(
 		@DefaultValue("true") boolean killSwitchActive,
 		@DefaultValue BrokerLiveAdapterProperties liveAdapters,
 		@DefaultValue Set<Long> allowedAccountSeqs,
+		@DefaultValue Set<String> allowedInstruments,
 		@DefaultValue BrokerLiveOrderLimitProperties liveOrderLimits,
 		@DefaultValue BrokerLiveDailyOrderLimitProperties liveDailyOrderLimits) {
 
@@ -37,6 +41,7 @@ public record BrokerSafetyProperties(
 				liveEnabled,
 				killSwitchActive,
 				BrokerLiveAdapterProperties.allDisabled(),
+				Set.of(),
 				Set.of(),
 				BrokerLiveOrderLimitProperties.allDisabled(),
 				BrokerLiveDailyOrderLimitProperties.allDisabled());
@@ -53,6 +58,7 @@ public record BrokerSafetyProperties(
 				liveEnabled,
 				killSwitchActive,
 				liveAdapters,
+				Set.of(),
 				Set.of(),
 				BrokerLiveOrderLimitProperties.allDisabled(),
 				BrokerLiveDailyOrderLimitProperties.allDisabled());
@@ -71,6 +77,7 @@ public record BrokerSafetyProperties(
 				killSwitchActive,
 				liveAdapters,
 				allowedAccountSeqs,
+				Set.of(),
 				BrokerLiveOrderLimitProperties.allDisabled(),
 				BrokerLiveDailyOrderLimitProperties.allDisabled());
 	}
@@ -89,8 +96,22 @@ public record BrokerSafetyProperties(
 				killSwitchActive,
 				liveAdapters,
 				allowedAccountSeqs,
+				Set.of(),
 				liveOrderLimits,
 				BrokerLiveDailyOrderLimitProperties.allDisabled());
+	}
+
+	/** 기존 전체 한도 호출 형식을 유지하되 종목 허용 목록은 닫힌 상태로 만듭니다. */
+	public BrokerSafetyProperties(
+			BrokerExecutionMode mode,
+			boolean liveEnabled,
+			boolean killSwitchActive,
+			BrokerLiveAdapterProperties liveAdapters,
+			Set<Long> allowedAccountSeqs,
+			BrokerLiveOrderLimitProperties liveOrderLimits,
+			BrokerLiveDailyOrderLimitProperties liveDailyOrderLimits) {
+		this(mode, liveEnabled, killSwitchActive, liveAdapters, allowedAccountSeqs,
+				Set.of(), liveOrderLimits, liveDailyOrderLimits);
 	}
 
 	/**
@@ -107,6 +128,9 @@ public record BrokerSafetyProperties(
 		if (allowedAccountSeqs == null) {
 			throw new IllegalArgumentException("실제 주문 계좌 허용 목록 설정이 필요합니다.");
 		}
+		if (allowedInstruments == null) {
+			throw new IllegalArgumentException("실제 주문 종목 허용 목록 설정이 필요합니다.");
+		}
 		if (liveOrderLimits == null) {
 			throw new IllegalArgumentException("실제 주문 한도 설정이 필요합니다.");
 		}
@@ -117,5 +141,21 @@ public record BrokerSafetyProperties(
 			throw new IllegalArgumentException("계좌 허용 목록에는 1 이상의 식별값만 사용할 수 있습니다.");
 		}
 		allowedAccountSeqs = Set.copyOf(allowedAccountSeqs);
+		allowedInstruments = allowedInstruments.stream()
+				.map(BrokerSafetyProperties::normalizeInstrument)
+				.collect(Collectors.toUnmodifiableSet());
+	}
+
+	/** 시장 접두사와 종목 코드가 올바른 설정을 대문자 표준 형식으로 정리합니다. */
+	private static String normalizeInstrument(String instrument) {
+		if (instrument == null) {
+			throw new IllegalArgumentException("종목 허용 목록에는 빈 값을 사용할 수 없습니다.");
+		}
+		String normalized = instrument.trim().toUpperCase(Locale.ROOT);
+		if (!normalized.matches("^(KR:[0-9]{6}|US:[A-Z][A-Z0-9.\\-]{0,31})$")) {
+			throw new IllegalArgumentException(
+					"종목 허용 목록은 KR:6자리숫자 또는 US:영문종목 형식이어야 합니다.");
+		}
+		return normalized;
 	}
 }

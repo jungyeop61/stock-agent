@@ -51,6 +51,12 @@ class LiveOcoConditionalOrderGateway implements OcoConditionalOrderGateway {
 		safetyPolicy.requireLiveAccountAllowed(accountSeq);
 	}
 
+	/** OCO 종목이 시장별 LIVE 허용 목록에 등록됐는지 검사합니다. */
+	@Override
+	public void requireInstrumentAllowed(String symbol, String currency) {
+		safetyPolicy.requireLiveInstrumentAllowed(symbol, currency);
+	}
+
 	/** 두 조건 중 큰 주문금액과 수량이 LIVE 1회 한도를 넘지 않는지 검사합니다. */
 	@Override
 	public void requireOrderWithinLimits(BrokerOrderRiskSnapshot riskSnapshot) {
@@ -87,6 +93,8 @@ class LiveOcoConditionalOrderGateway implements OcoConditionalOrderGateway {
 			long accountSeq,
 			OcoConditionalOrderSubmissionRequest request) {
 		requireSubmissionAvailable(accountSeq);
+		requireInstrumentAllowed(request.symbol(),
+				request.riskSnapshot() == null ? null : request.riskSnapshot().currency());
 		requireOrderWithinLimits(request.riskSnapshot());
 		reserveDailyOrderRisk(
 				accountSeq, "OCO_CONDITIONAL_ORDER:" + request.clientOrderId(),

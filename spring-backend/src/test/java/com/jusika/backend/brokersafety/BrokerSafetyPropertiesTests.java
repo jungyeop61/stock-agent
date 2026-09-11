@@ -28,6 +28,7 @@ class BrokerSafetyPropertiesTests {
 			assertThat(EnumSet.allOf(BrokerMutationCapability.class))
 					.allMatch(capability -> !liveAdapters.isConnected(capability));
 			assertThat(properties.allowedAccountSeqs()).isEmpty();
+			assertThat(properties.allowedInstruments()).isEmpty();
 			assertThat(properties.liveOrderLimits().maxQuantity()).isZero();
 			assertThat(properties.liveOrderLimits().maxKrwOrderAmount()).isZero();
 			assertThat(properties.liveOrderLimits().maxUsdOrderAmount()).isZero();
@@ -74,6 +75,27 @@ class BrokerSafetyPropertiesTests {
 						.getBean(BrokerSafetyProperties.class)
 						.allowedAccountSeqs())
 						.containsExactlyInAnyOrder(1L, 2L));
+	}
+
+	/** 시장별 종목 목록이 대문자로 정규화되고 중복 없이 바인딩되는지 검사합니다. */
+	@Test
+	@DisplayName("LIVE 종목 허용 목록을 시장과 함께 바인딩한다")
+	void LIVE_종목_허용_목록을_시장과_함께_바인딩한다() {
+		contextRunner
+				.withPropertyValues("jusika.broker.allowed-instruments=KR:005930,us:aapl")
+				.run(context -> assertThat(context
+						.getBean(BrokerSafetyProperties.class)
+						.allowedInstruments())
+						.containsExactlyInAnyOrder("KR:005930", "US:AAPL"));
+	}
+
+	/** 시장 접두사가 없는 종목 설정은 애플리케이션 시작 단계에서 거절하는지 검사합니다. */
+	@Test
+	@DisplayName("LIVE 종목 허용 목록의 잘못된 형식을 거절한다")
+	void LIVE_종목_허용_목록의_잘못된_형식을_거절한다() {
+		contextRunner
+				.withPropertyValues("jusika.broker.allowed-instruments=AAPL")
+				.run(context -> assertThat(context).hasFailed());
 	}
 
 	/** 수량과 통화별 한도가 각 설정명에서 정확한 숫자로 바인딩되는지 검사합니다. */
