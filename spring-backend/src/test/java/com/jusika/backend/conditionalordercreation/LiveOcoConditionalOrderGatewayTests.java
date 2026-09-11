@@ -245,5 +245,11 @@ class LiveOcoConditionalOrderGatewayTests {
 			assertThat(capability)
 					.isEqualTo(BrokerMutationCapability.OCO_CONDITIONAL_ORDER_CREATION);
 		}
+
+		/** 테스트 요청이 양수 계좌 식별값으로 허용 목록 검사를 수행했는지 확인합니다. */
+		@Override
+		public void requireLiveAccountAllowed(long accountSeq) {
+			assertThat(accountSeq).isPositive();
+		}
 	}
 }

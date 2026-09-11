@@ -15,6 +15,16 @@ public interface OrderSubmissionGateway {
 	void requireSubmissionAvailable();
 
 	/**
+	 * 계좌 식별값을 아는 실행 단계에서 제출 경계와 계좌 허용 여부를 함께 확인합니다.
+	 * MOCK 구현은 기존 안전 검사만 유지하고 LIVE 구현은 계좌 허용 목록을 추가 검사합니다.
+	 *
+	 * @param accountSeq 주문에 사용할 계좌 식별값
+	 */
+	default void requireSubmissionAvailable(long accountSeq) {
+		requireSubmissionAvailable();
+	}
+
+	/**
 	 * 수량 기반 주문을 현재 설정된 증권사 모드로 제출합니다.
 	 *
 	 * @param accountSeq 주문에 사용할 계좌 식별값

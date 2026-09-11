@@ -104,7 +104,7 @@ public class OrderModificationService {
 		OrderModificationPreviewResponse preview = findPreview(previewId);
 		OffsetDateTime startedAt = OffsetDateTime.now(clock);
 		validateExecutablePreview(preview, startedAt);
-		modificationGateway.requireModificationAvailable();
+		modificationGateway.requireModificationAvailable(preview.accountSeq());
 
 		OrderDetailResponse current = historyClient.getOrder(
 				preview.accountSeq(), preview.originalOrderId());

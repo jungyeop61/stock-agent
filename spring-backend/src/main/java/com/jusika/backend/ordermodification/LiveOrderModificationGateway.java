@@ -45,6 +45,13 @@ class LiveOrderModificationGateway implements OrderModificationGateway {
 				BrokerMutationCapability.NORMAL_ORDER_MODIFICATION);
 	}
 
+	/** 계좌 식별값을 아는 실행 단계에서 정정 기능과 계좌 허용 목록을 함께 검사합니다. */
+	@Override
+	public void requireModificationAvailable(long accountSeq) {
+		requireModificationAvailable();
+		safetyPolicy.requireLiveAccountAllowed(accountSeq);
+	}
+
 	/**
 	 * 중앙 안전정책을 다시 확인한 뒤 최종 검증된 정정 내용을 토스 클라이언트에 전달합니다.
 	 * 현재 준비 상태에서는 정책 검사가 항상 먼저 차단합니다.
@@ -59,8 +66,7 @@ class LiveOrderModificationGateway implements OrderModificationGateway {
 			long accountSeq,
 			String originalOrderId,
 			OrderModificationSubmissionRequest request) {
-		safetyPolicy.requireLiveMutationAvailable(
-				BrokerMutationCapability.NORMAL_ORDER_MODIFICATION);
+		requireModificationAvailable(accountSeq);
 		try {
 			return orderClient.modifyOrder(accountSeq, originalOrderId, request);
 		} catch (TossOrderException exception) {

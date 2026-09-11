@@ -112,11 +112,12 @@ event=internal_api_audit occurredAt=<요청-시각> requestId=<요청-UUID> meth
 
 ## 실제 주문 연결 전역 안전장치
 
-실제 매수·매도·취소·정정 어댑터를 연결하기 전에 다음 세 설정을 중앙 정책에서 함께 검사합니다.
+실제 매수·매도·취소·정정 어댑터를 연결하기 전에 다음 전역 설정과 계좌 허용 목록을 중앙 정책에서 함께 검사합니다.
 
 - `JUSIKA_BROKER_MODE`: 기본값은 `mock`이며 `live`가 아니면 실제 주문을 차단합니다.
 - `JUSIKA_LIVE_TRADING_ENABLED`: 기본값은 `false`이며 사용자의 명시적 허락 전에는 활성화하지 않습니다.
 - `JUSIKA_TRADING_KILL_SWITCH_ACTIVE`: 기본값은 `true`이며 활성화된 동안 실제 주문을 즉시 차단합니다.
+- `JUSIKA_LIVE_ALLOWED_ACCOUNT_SEQS`: 실제 주문을 허용한 계좌 식별값의 쉼표 구분 목록이며 기본값은 빈 목록입니다.
 
 실제 주문 어댑터 준비 상태는 주문 변경 기능별 설정으로 분리되어 있으며 모든 기본값은 `false`입니다.
 기능별 설정 하나를 바꿔도 다른 기능의 준비 상태에는 영향을 주지 않으며, 전역 세 설정과 해당 기능 설정이 모두 열려야 중앙 안전 정책을 통과합니다.
@@ -141,6 +142,15 @@ event=internal_api_audit occurredAt=<요청-시각> requestId=<요청-UUID> meth
 
 이 값들은 실제 클라이언트 코드가 존재한다는 사실만 표현하지 않습니다. 운영자가 해당 기능의 실제 실행을 별도로 승인하고 사전 점검을 마친 뒤에만 `true`로 바꿔야 합니다.
 
+계좌 허용 목록은 다음 규칙을 적용합니다.
+
+- 목록이 비어 있으면 모든 LIVE 계좌 주문을 차단합니다.
+- 1 이상의 계좌 식별값만 설정할 수 있으며 잘못된 값은 애플리케이션 설정 바인딩 단계에서 거절합니다.
+- 승인된 미리보기를 소비하거나 실행 기록을 만들기 전에 해당 계좌가 허용됐는지 확인합니다.
+- 실제 토스 클라이언트 호출 직전에도 동일한 계좌 검사를 반복합니다.
+- MOCK 실행은 실제 증권사 상태를 바꾸지 않으므로 계좌 허용 목록의 영향을 받지 않습니다.
+- 안전 상태 응답에는 실제 계좌 식별값과 허용 계좌 개수를 포함하지 않고 목록 설정 여부만 반환합니다.
+
 현재 상태는 계좌번호, 토큰이나 주문 식별값 없이 조회할 수 있습니다.
 
 ```bash
@@ -156,6 +166,7 @@ curl http://localhost:8080/api/broker/safety
   "killSwitchActive": true,
   "liveSafetyGateOpen": false,
   "liveAdapterConnected": false,
+  "liveAccountAllowlistConfigured": false,
   "liveMutationAvailable": false,
   "blockReason": "MOCK_MODE",
   "mutationCapabilities": [
@@ -199,8 +210,9 @@ curl http://localhost:8080/api/broker/safety
 }
 ```
 
-`blockReason`은 `MOCK_MODE`, `LIVE_FEATURE_DISABLED`, `KILL_SWITCH_ACTIVE`, `LIVE_ADAPTER_NOT_CONNECTED` 중 현재 가장 우선적인 차단 사유를 반환합니다. 모든 전역 설정과 아홉 기능별 준비 상태가 열렸다면 `NONE`을 반환합니다.
+`blockReason`은 `MOCK_MODE`, `LIVE_FEATURE_DISABLED`, `KILL_SWITCH_ACTIVE`, `LIVE_ADAPTER_NOT_CONNECTED`, `LIVE_ACCOUNT_ALLOWLIST_EMPTY` 중 현재 가장 우선적인 차단 사유를 반환합니다. 모든 전역 설정, 아홉 기능별 준비 상태와 계좌 허용 목록이 열렸다면 `NONE`을 반환합니다.
 `liveAdapterConnected`는 모든 기능이 연결됐을 때만 `true`가 되는 전역 값이며, `mutationCapabilities`에서 기능별 준비 상태를 확인할 수 있습니다.
+`liveAccountAllowlistConfigured`는 허용 계좌가 하나 이상 설정됐는지만 나타내며 실제 계좌 정보는 반환하지 않습니다.
 이 단계는 설정과 읽기 전용 상태 조회만 추가하므로 데이터베이스 마이그레이션이 없습니다.
 
 ```bash

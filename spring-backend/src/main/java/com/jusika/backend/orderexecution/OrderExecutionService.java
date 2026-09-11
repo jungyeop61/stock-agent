@@ -94,7 +94,7 @@ public class OrderExecutionService {
 		OrderPreviewResponse preview = findPreview(previewId);
 		OffsetDateTime startedAt = OffsetDateTime.now(clock);
 		validateExecutableState(preview, startedAt);
-		submissionGateway.requireSubmissionAvailable();
+		submissionGateway.requireSubmissionAvailable(preview.accountSeq());
 		revalidateAccountConditions(preview);
 
 		String executionId = UUID.randomUUID().toString();

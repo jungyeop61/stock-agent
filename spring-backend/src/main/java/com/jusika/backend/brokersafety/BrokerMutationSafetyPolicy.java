@@ -30,8 +30,12 @@ public class BrokerMutationSafetyPolicy {
 		List<BrokerMutationCapabilityStatus> mutationCapabilities = createCapabilityStatuses();
 		boolean allAdaptersConnected = mutationCapabilities.stream()
 				.allMatch(BrokerMutationCapabilityStatus::liveAdapterConnected);
-		BrokerSafetyBlockReason blockReason = determineBlockReason(allAdaptersConnected);
+		boolean accountAllowlistConfigured = !properties.allowedAccountSeqs().isEmpty();
+		BrokerSafetyBlockReason blockReason = determineBlockReason(
+				allAdaptersConnected,
+				accountAllowlistConfigured);
 		boolean safetyGateOpen = blockReason == BrokerSafetyBlockReason.LIVE_ADAPTER_NOT_CONNECTED
+				|| blockReason == BrokerSafetyBlockReason.LIVE_ACCOUNT_ALLOWLIST_EMPTY
 				|| blockReason == BrokerSafetyBlockReason.NONE;
 		boolean mutationAvailable = blockReason == BrokerSafetyBlockReason.NONE;
 		return new BrokerSafetyStatusResponse(
@@ -40,6 +44,7 @@ public class BrokerMutationSafetyPolicy {
 				properties.killSwitchActive(),
 				safetyGateOpen,
 				allAdaptersConnected,
+				accountAllowlistConfigured,
 				mutationAvailable,
 				blockReason,
 				mutationCapabilities);
@@ -69,6 +74,21 @@ public class BrokerMutationSafetyPolicy {
 		}
 	}
 
+	/**
+	 * 실제 주문에 사용할 계좌가 명시적인 허용 목록에 포함됐는지 검사합니다.
+	 * 오류에는 검사한 계좌 식별값을 포함하지 않습니다.
+	 *
+	 * @param accountSeq 실제 주문 변경에 사용할 계좌 식별값
+	 */
+	public void requireLiveAccountAllowed(long accountSeq) {
+		if (accountSeq <= 0) {
+			throw new IllegalArgumentException("확인할 계좌 식별값은 1 이상이어야 합니다.");
+		}
+		if (!properties.allowedAccountSeqs().contains(accountSeq)) {
+			throw new BrokerMutationBlockedException("실제 주문이 허용된 계좌가 아닙니다.");
+		}
+	}
+
 	/** 지정한 주문 변경 기능의 실제 어댑터 연결 상태를 설정에서 확인합니다. */
 	private boolean isLiveAdapterConnected(BrokerMutationCapability capability) {
 		return properties.liveAdapters().isConnected(capability);
@@ -87,9 +107,12 @@ public class BrokerMutationSafetyPolicy {
 	 * 실행 모드, 기능 플래그, 긴급 차단 스위치와 어댑터 순서로 차단 사유를 결정합니다.
 	 *
 	 * @param allAdaptersConnected 모든 주문 변경 어댑터가 준비됐는지 여부
+	 * @param accountAllowlistConfigured 허용한 실제 주문 계좌가 있는지 여부
 	 * @return 실제 주문이 막힌 이유 또는 모든 검사가 통과한 NONE
 	 */
-	private BrokerSafetyBlockReason determineBlockReason(boolean allAdaptersConnected) {
+	private BrokerSafetyBlockReason determineBlockReason(
+			boolean allAdaptersConnected,
+			boolean accountAllowlistConfigured) {
 		if (properties.mode() != BrokerExecutionMode.LIVE) {
 			return BrokerSafetyBlockReason.MOCK_MODE;
 		}
@@ -99,8 +122,11 @@ public class BrokerMutationSafetyPolicy {
 		if (properties.killSwitchActive()) {
 			return BrokerSafetyBlockReason.KILL_SWITCH_ACTIVE;
 		}
-		return allAdaptersConnected
+		if (!allAdaptersConnected) {
+			return BrokerSafetyBlockReason.LIVE_ADAPTER_NOT_CONNECTED;
+		}
+		return accountAllowlistConfigured
 				? BrokerSafetyBlockReason.NONE
-				: BrokerSafetyBlockReason.LIVE_ADAPTER_NOT_CONNECTED;
+				: BrokerSafetyBlockReason.LIVE_ACCOUNT_ALLOWLIST_EMPTY;
 	}
 }

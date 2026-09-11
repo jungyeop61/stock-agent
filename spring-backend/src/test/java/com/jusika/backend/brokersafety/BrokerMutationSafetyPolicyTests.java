@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.EnumSet;
+import java.util.Set;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -116,7 +117,8 @@ class BrokerMutationSafetyPolicyTests {
 						BrokerExecutionMode.LIVE,
 						true,
 						false,
-						liveAdapters));
+						liveAdapters,
+						Set.of(1L)));
 
 		assertThatCode(() -> policy.requireLiveMutationAvailable(
 				BrokerMutationCapability.QUANTITY_ORDER_SUBMISSION))
@@ -150,14 +152,47 @@ class BrokerMutationSafetyPolicyTests {
 						BrokerExecutionMode.LIVE,
 						true,
 						false,
-						liveAdapters));
+						liveAdapters,
+						Set.of(1L)));
 
 		BrokerSafetyStatusResponse status = policy.getStatus();
 
 		assertThat(status.liveSafetyGateOpen()).isTrue();
 		assertThat(status.liveAdapterConnected()).isTrue();
+		assertThat(status.liveAccountAllowlistConfigured()).isTrue();
 		assertThat(status.liveMutationAvailable()).isTrue();
 		assertThat(status.blockReason()).isEqualTo(BrokerSafetyBlockReason.NONE);
+	}
+
+	/** 허용 목록에 포함된 계좌만 통과하고 다른 계좌는 식별값 노출 없이 차단하는지 검사합니다. */
+	@Test
+	@DisplayName("LIVE 계좌 허용 목록은 등록된 계좌만 통과시킨다")
+	void LIVE_계좌_허용_목록은_등록된_계좌만_통과시킨다() {
+		BrokerSafetyProperties properties = new BrokerSafetyProperties(
+				BrokerExecutionMode.LIVE,
+				true,
+				false,
+				BrokerLiveAdapterProperties.allDisabled(),
+				Set.of(1L));
+		BrokerMutationSafetyPolicy policy = new BrokerMutationSafetyPolicy(properties);
+
+		assertThatCode(() -> policy.requireLiveAccountAllowed(1L))
+				.doesNotThrowAnyException();
+		assertThatThrownBy(() -> policy.requireLiveAccountAllowed(2L))
+				.isInstanceOf(BrokerMutationBlockedException.class)
+				.hasMessage("실제 주문이 허용된 계좌가 아닙니다.")
+				.hasMessageNotContaining("2");
+	}
+
+	/** 유효하지 않은 계좌 식별값은 허용 목록 조회 전에 잘못된 호출로 거절하는지 검사합니다. */
+	@Test
+	@DisplayName("LIVE 계좌 검사에는 양수 식별값이 필요하다")
+	void LIVE_계좌_검사에는_양수_식별값이_필요하다() {
+		BrokerMutationSafetyPolicy policy = 정책을_만든다(BrokerExecutionMode.LIVE, true, false);
+
+		assertThatThrownBy(() -> policy.requireLiveAccountAllowed(0L))
+				.isInstanceOf(IllegalArgumentException.class)
+				.hasMessage("확인할 계좌 식별값은 1 이상이어야 합니다.");
 	}
 
 	/** 기능 종류가 누락되면 전역 설정을 검사하기 전에 잘못된 호출로 거절하는지 검사합니다. */
@@ -191,6 +226,20 @@ class BrokerMutationSafetyPolicyTests {
 				null))
 				.isInstanceOf(IllegalArgumentException.class)
 				.hasMessage("기능별 실제 주문 어댑터 설정이 필요합니다.");
+	}
+
+	/** 계좌 허용 목록에 양수가 아닌 값이 있으면 설정 생성 단계에서 거절하는지 검사합니다. */
+	@Test
+	@DisplayName("LIVE 계좌 허용 목록의 잘못된 식별값을 거절한다")
+	void LIVE_계좌_허용_목록의_잘못된_식별값을_거절한다() {
+		assertThatThrownBy(() -> new BrokerSafetyProperties(
+				BrokerExecutionMode.LIVE,
+				true,
+				false,
+				BrokerLiveAdapterProperties.allDisabled(),
+				Set.of(0L)))
+				.isInstanceOf(IllegalArgumentException.class)
+				.hasMessage("계좌 허용 목록에는 1 이상의 식별값만 사용할 수 있습니다.");
 	}
 
 	/** 지정한 세 안전 설정으로 중앙 주문 변경 정책을 만듭니다. */

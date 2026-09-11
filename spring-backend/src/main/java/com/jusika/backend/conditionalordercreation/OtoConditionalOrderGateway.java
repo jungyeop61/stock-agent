@@ -11,6 +11,15 @@ interface OtoConditionalOrderGateway {
 	 */
 	void requireSubmissionAvailable();
 
+	/**
+	 * 계좌 식별값을 아는 실행 단계에서 생성 경계와 계좌 허용 여부를 함께 확인합니다.
+	 *
+	 * @param accountSeq OTO 조건 주문에 사용할 계좌 식별값
+	 */
+	default void requireSubmissionAvailable(long accountSeq) {
+		requireSubmissionAvailable();
+	}
+
 	/** 최종 검증을 마친 OTO 조건 주문을 현재 모드로 한 번 제출합니다. */
 	ConditionalOrderCreationResponse submit(
 			long accountSeq,

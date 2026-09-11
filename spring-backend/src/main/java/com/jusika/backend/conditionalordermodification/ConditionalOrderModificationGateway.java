@@ -12,6 +12,15 @@ interface ConditionalOrderModificationGateway {
 	 */
 	void requireModificationAvailable();
 
+	/**
+	 * 계좌 식별값을 아는 실행 단계에서 정정 경계와 계좌 허용 여부를 함께 확인합니다.
+	 *
+	 * @param accountSeq 정정할 조건 주문의 계좌 식별값
+	 */
+	default void requireModificationAvailable(long accountSeq) {
+		requireModificationAvailable();
+	}
+
 	/** 검증된 새 전체 구성으로 기존 조건 주문을 대체합니다. */
 	ConditionalOrderModificationResponse modify(
 			long accountSeq,

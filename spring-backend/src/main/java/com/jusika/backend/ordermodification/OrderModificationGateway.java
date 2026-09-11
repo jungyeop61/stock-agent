@@ -11,6 +11,15 @@ interface OrderModificationGateway {
 	 */
 	void requireModificationAvailable();
 
+	/**
+	 * 계좌 식별값을 아는 실행 단계에서 정정 경계와 계좌 허용 여부를 함께 확인합니다.
+	 *
+	 * @param accountSeq 정정할 주문의 계좌 식별값
+	 */
+	default void requireModificationAvailable(long accountSeq) {
+		requireModificationAvailable();
+	}
+
 	/** 원주문을 검증된 새 유형·수량·가격으로 정정합니다. */
 	OrderOperationResponse modifyOrder(
 			long accountSeq, String originalOrderId, OrderModificationSubmissionRequest request);

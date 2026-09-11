@@ -32,6 +32,7 @@ class BrokerSafetyControllerTests {
 				.andExpect(jsonPath("$.killSwitchActive").value(true))
 				.andExpect(jsonPath("$.liveSafetyGateOpen").value(false))
 				.andExpect(jsonPath("$.liveAdapterConnected").value(false))
+				.andExpect(jsonPath("$.liveAccountAllowlistConfigured").value(false))
 				.andExpect(jsonPath("$.liveMutationAvailable").value(false))
 				.andExpect(jsonPath("$.blockReason").value("MOCK_MODE"))
 				.andExpect(jsonPath("$.mutationCapabilities.length()").value(9))

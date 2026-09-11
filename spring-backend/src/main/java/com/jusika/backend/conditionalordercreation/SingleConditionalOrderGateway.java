@@ -15,6 +15,15 @@ interface SingleConditionalOrderGateway {
 	void requireSubmissionAvailable();
 
 	/**
+	 * 계좌 식별값을 아는 실행 단계에서 생성 경계와 계좌 허용 여부를 함께 확인합니다.
+	 *
+	 * @param accountSeq 조건 주문에 사용할 계좌 식별값
+	 */
+	default void requireSubmissionAvailable(long accountSeq) {
+		requireSubmissionAvailable();
+	}
+
+	/**
 	 * 최종 재검증한 단일 조건 주문을 현재 설정된 실행 모드로 제출합니다.
 	 *
 	 * @param accountSeq 주문에 사용할 계좌 식별값

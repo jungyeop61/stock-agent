@@ -15,6 +15,15 @@ public interface AmountOrderSubmissionGateway {
 	void requireSubmissionAvailable();
 
 	/**
+	 * 계좌 식별값을 아는 실행 단계에서 제출 경계와 계좌 허용 여부를 함께 확인합니다.
+	 *
+	 * @param accountSeq 금액 주문에 사용할 계좌 식별값
+	 */
+	default void requireSubmissionAvailable(long accountSeq) {
+		requireSubmissionAvailable();
+	}
+
+	/**
 	 * 금액 주문을 현재 설정된 모의 또는 향후 실제 증권사 모드로 제출합니다.
 	 *
 	 * @param accountSeq 주문에 사용할 계좌 식별값

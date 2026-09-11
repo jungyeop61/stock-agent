@@ -21,12 +21,12 @@ class BrokerSafetyPropertiesTests {
 	@DisplayName("기능별 LIVE 어댑터 준비 상태는 모두 false가 기본값이다")
 	void 기능별_LIVE_어댑터_준비_상태는_모두_false가_기본값이다() {
 		contextRunner.run(context -> {
-			BrokerLiveAdapterProperties liveAdapters = context
-					.getBean(BrokerSafetyProperties.class)
-					.liveAdapters();
+			BrokerSafetyProperties properties = context.getBean(BrokerSafetyProperties.class);
+			BrokerLiveAdapterProperties liveAdapters = properties.liveAdapters();
 
 			assertThat(EnumSet.allOf(BrokerMutationCapability.class))
 					.allMatch(capability -> !liveAdapters.isConnected(capability));
+			assertThat(properties.allowedAccountSeqs()).isEmpty();
 		});
 	}
 
@@ -53,6 +53,18 @@ class BrokerSafetyPropertiesTests {
 									BrokerMutationCapability.OTO_CONDITIONAL_ORDER_CREATION,
 									BrokerMutationCapability.CONDITIONAL_ORDER_CANCELLATION);
 				});
+	}
+
+	/** 쉼표로 구분한 계좌 허용 목록이 중복 없이 안전 설정에 바인딩되는지 검사합니다. */
+	@Test
+	@DisplayName("LIVE 계좌 허용 목록을 설정에서 바인딩한다")
+	void LIVE_계좌_허용_목록을_설정에서_바인딩한다() {
+		contextRunner
+				.withPropertyValues("jusika.broker.allowed-account-seqs=1,2")
+				.run(context -> assertThat(context
+						.getBean(BrokerSafetyProperties.class)
+						.allowedAccountSeqs())
+						.containsExactlyInAnyOrder(1L, 2L));
 	}
 
 	/** 기능별 LIVE 어댑터 설정 바인딩만 격리해서 검사하는 구성을 제공합니다. */

@@ -11,6 +11,15 @@ interface OrderCancellationGateway {
 	 */
 	void requireCancellationAvailable();
 
+	/**
+	 * 계좌 식별값을 아는 실행 단계에서 취소 경계와 계좌 허용 여부를 함께 확인합니다.
+	 *
+	 * @param accountSeq 취소할 주문의 계좌 식별값
+	 */
+	default void requireCancellationAvailable(long accountSeq) {
+		requireCancellationAvailable();
+	}
+
 	/** 계좌의 원주문을 취소하고 취소된 주문 식별값을 반환합니다. */
 	OrderOperationResponse cancelOrder(long accountSeq, String orderId);
 

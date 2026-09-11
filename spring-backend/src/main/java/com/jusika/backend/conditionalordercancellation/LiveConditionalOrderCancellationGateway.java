@@ -41,6 +41,13 @@ class LiveConditionalOrderCancellationGateway implements ConditionalOrderCancell
 				BrokerMutationCapability.CONDITIONAL_ORDER_CANCELLATION);
 	}
 
+	/** 계좌 식별값을 아는 실행 단계에서 조건 주문 취소 기능과 계좌 허용 목록을 함께 검사합니다. */
+	@Override
+	public void requireCancellationAvailable(long accountSeq) {
+		requireCancellationAvailable();
+		safetyPolicy.requireLiveAccountAllowed(accountSeq);
+	}
+
 	/**
 	 * 중앙 안전정책을 다시 확인한 뒤 최종 검증된 조건 주문 취소를 토스 클라이언트에 전달합니다.
 	 * 현재 준비 상태에서는 정책 검사가 항상 먼저 차단합니다.
@@ -50,8 +57,7 @@ class LiveConditionalOrderCancellationGateway implements ConditionalOrderCancell
 	 */
 	@Override
 	public void cancelConditionalOrder(long accountSeq, String conditionalOrderId) {
-		safetyPolicy.requireLiveMutationAvailable(
-				BrokerMutationCapability.CONDITIONAL_ORDER_CANCELLATION);
+		requireCancellationAvailable(accountSeq);
 		conditionalOrderClient.cancelConditionalOrder(accountSeq, conditionalOrderId);
 	}
 

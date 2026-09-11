@@ -45,6 +45,13 @@ class LiveAmountOrderSubmissionGateway implements AmountOrderSubmissionGateway {
 				BrokerMutationCapability.AMOUNT_ORDER_SUBMISSION);
 	}
 
+	/** 계좌 식별값을 아는 실행 단계에서 금액 주문 기능과 계좌 허용 목록을 함께 검사합니다. */
+	@Override
+	public void requireSubmissionAvailable(long accountSeq) {
+		requireSubmissionAvailable();
+		safetyPolicy.requireLiveAccountAllowed(accountSeq);
+	}
+
 	/**
  	 * 중앙 안전정책을 다시 확인한 뒤 검증된 금액 주문을 토스 클라이언트에 전달합니다.
 	 * 현재 준비 상태에서는 정책 검사가 항상 먼저 차단합니다.
@@ -57,8 +64,7 @@ class LiveAmountOrderSubmissionGateway implements AmountOrderSubmissionGateway {
 	public OrderCreationResponse submitAmountOrder(
 			long accountSeq,
 			AmountOrderSubmissionRequest request) {
-		safetyPolicy.requireLiveMutationAvailable(
-				BrokerMutationCapability.AMOUNT_ORDER_SUBMISSION);
+		requireSubmissionAvailable(accountSeq);
 		return createAmountOrder(accountSeq, request);
 	}
 
@@ -74,8 +80,7 @@ class LiveAmountOrderSubmissionGateway implements AmountOrderSubmissionGateway {
 	public OrderCreationResponse recoverAmountOrder(
 			long accountSeq,
 			AmountOrderSubmissionRequest request) {
-		safetyPolicy.requireLiveMutationAvailable(
-				BrokerMutationCapability.AMOUNT_ORDER_SUBMISSION);
+		requireSubmissionAvailable(accountSeq);
 		return createAmountOrder(accountSeq, request);
 	}
 

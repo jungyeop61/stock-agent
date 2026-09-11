@@ -148,7 +148,7 @@ public class ConditionalOrderModificationService {
 		ConditionalOrderModificationPreviewResponse preview = findPreview(previewId);
 		OffsetDateTime startedAt = OffsetDateTime.now(clock);
 		validateExecutablePreview(preview, startedAt);
-		modificationGateway.requireModificationAvailable();
+		modificationGateway.requireModificationAvailable(preview.accountSeq());
 
 		ConditionalOrderDetailResponse current = conditionalOrderClient.getConditionalOrder(
 				preview.accountSeq(), preview.originalConditionalOrderId());
