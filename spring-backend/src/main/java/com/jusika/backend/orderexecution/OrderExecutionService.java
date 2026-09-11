@@ -98,6 +98,7 @@ public class OrderExecutionService {
 		submissionGateway.requireSubmissionAvailable(preview.accountSeq());
 		BrokerOrderRiskSnapshot riskSnapshot = revalidateAccountConditions(preview);
 		submissionGateway.requireOrderWithinLimits(riskSnapshot);
+		submissionGateway.requireDailyOrderWithinLimits(preview.accountSeq(), riskSnapshot);
 
 		String executionId = UUID.randomUUID().toString();
 		String clientOrderId = UUID.randomUUID().toString();

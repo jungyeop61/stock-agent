@@ -57,6 +57,23 @@ class LiveConditionalOrderModificationGateway implements ConditionalOrderModific
 		safetyPolicy.requireLiveOrderWithinLimits(riskSnapshot);
 	}
 
+	/** 내부 실행 상태 생성 전에 계좌별 일일 누적 조건 정정 위험을 사전 검사합니다. */
+	@Override
+	public void requireDailyOrderWithinLimits(
+			long accountSeq,
+			BrokerOrderRiskSnapshot riskSnapshot) {
+		safetyPolicy.requireLiveDailyOrderWithinLimits(accountSeq, riskSnapshot);
+	}
+
+	/** 토스 호출 직전에 조건 정정 위험을 일일 누적값에 멱등하게 예약합니다. */
+	@Override
+	public void reserveDailyOrderRisk(
+			long accountSeq,
+			String reservationKey,
+			BrokerOrderRiskSnapshot riskSnapshot) {
+		safetyPolicy.reserveLiveDailyOrderRisk(accountSeq, reservationKey, riskSnapshot);
+	}
+
 	/**
 	 * 중앙 안전정책을 다시 확인한 뒤 최종 검증된 새 전체 구성을 토스 클라이언트에 전달합니다.
 	 * 현재 준비 상태에서는 정책 검사가 항상 먼저 차단합니다.
@@ -73,6 +90,9 @@ class LiveConditionalOrderModificationGateway implements ConditionalOrderModific
 			ConditionalOrderModificationSubmissionRequest request) {
 		requireModificationAvailable(accountSeq);
 		requireOrderWithinLimits(request.riskSnapshot());
+		reserveDailyOrderRisk(
+				accountSeq, "CONDITIONAL_ORDER_MODIFICATION:" + originalConditionalOrderId,
+				request.riskSnapshot());
 		return conditionalOrderClient.modifyConditionalOrder(
 				accountSeq, originalConditionalOrderId, request);
 	}

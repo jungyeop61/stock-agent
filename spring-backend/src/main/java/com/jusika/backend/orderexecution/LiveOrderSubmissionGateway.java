@@ -58,6 +58,33 @@ class LiveOrderSubmissionGateway implements OrderSubmissionGateway {
 		safetyPolicy.requireLiveOrderWithinLimits(riskSnapshot);
 	}
 
+	/** 내부 실행 상태 생성 전에 계좌별 일일 누적 위험을 사전 검사합니다. */
+	@Override
+	public void requireDailyOrderWithinLimits(
+			long accountSeq,
+			BrokerOrderRiskSnapshot riskSnapshot) {
+		safetyPolicy.requireLiveDailyOrderWithinLimits(accountSeq, riskSnapshot);
+	}
+
+	/** 안전 복구 전에는 기존 수량 주문 예약을 인식하면서 일일 한도를 검사합니다. */
+	@Override
+	public void requireDailyOrderWithinLimits(
+			long accountSeq,
+			String reservationKey,
+			BrokerOrderRiskSnapshot riskSnapshot) {
+		safetyPolicy.requireLiveDailyOrderWithinLimits(
+				accountSeq, reservationKey, riskSnapshot);
+	}
+
+	/** 토스 호출 직전에 수량 주문 위험을 일일 누적값에 멱등하게 예약합니다. */
+	@Override
+	public void reserveDailyOrderRisk(
+			long accountSeq,
+			String reservationKey,
+			BrokerOrderRiskSnapshot riskSnapshot) {
+		safetyPolicy.reserveLiveDailyOrderRisk(accountSeq, reservationKey, riskSnapshot);
+	}
+
 	/**
  	 * 중앙 안전정책을 다시 확인한 뒤 검증된 수량 주문을 토스 클라이언트에 전달합니다.
 	 * 현재 준비 상태에서는 정책 검사가 항상 먼저 차단합니다.
@@ -72,6 +99,8 @@ class LiveOrderSubmissionGateway implements OrderSubmissionGateway {
 			QuantityOrderSubmissionRequest request) {
 		requireSubmissionAvailable(accountSeq);
 		requireOrderWithinLimits(request.riskSnapshot());
+		reserveDailyOrderRisk(
+				accountSeq, "QUANTITY_ORDER:" + request.clientOrderId(), request.riskSnapshot());
 		return createQuantityOrder(accountSeq, request);
 	}
 
@@ -89,6 +118,8 @@ class LiveOrderSubmissionGateway implements OrderSubmissionGateway {
 			QuantityOrderSubmissionRequest request) {
 		requireSubmissionAvailable(accountSeq);
 		requireOrderWithinLimits(request.riskSnapshot());
+		reserveDailyOrderRisk(
+				accountSeq, "QUANTITY_ORDER:" + request.clientOrderId(), request.riskSnapshot());
 		return createQuantityOrder(accountSeq, request);
 	}
 

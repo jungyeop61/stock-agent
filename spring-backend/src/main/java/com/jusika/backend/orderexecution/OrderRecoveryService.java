@@ -75,6 +75,10 @@ public class OrderRecoveryService {
 		validateRecoveryCandidate(candidate, preview, request, startedAt);
 		submissionGateway.requireSubmissionAvailable(preview.accountSeq());
 		submissionGateway.requireOrderWithinLimits(request.riskSnapshot());
+		submissionGateway.requireDailyOrderWithinLimits(
+				preview.accountSeq(),
+				"QUANTITY_ORDER:" + request.clientOrderId(),
+				request.riskSnapshot());
 
 		OffsetDateTime submittedAfter = startedAt.minus(IDEMPOTENCY_WINDOW);
 		if (!executionStore.claimRecovery(executionId, submittedAfter, startedAt)) {

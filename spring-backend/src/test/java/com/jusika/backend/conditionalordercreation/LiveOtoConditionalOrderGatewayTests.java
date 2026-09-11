@@ -258,5 +258,19 @@ class LiveOtoConditionalOrderGatewayTests {
 		public void requireLiveOrderWithinLimits(BrokerOrderRiskSnapshot riskSnapshot) {
 			// 이 테스트는 중앙 정책이 아니라 게이트웨이의 클라이언트 위임만 검사합니다.
 		}
+
+		/** 기존 클라이언트 위임 검사에서는 일일 누적 사전 검사를 통과시킵니다. */
+		@Override
+		public void requireLiveDailyOrderWithinLimits(
+				long accountSeq, BrokerOrderRiskSnapshot riskSnapshot) {
+			// 일일 누적 저장은 전용 통합 테스트에서 검사합니다.
+		}
+
+		/** 기존 클라이언트 위임 검사에서는 일일 누적 예약을 기록하지 않습니다. */
+		@Override
+		public void reserveLiveDailyOrderRisk(
+				long accountSeq, String reservationKey, BrokerOrderRiskSnapshot riskSnapshot) {
+			// 일일 누적 저장은 전용 통합 테스트에서 검사합니다.
+		}
 	}
 }

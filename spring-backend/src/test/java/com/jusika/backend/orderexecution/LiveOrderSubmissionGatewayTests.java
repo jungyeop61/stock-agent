@@ -90,8 +90,9 @@ class LiveOrderSubmissionGatewayTests {
 	@DisplayName("수량 주문 제출과 복구는 동일한 요청을 토스 클라이언트에 전달한다")
 	void 수량_주문_제출과_복구는_동일한_요청을_토스_클라이언트에_전달한다() {
 		RecordingTossOrderClient orderClient = new RecordingTossOrderClient();
+		AllowingSafetyPolicy safetyPolicy = new AllowingSafetyPolicy();
 		LiveOrderSubmissionGateway gateway = new LiveOrderSubmissionGateway(
-				new AllowingSafetyPolicy(), orderClient);
+				safetyPolicy, orderClient);
 		QuantityOrderSubmissionRequest request = 가짜_주문을_만든다();
 
 		OrderCreationResponse submitted = gateway.submitQuantityOrder(1L, request);
@@ -101,6 +102,8 @@ class LiveOrderSubmissionGatewayTests {
 		assertThat(recovered).isEqualTo(orderClient.response);
 		assertThat(orderClient.callCount).isEqualTo(2);
 		assertThat(orderClient.request).isSameAs(request);
+		assertThat(safetyPolicy.dailyReservationCallCount).isEqualTo(2);
+		assertThat(safetyPolicy.lastReservationKey).startsWith("QUANTITY_ORDER:");
 	}
 
 	/** 토스 결과 불명 오류가 자동 재시도를 막는 제출 결과 불명 상태로 변환되는지 검사합니다. */
@@ -240,6 +243,8 @@ class LiveOrderSubmissionGatewayTests {
 
 	/** 기록용 클라이언트 위임만 검사할 때 중앙 안전정책 통과를 재현합니다. */
 	private static final class AllowingSafetyPolicy extends BrokerMutationSafetyPolicy {
+		private int dailyReservationCallCount;
+		private String lastReservationKey;
 
 		/** 실제 설정을 열지 않고 테스트 전용 정책 객체를 초기화합니다. */
 		private AllowingSafetyPolicy() {
@@ -262,6 +267,21 @@ class LiveOrderSubmissionGatewayTests {
 		@Override
 		public void requireLiveOrderWithinLimits(BrokerOrderRiskSnapshot riskSnapshot) {
 			// 이 테스트는 중앙 정책이 아니라 게이트웨이의 클라이언트 위임만 검사합니다.
+		}
+
+		/** 기존 클라이언트 위임 검사에서는 일일 누적 사전 검사를 통과시킵니다. */
+		@Override
+		public void requireLiveDailyOrderWithinLimits(
+				long accountSeq, BrokerOrderRiskSnapshot riskSnapshot) {
+			// 일일 누적 저장은 전용 통합 테스트에서 검사합니다.
+		}
+
+		/** 기존 클라이언트 위임 검사에서는 일일 누적 예약을 기록하지 않습니다. */
+		@Override
+		public void reserveLiveDailyOrderRisk(
+				long accountSeq, String reservationKey, BrokerOrderRiskSnapshot riskSnapshot) {
+			dailyReservationCallCount++;
+			lastReservationKey = reservationKey;
 		}
 	}
 }

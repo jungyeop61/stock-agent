@@ -146,6 +146,25 @@ class OrderExecutionServiceTests {
 		assertThat(priceClient.callCount).isOne();
 	}
 
+	/** 일일 누적 한도 초과가 실행권 생성과 승인 미리보기 소비보다 먼저 차단되는지 검사합니다. */
+	@Test
+	@DisplayName("LIVE 일일 누적 주문 한도 차단은 실행 기록 생성 전에 적용된다")
+	void LIVE_일일_누적_주문_한도_차단은_실행_기록_생성_전에_적용된다() {
+		OrderPreviewResponse preview = 승인된_미리보기를_저장한다(OrderSide.BUY, "KRW", "KR");
+		국내_최종_조회값을_준비한다();
+		submissionGateway.dailyLimitFailure = new BrokerMutationBlockedException(
+				"테스트 LIVE 일일 누적 주문 한도 차단");
+
+		assertThatThrownBy(() -> service.executeApprovedPreview(preview.previewId()))
+				.isInstanceOf(BrokerMutationBlockedException.class)
+				.hasMessage("테스트 LIVE 일일 누적 주문 한도 차단");
+		assertThat(previewStore.findById(preview.previewId()).orElseThrow().status())
+				.isEqualTo(OrderPreviewStatus.APPROVED);
+		assertThat(executionStore.findByPreviewId(preview.previewId())).isEmpty();
+		assertThat(submissionGateway.callCount).isZero();
+		assertThat(submissionGateway.lastDailyRiskSnapshot).isNotNull();
+	}
+
 	/**
 	 * 이미 사용된 미리보기를 다시 실행할 때 최종 조회나 주문 제출을 시작하지 않는지 검사합니다.
 	 */
@@ -628,6 +647,8 @@ class OrderExecutionServiceTests {
 		private RuntimeException availabilityFailure;
 		private RuntimeException limitFailure;
 		private BrokerOrderRiskSnapshot lastRiskSnapshot;
+		private RuntimeException dailyLimitFailure;
+		private BrokerOrderRiskSnapshot lastDailyRiskSnapshot;
 
 		/** 준비 단계에서 설정된 LIVE 안전 차단을 재현하거나 MOCK 사용 가능 상태를 유지합니다. */
 		@Override
@@ -643,6 +664,17 @@ class OrderExecutionServiceTests {
 			lastRiskSnapshot = riskSnapshot;
 			if (limitFailure != null) {
 				throw limitFailure;
+			}
+		}
+
+		/** 계좌별 일일 누적 위험값을 기록하고 설정된 사전 차단을 실행 서비스에 전달합니다. */
+		@Override
+		public void requireDailyOrderWithinLimits(
+				long accountSeq,
+				BrokerOrderRiskSnapshot riskSnapshot) {
+			lastDailyRiskSnapshot = riskSnapshot;
+			if (dailyLimitFailure != null) {
+				throw dailyLimitFailure;
 			}
 		}
 

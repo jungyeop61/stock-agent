@@ -26,6 +26,21 @@ interface OrderModificationGateway {
 		// MOCK 정정은 실제 주문 조건을 만들지 않으므로 LIVE 한도를 적용하지 않습니다.
 	}
 
+	/** 실행 기록을 만들기 전에 계좌별 일일 누적 정정 한도를 사전 검사합니다. */
+	default void requireDailyOrderWithinLimits(
+			long accountSeq,
+			BrokerOrderRiskSnapshot riskSnapshot) {
+		// MOCK 정정은 실제 주문 조건을 만들지 않으므로 일일 LIVE 한도를 적용하지 않습니다.
+	}
+
+	/** 실제 증권사 호출 직전에 정정 위험을 일일 누적 한도에 멱등하게 예약합니다. */
+	default void reserveDailyOrderRisk(
+			long accountSeq,
+			String reservationKey,
+			BrokerOrderRiskSnapshot riskSnapshot) {
+		// MOCK 정정은 실제 주문 조건을 만들지 않으므로 일일 위험을 예약하지 않습니다.
+	}
+
 	/** 원주문을 검증된 새 유형·수량·가격으로 정정합니다. */
 	OrderOperationResponse modifyOrder(
 			long accountSeq, String originalOrderId, OrderModificationSubmissionRequest request);

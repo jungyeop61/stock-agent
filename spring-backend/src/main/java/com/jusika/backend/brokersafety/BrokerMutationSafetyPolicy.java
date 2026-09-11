@@ -2,6 +2,8 @@ package com.jusika.backend.brokersafety;
 
 import java.util.List;
 
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 /**
@@ -11,6 +13,7 @@ import org.springframework.stereotype.Service;
 public class BrokerMutationSafetyPolicy {
 
 	private final BrokerSafetyProperties properties;
+	private final BrokerLiveDailyOrderRiskService dailyOrderRiskService;
 
 	/**
 	 * 애플리케이션 설정에서 읽은 증권사 실행 안전값을 전달받습니다.
@@ -19,6 +22,16 @@ public class BrokerMutationSafetyPolicy {
 	 */
 	public BrokerMutationSafetyPolicy(BrokerSafetyProperties properties) {
 		this.properties = properties;
+		this.dailyOrderRiskService = null;
+	}
+
+	/** 애플리케이션에서는 데이터베이스 일일 누적 위험 관리자까지 함께 연결합니다. */
+	@Autowired
+	public BrokerMutationSafetyPolicy(
+			BrokerSafetyProperties properties,
+			ObjectProvider<BrokerLiveDailyOrderRiskService> dailyOrderRiskServiceProvider) {
+		this.properties = properties;
+		this.dailyOrderRiskService = dailyOrderRiskServiceProvider.getIfAvailable();
 	}
 
 	/**
@@ -32,13 +45,16 @@ public class BrokerMutationSafetyPolicy {
 				.allMatch(BrokerMutationCapabilityStatus::liveAdapterConnected);
 		boolean accountAllowlistConfigured = !properties.allowedAccountSeqs().isEmpty();
 		boolean orderLimitsConfigured = properties.liveOrderLimits().isConfigured();
+		boolean dailyOrderLimitsConfigured = properties.liveDailyOrderLimits().isConfigured();
 		BrokerSafetyBlockReason blockReason = determineBlockReason(
 				allAdaptersConnected,
 				accountAllowlistConfigured,
-				orderLimitsConfigured);
+				orderLimitsConfigured,
+				dailyOrderLimitsConfigured);
 		boolean safetyGateOpen = blockReason == BrokerSafetyBlockReason.LIVE_ADAPTER_NOT_CONNECTED
 				|| blockReason == BrokerSafetyBlockReason.LIVE_ACCOUNT_ALLOWLIST_EMPTY
 				|| blockReason == BrokerSafetyBlockReason.LIVE_ORDER_LIMITS_NOT_CONFIGURED
+				|| blockReason == BrokerSafetyBlockReason.LIVE_DAILY_ORDER_LIMITS_NOT_CONFIGURED
 				|| blockReason == BrokerSafetyBlockReason.NONE;
 		boolean mutationAvailable = blockReason == BrokerSafetyBlockReason.NONE;
 		return new BrokerSafetyStatusResponse(
@@ -49,6 +65,7 @@ public class BrokerMutationSafetyPolicy {
 				allAdaptersConnected,
 				accountAllowlistConfigured,
 				orderLimitsConfigured,
+				dailyOrderLimitsConfigured,
 				mutationAvailable,
 				blockReason,
 				mutationCapabilities);
@@ -120,6 +137,55 @@ public class BrokerMutationSafetyPolicy {
 		}
 	}
 
+	/**
+	 * 내부 실행 상태를 만들기 전에 현재 일일 누적 위험에 새 주문을 더할 수 있는지 확인합니다.
+	 *
+	 * @param accountSeq 실제 주문에 사용할 계좌 식별값
+	 * @param riskSnapshot 최종 금융 재검증에서 계산한 주문 위험값
+	 */
+	public void requireLiveDailyOrderWithinLimits(
+			long accountSeq,
+			BrokerOrderRiskSnapshot riskSnapshot) {
+		requireDailyOrderRiskService().requireCanReserve(accountSeq, riskSnapshot);
+	}
+
+	/**
+	 * 안전 복구 전에 기존 일일 예약을 인식하면서 현재 누적 한도를 사전 검사합니다.
+	 *
+	 * @param accountSeq 최초 주문에 사용한 계좌 식별값
+	 * @param reservationKey 원문을 저장하지 않고 해시할 최초 주문 멱등성 식별값
+	 * @param riskSnapshot 최초 주문과 동일하게 재구성한 위험값
+	 */
+	public void requireLiveDailyOrderWithinLimits(
+			long accountSeq,
+			String reservationKey,
+			BrokerOrderRiskSnapshot riskSnapshot) {
+		requireDailyOrderRiskService().requireCanReserve(
+				accountSeq, reservationKey, riskSnapshot);
+	}
+
+	/**
+	 * 실제 토스 호출 직전에 주문 위험을 일일 누적값에 원자적이고 멱등하게 예약합니다.
+	 *
+	 * @param accountSeq 실제 주문에 사용할 계좌 식별값
+	 * @param reservationKey 원문을 저장하지 않고 해시할 주문별 멱등성 식별값
+	 * @param riskSnapshot 최종 금융 재검증에서 계산한 주문 위험값
+	 */
+	public void reserveLiveDailyOrderRisk(
+			long accountSeq,
+			String reservationKey,
+			BrokerOrderRiskSnapshot riskSnapshot) {
+		requireDailyOrderRiskService().reserve(accountSeq, reservationKey, riskSnapshot);
+	}
+
+	/** 스프링이 연결한 일일 누적 위험 관리자가 없으면 안전하게 실행을 중단합니다. */
+	private BrokerLiveDailyOrderRiskService requireDailyOrderRiskService() {
+		if (dailyOrderRiskService == null) {
+			throw new IllegalStateException("LIVE 일일 누적 주문 안전 저장소가 연결되어 있지 않습니다.");
+		}
+		return dailyOrderRiskService;
+	}
+
 	/** 지정한 주문 변경 기능의 실제 어댑터 연결 상태를 설정에서 확인합니다. */
 	private boolean isLiveAdapterConnected(BrokerMutationCapability capability) {
 		return properties.liveAdapters().isConnected(capability);
@@ -140,12 +206,14 @@ public class BrokerMutationSafetyPolicy {
 	 * @param allAdaptersConnected 모든 주문 변경 어댑터가 준비됐는지 여부
 	 * @param accountAllowlistConfigured 허용한 실제 주문 계좌가 있는지 여부
 	 * @param orderLimitsConfigured 수량과 통화별 실제 주문 상한이 설정됐는지 여부
+	 * @param dailyOrderLimitsConfigured 일일 누적 수량과 통화별 상한이 설정됐는지 여부
 	 * @return 실제 주문이 막힌 이유 또는 모든 검사가 통과한 NONE
 	 */
 	private BrokerSafetyBlockReason determineBlockReason(
 			boolean allAdaptersConnected,
 			boolean accountAllowlistConfigured,
-			boolean orderLimitsConfigured) {
+			boolean orderLimitsConfigured,
+			boolean dailyOrderLimitsConfigured) {
 		if (properties.mode() != BrokerExecutionMode.LIVE) {
 			return BrokerSafetyBlockReason.MOCK_MODE;
 		}
@@ -161,8 +229,11 @@ public class BrokerMutationSafetyPolicy {
 		if (!accountAllowlistConfigured) {
 			return BrokerSafetyBlockReason.LIVE_ACCOUNT_ALLOWLIST_EMPTY;
 		}
-		return orderLimitsConfigured
+		if (!orderLimitsConfigured) {
+			return BrokerSafetyBlockReason.LIVE_ORDER_LIMITS_NOT_CONFIGURED;
+		}
+		return dailyOrderLimitsConfigured
 				? BrokerSafetyBlockReason.NONE
-				: BrokerSafetyBlockReason.LIVE_ORDER_LIMITS_NOT_CONFIGURED;
+				: BrokerSafetyBlockReason.LIVE_DAILY_ORDER_LIMITS_NOT_CONFIGURED;
 	}
 }

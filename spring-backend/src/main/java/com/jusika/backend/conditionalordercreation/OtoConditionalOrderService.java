@@ -176,6 +176,7 @@ public class OtoConditionalOrderService {
 		BrokerOrderRiskSnapshot riskSnapshot = new BrokerOrderRiskSnapshot(
 				preview.quantity(), revalidation.maximumOrderAmount(), preview.currency());
 		submissionGateway.requireOrderWithinLimits(riskSnapshot);
+		submissionGateway.requireDailyOrderWithinLimits(preview.accountSeq(), riskSnapshot);
 
 		String executionId = UUID.randomUUID().toString();
 		String clientOrderId = UUID.randomUUID().toString();

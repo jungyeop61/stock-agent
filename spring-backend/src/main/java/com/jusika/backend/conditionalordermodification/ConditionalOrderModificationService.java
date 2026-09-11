@@ -171,6 +171,7 @@ public class ConditionalOrderModificationService {
 		BrokerOrderRiskSnapshot riskSnapshot = new BrokerOrderRiskSnapshot(
 				preview.requestedQuantity(), result.maximumOrderAmount(), market.currency());
 		modificationGateway.requireOrderWithinLimits(riskSnapshot);
+		modificationGateway.requireDailyOrderWithinLimits(preview.accountSeq(), riskSnapshot);
 
 		String executionId = UUID.randomUUID().toString();
 		ConditionalOrderModificationExecutionResponse prepared =

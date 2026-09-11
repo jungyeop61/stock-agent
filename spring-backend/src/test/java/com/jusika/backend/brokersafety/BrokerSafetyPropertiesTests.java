@@ -32,6 +32,10 @@ class BrokerSafetyPropertiesTests {
 			assertThat(properties.liveOrderLimits().maxKrwOrderAmount()).isZero();
 			assertThat(properties.liveOrderLimits().maxUsdOrderAmount()).isZero();
 			assertThat(properties.liveOrderLimits().isConfigured()).isFalse();
+			assertThat(properties.liveDailyOrderLimits().maxQuantity()).isZero();
+			assertThat(properties.liveDailyOrderLimits().maxKrwOrderAmount()).isZero();
+			assertThat(properties.liveDailyOrderLimits().maxUsdOrderAmount()).isZero();
+			assertThat(properties.liveDailyOrderLimits().isConfigured()).isFalse();
 		});
 	}
 
@@ -91,6 +95,27 @@ class BrokerSafetyPropertiesTests {
 							.isEqualByComparingTo(new BigDecimal("5000000"));
 					assertThat(limits.maxUsdOrderAmount())
 							.isEqualByComparingTo(new BigDecimal("3000"));
+					assertThat(limits.isConfigured()).isTrue();
+				});
+	}
+
+	/** 한국시간 하루 누적 수량과 통화별 금액 한도가 정확히 바인딩되는지 검사합니다. */
+	@Test
+	@DisplayName("LIVE 일일 누적 수량과 통화별 금액 한도를 바인딩한다")
+	void LIVE_일일_누적_수량과_통화별_금액_한도를_바인딩한다() {
+		contextRunner
+				.withPropertyValues(
+						"jusika.broker.live-daily-order-limits.max-quantity=200",
+						"jusika.broker.live-daily-order-limits.max-krw-order-amount=9000000",
+						"jusika.broker.live-daily-order-limits.max-usd-order-amount=7000")
+				.run(context -> {
+					BrokerLiveDailyOrderLimitProperties limits = context
+							.getBean(BrokerSafetyProperties.class)
+							.liveDailyOrderLimits();
+
+					assertThat(limits.maxQuantity()).isEqualByComparingTo("200");
+					assertThat(limits.maxKrwOrderAmount()).isEqualByComparingTo("9000000");
+					assertThat(limits.maxUsdOrderAmount()).isEqualByComparingTo("7000");
 					assertThat(limits.isConfigured()).isTrue();
 				});
 	}

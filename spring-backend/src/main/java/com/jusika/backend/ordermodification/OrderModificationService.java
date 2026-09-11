@@ -125,6 +125,7 @@ public class OrderModificationService {
 				calculation.estimatedOrderAmount(),
 				preview.currency());
 		modificationGateway.requireOrderWithinLimits(riskSnapshot);
+		modificationGateway.requireDailyOrderWithinLimits(preview.accountSeq(), riskSnapshot);
 
 		String executionId = UUID.randomUUID().toString();
 		OrderModificationExecutionResponse prepared = new OrderModificationExecutionResponse(

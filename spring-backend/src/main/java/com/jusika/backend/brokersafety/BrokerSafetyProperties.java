@@ -15,6 +15,7 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
  * @param liveAdapters 실제 주문 변경 기능별 어댑터 준비 상태
  * @param allowedAccountSeqs 실제 주문 변경을 허용한 계좌 식별값 집합
  * @param liveOrderLimits 실제 주문 한 건에 적용할 수량과 통화별 금액 상한
+ * @param liveDailyOrderLimits 실제 주문의 하루 누적 수량과 통화별 금액 상한
  */
 @ConfigurationProperties(prefix = "jusika.broker")
 public record BrokerSafetyProperties(
@@ -23,7 +24,8 @@ public record BrokerSafetyProperties(
 		@DefaultValue("true") boolean killSwitchActive,
 		@DefaultValue BrokerLiveAdapterProperties liveAdapters,
 		@DefaultValue Set<Long> allowedAccountSeqs,
-		@DefaultValue BrokerLiveOrderLimitProperties liveOrderLimits) {
+		@DefaultValue BrokerLiveOrderLimitProperties liveOrderLimits,
+		@DefaultValue BrokerLiveDailyOrderLimitProperties liveDailyOrderLimits) {
 
 	/** 기존 호출부에서도 모든 기능이 닫힌 안전 설정을 만들 수 있게 합니다. */
 	public BrokerSafetyProperties(
@@ -36,7 +38,8 @@ public record BrokerSafetyProperties(
 				killSwitchActive,
 				BrokerLiveAdapterProperties.allDisabled(),
 				Set.of(),
-				BrokerLiveOrderLimitProperties.allDisabled());
+				BrokerLiveOrderLimitProperties.allDisabled(),
+				BrokerLiveDailyOrderLimitProperties.allDisabled());
 	}
 
 	/** 기능별 설정을 직접 지정해도 계좌 허용 목록은 닫힌 상태로 만듭니다. */
@@ -51,7 +54,8 @@ public record BrokerSafetyProperties(
 				killSwitchActive,
 				liveAdapters,
 				Set.of(),
-				BrokerLiveOrderLimitProperties.allDisabled());
+				BrokerLiveOrderLimitProperties.allDisabled(),
+				BrokerLiveDailyOrderLimitProperties.allDisabled());
 	}
 
 	/** 계좌 허용 목록을 직접 지정해도 주문 한도는 닫힌 상태로 만듭니다. */
@@ -67,7 +71,26 @@ public record BrokerSafetyProperties(
 				killSwitchActive,
 				liveAdapters,
 				allowedAccountSeqs,
-				BrokerLiveOrderLimitProperties.allDisabled());
+				BrokerLiveOrderLimitProperties.allDisabled(),
+				BrokerLiveDailyOrderLimitProperties.allDisabled());
+	}
+
+	/** 1회 주문 한도를 직접 지정해도 일일 누적 한도는 닫힌 상태로 만듭니다. */
+	public BrokerSafetyProperties(
+			BrokerExecutionMode mode,
+			boolean liveEnabled,
+			boolean killSwitchActive,
+			BrokerLiveAdapterProperties liveAdapters,
+			Set<Long> allowedAccountSeqs,
+			BrokerLiveOrderLimitProperties liveOrderLimits) {
+		this(
+				mode,
+				liveEnabled,
+				killSwitchActive,
+				liveAdapters,
+				allowedAccountSeqs,
+				liveOrderLimits,
+				BrokerLiveDailyOrderLimitProperties.allDisabled());
 	}
 
 	/**
@@ -86,6 +109,9 @@ public record BrokerSafetyProperties(
 		}
 		if (liveOrderLimits == null) {
 			throw new IllegalArgumentException("실제 주문 한도 설정이 필요합니다.");
+		}
+		if (liveDailyOrderLimits == null) {
+			throw new IllegalArgumentException("실제 일일 누적 주문 한도 설정이 필요합니다.");
 		}
 		if (allowedAccountSeqs.stream().anyMatch(accountSeq -> accountSeq == null || accountSeq <= 0)) {
 			throw new IllegalArgumentException("계좌 허용 목록에는 1 이상의 식별값만 사용할 수 있습니다.");

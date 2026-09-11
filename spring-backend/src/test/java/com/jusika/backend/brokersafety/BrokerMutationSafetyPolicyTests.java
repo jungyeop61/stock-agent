@@ -145,7 +145,8 @@ class BrokerMutationSafetyPolicyTests {
 						false,
 						모든_어댑터를_연결한다(),
 						Set.of(1L),
-						설정된_주문_한도를_만든다()));
+						설정된_주문_한도를_만든다(),
+						설정된_일일_주문_한도를_만든다()));
 
 		BrokerSafetyStatusResponse status = policy.getStatus();
 
@@ -153,6 +154,7 @@ class BrokerMutationSafetyPolicyTests {
 		assertThat(status.liveAdapterConnected()).isTrue();
 		assertThat(status.liveAccountAllowlistConfigured()).isTrue();
 		assertThat(status.liveOrderLimitsConfigured()).isTrue();
+		assertThat(status.liveDailyOrderLimitsConfigured()).isTrue();
 		assertThat(status.liveMutationAvailable()).isTrue();
 		assertThat(status.blockReason()).isEqualTo(BrokerSafetyBlockReason.NONE);
 	}
@@ -175,6 +177,28 @@ class BrokerMutationSafetyPolicyTests {
 		assertThat(status.liveMutationAvailable()).isFalse();
 		assertThat(status.blockReason())
 				.isEqualTo(BrokerSafetyBlockReason.LIVE_ORDER_LIMITS_NOT_CONFIGURED);
+	}
+
+	/** 1회 한도까지 열어도 일일 누적 한도가 0이면 LIVE 상태가 열리지 않는지 검사합니다. */
+	@Test
+	@DisplayName("LIVE 일일 누적 주문 한도가 설정되지 않으면 실제 주문을 차단한다")
+	void LIVE_일일_누적_주문_한도가_설정되지_않으면_실제_주문을_차단한다() {
+		BrokerMutationSafetyPolicy policy = new BrokerMutationSafetyPolicy(
+				new BrokerSafetyProperties(
+						BrokerExecutionMode.LIVE,
+						true,
+						false,
+						모든_어댑터를_연결한다(),
+						Set.of(1L),
+						설정된_주문_한도를_만든다()));
+
+		BrokerSafetyStatusResponse status = policy.getStatus();
+
+		assertThat(status.liveOrderLimitsConfigured()).isTrue();
+		assertThat(status.liveDailyOrderLimitsConfigured()).isFalse();
+		assertThat(status.liveMutationAvailable()).isFalse();
+		assertThat(status.blockReason())
+				.isEqualTo(BrokerSafetyBlockReason.LIVE_DAILY_ORDER_LIMITS_NOT_CONFIGURED);
 	}
 
 	/** 수량 주문과 수량 없는 달러 금액 주문이 설정한 경계값 안에서 통과하는지 검사합니다. */
@@ -321,7 +345,8 @@ class BrokerMutationSafetyPolicyTests {
 				false,
 				모든_어댑터를_연결한다(),
 				Set.of(1L),
-				설정된_주문_한도를_만든다()));
+				설정된_주문_한도를_만든다(),
+				설정된_일일_주문_한도를_만든다()));
 	}
 
 	/** 아홉 주문 변경 기능을 모두 준비된 상태로 만드는 테스트 설정을 반환합니다. */
@@ -336,6 +361,14 @@ class BrokerMutationSafetyPolicyTests {
 				new BigDecimal("100"),
 				new BigDecimal("1000000"),
 				new BigDecimal("10000"));
+	}
+
+	/** 일일 수량과 원화·달러 누적 금액에 사용할 테스트용 양수 상한을 반환합니다. */
+	private BrokerLiveDailyOrderLimitProperties 설정된_일일_주문_한도를_만든다() {
+		return new BrokerLiveDailyOrderLimitProperties(
+				new BigDecimal("1000"),
+				new BigDecimal("10000000"),
+				new BigDecimal("100000"));
 	}
 
 	/** 지정한 세 안전 설정으로 중앙 주문 변경 정책을 만듭니다. */

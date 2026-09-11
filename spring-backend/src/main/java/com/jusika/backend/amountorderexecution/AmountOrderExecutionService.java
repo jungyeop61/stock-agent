@@ -125,6 +125,8 @@ public class AmountOrderExecutionService {
 				new BrokerOrderRiskSnapshot(
 						null, preview.orderAmount(), preview.currency()));
 		submissionGateway.requireOrderWithinLimits(request.riskSnapshot());
+		submissionGateway.requireDailyOrderWithinLimits(
+				preview.accountSeq(), request.riskSnapshot());
 		AmountOrderExecutionResponse prepared = new AmountOrderExecutionResponse(
 				executionId,
 				preview.previewId(),
