@@ -51,7 +51,7 @@ Maven Wrapper와 프로젝트 설정이 정상인지 확인합니다.
 키는 다음 두 권한으로 분리합니다.
 
 - 읽기 키: 계좌, 보유주식, 매수 가능 금액, 매도 가능 수량, 수수료, 일반·조건 주문과 저장된 실행 결과를 조회할 수 있습니다.
-- 주문 키: 읽기 권한을 포함하며 주문 미리보기, 승인, MOCK 실행과 UNKNOWN 수동 복구를 요청할 수 있습니다.
+- 주문 키: 읽기 권한을 포함하며 주문 미리보기, 승인, MOCK 실행, UNKNOWN 수동 복구와 결과 불명 사고 확인을 요청할 수 있습니다.
 
 다음 환경변수는 기본값이 빈 문자열입니다. 필요한 서버 키가 비어 있으면 보호 API는 서비스 로직을 실행하지 않고 `503 Service Unavailable`로 차단됩니다.
 
@@ -114,7 +114,7 @@ event=internal_api_audit occurredAt=<요청-시각> requestId=<요청-UUID> meth
 
 LIVE 게이트웨이가 중앙 실행 모드·기능 플래그·긴급 차단 스위치·기능별 연결 상태를 검사한 결과와 실제 토스 변경 요청의 처리 결과를 V16 데이터베이스에 추가 전용 사건으로 저장합니다.
 기본 설정에서는 실제 호출이 차단되므로 `SAFETY_GATE`의 `BLOCKED` 사건만 남으며 토스 주문은 변경되지 않습니다.
-토스 요청의 `UNKNOWN` 사건은 V18 인덱스로 빠르게 확인하며, 하나라도 존재하면 별도의 자동 해제 없이 신규 주문·정정·복구를 정지합니다.
+토스 요청의 `UNKNOWN` 사건은 V18 인덱스로 빠르게 확인하며, 사용자가 확인 처리하지 않은 사건이 하나라도 존재하면 신규 주문·정정·복구를 정지합니다.
 
 감사 사건에는 다음 값만 저장합니다.
 
@@ -266,8 +266,29 @@ curl --get http://localhost:8080/api/broker/mutation-audits \
 - 일반·금액·조건 주문 생성, 일반·조건 주문 정정과 결과 불명 주문 복구를 차단합니다.
 - 일반·조건 주문 취소는 추가 위험을 만들지 않으므로 자동 안전정지 중에도 기존 안전정책을 통과하면 실행할 수 있습니다.
 - 확정 거절인 `REJECTED`와 중앙 안전 관문의 `BLOCKED`는 결과가 불명한 사고가 아니므로 자동 정지를 만들지 않습니다.
-- 이번 단계에는 자동 또는 HTTP 해제 기능이 없습니다. 주문 상태를 사람이 확인하기 전 임의로 다시 열리지 않습니다.
+- 자동·시간 기반 해제는 없습니다. 주문 상태를 토스증권에서 사람이 확인한 뒤 주문 권한 API에 확인한 최신 `UNKNOWN` 감사 사건 ID와 `confirmed=true`를 함께 보내야 합니다.
+- 확인 이력은 V19에 추가 전용으로 저장하며 같은 사건을 반복 확인해도 새 이력을 만들지 않습니다.
+- 확인한 사건보다 감사 ID가 큰 `UNKNOWN`이 존재하면 더 최신 사고로 판단해 자동 정지를 유지합니다.
 - 안전 상태 응답은 정지 여부만 반환하며 계좌·종목·주문 식별값과 오류 원문을 공개하지 않습니다.
+
+읽기 권한으로 현재 자동 안전정지와 마지막 확인 시점만 조회합니다.
+
+```bash
+curl http://localhost:8080/api/broker/unknown-incidents \
+  -H "X-Jusika-Api-Key: $JUSIKA_INTERNAL_READ_API_KEY"
+```
+
+실제 토스증권 앱과 주문 목록에서 상태를 직접 확인한 다음, 주문 권한으로 확인한 최신 `UNKNOWN` 감사 사건까지 처리합니다.
+
+```bash
+curl -X POST http://localhost:8080/api/broker/unknown-incidents/acknowledgements \
+  -H "X-Jusika-Api-Key: $JUSIKA_INTERNAL_ORDER_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"unknownAuditEventId":123,"confirmed":true}'
+```
+
+여기서 `123`은 설명용 비식별 감사 사건 ID입니다. 토스 주문 식별값이나 계좌 식별값을 보내는 자리가 아닙니다.
+읽기 키만으로는 확인 처리할 수 없으며, `UNKNOWN`이 아닌 사건 ID나 `confirmed=false` 요청은 HTTP 400으로 거절합니다.
 
 현재 상태는 계좌번호, 토큰이나 주문 식별값 없이 조회할 수 있습니다.
 
@@ -347,10 +368,11 @@ V15는 일일 위험 예약과 동시 요청 직렬화를 위한 테이블만 �
 V16은 LIVE 안전 관문과 토스 변경 요청 결과의 비식별 감사 사건만 추가하며 금융값과 주문 식별값은 저장하지 않습니다.
 V17은 LIVE 주문 빈도 예약과 동시 요청 직렬화를 위한 테이블을 추가하며 예약 식별값과 종목은 SHA-256 해시로만 저장합니다.
 V18은 결과 불명 사고 여부를 빠르게 확인하는 감사 사건 복합 인덱스만 추가하며 새로운 민감정보를 저장하지 않습니다.
+V19는 결과 불명 사고 확인 요청을 직렬화하는 잠금 행과 확인한 감사 사건 ID·확인 시각의 추가 전용 이력을 저장합니다.
 활성 주문 개수 한도는 토스의 최신 읽기 전용 목록을 사용하므로 데이터베이스 마이그레이션을 추가하지 않습니다.
 
 ```bash
-./mvnw -Dtest=BrokerMutationSafetyPolicyTests,BrokerSafetyControllerTests,BrokerUnknownIncidentHaltIntegrationTests,BrokerLiveDailyOrderRiskServiceTests,BrokerLiveOpenOrderCapacityServiceTests,BrokerLiveOrderRateLimitServiceTests,BrokerMutationAuditPersistenceTests test
+./mvnw -Dtest=BrokerMutationSafetyPolicyTests,BrokerSafetyControllerTests,BrokerUnknownIncidentHaltIntegrationTests,BrokerUnknownIncidentAcknowledgementServiceTests,BrokerUnknownIncidentControllerTests,BrokerLiveDailyOrderRiskServiceTests,BrokerLiveOpenOrderCapacityServiceTests,BrokerLiveOrderRateLimitServiceTests,BrokerMutationAuditPersistenceTests test
 ```
 
 ### 일반 수량 주문 LIVE 제출 경계 골격

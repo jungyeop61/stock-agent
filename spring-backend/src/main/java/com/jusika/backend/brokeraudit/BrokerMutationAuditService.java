@@ -58,9 +58,31 @@ public class BrokerMutationAuditService {
 	/** 과거 LIVE 토스 변경 요청 중 아직 해제할 수 없는 결과 불명 사건이 있는지 확인합니다. */
 	@Transactional(readOnly = true)
 	public boolean hasUnknownBrokerRequest() {
-		return repository.existsByStageAndOutcome(
+		return hasUnknownBrokerRequestAfter(0L);
+	}
+
+	/** 지정한 감사 사건 이후에 토스 요청 결과 불명 사건이 있는지 확인합니다. */
+	@Transactional(readOnly = true)
+	public boolean hasUnknownBrokerRequestAfter(long auditEventId) {
+		if (auditEventId < 0) {
+			throw new IllegalArgumentException("확인 기준 감사 사건 식별값은 0 이상이어야 합니다.");
+		}
+		return repository.existsByAuditEventIdGreaterThanAndStageAndOutcome(
+				auditEventId,
 				BrokerMutationAuditStage.BROKER_REQUEST,
 				BrokerMutationAuditOutcome.UNKNOWN);
+	}
+
+	/** 지정한 감사 사건이 실제 토스 요청의 결과 불명 사건인지 확인합니다. */
+	@Transactional(readOnly = true)
+	public boolean isUnknownBrokerRequest(long auditEventId) {
+		if (auditEventId <= 0) {
+			return false;
+		}
+		return repository.findById(auditEventId)
+				.filter(event -> event.stage() == BrokerMutationAuditStage.BROKER_REQUEST)
+				.filter(event -> event.outcome() == BrokerMutationAuditOutcome.UNKNOWN)
+				.isPresent();
 	}
 
 	/**

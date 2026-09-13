@@ -14,6 +14,12 @@ interface BrokerMutationAuditEventJpaRepository
 			BrokerMutationAuditStage stage,
 			BrokerMutationAuditOutcome outcome);
 
+	/** 지정 감사 사건 이후에 토스 요청 결과 불명 사건이 존재하는지 확인합니다. */
+	boolean existsByAuditEventIdGreaterThanAndStageAndOutcome(
+			long auditEventId,
+			BrokerMutationAuditStage stage,
+			BrokerMutationAuditOutcome outcome);
+
 	/** 가장 최근 사건부터 지정한 개수만큼 조회합니다. */
 	List<BrokerMutationAuditEventEntity> findAllByOrderByAuditEventIdDesc(Pageable pageable);
 

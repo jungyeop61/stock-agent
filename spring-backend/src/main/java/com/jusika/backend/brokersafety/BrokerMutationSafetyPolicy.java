@@ -22,6 +22,7 @@ public class BrokerMutationSafetyPolicy {
 	private final BrokerLiveOpenOrderCapacityService openOrderCapacityService;
 	private final BrokerLiveOrderRateLimitService orderRateLimitService;
 	private final BrokerMutationAuditService mutationAuditService;
+	private final BrokerUnknownIncidentAcknowledgementService unknownIncidentService;
 
 	/**
 	 * 애플리케이션 설정에서 읽은 증권사 실행 안전값을 전달받습니다.
@@ -34,6 +35,7 @@ public class BrokerMutationSafetyPolicy {
 		this.openOrderCapacityService = null;
 		this.orderRateLimitService = null;
 		this.mutationAuditService = null;
+		this.unknownIncidentService = null;
 	}
 
 	/** 애플리케이션에서는 누적 위험·활성 주문·빈도·감사 관리자를 함께 연결합니다. */
@@ -43,13 +45,16 @@ public class BrokerMutationSafetyPolicy {
 			ObjectProvider<BrokerLiveDailyOrderRiskService> dailyOrderRiskServiceProvider,
 			ObjectProvider<BrokerLiveOpenOrderCapacityService> openOrderCapacityServiceProvider,
 			ObjectProvider<BrokerLiveOrderRateLimitService> orderRateLimitServiceProvider,
-			ObjectProvider<BrokerMutationAuditService> mutationAuditServiceProvider) {
+			ObjectProvider<BrokerMutationAuditService> mutationAuditServiceProvider,
+			ObjectProvider<BrokerUnknownIncidentAcknowledgementService>
+					unknownIncidentServiceProvider) {
 		this(
 				properties,
 				dailyOrderRiskServiceProvider.getIfAvailable(),
 				openOrderCapacityServiceProvider.getIfAvailable(),
 				orderRateLimitServiceProvider.getIfAvailable(),
-				mutationAuditServiceProvider.getIfAvailable());
+				mutationAuditServiceProvider.getIfAvailable(),
+				unknownIncidentServiceProvider.getIfAvailable());
 	}
 
 	/** 테스트와 명시적 조립에서 안전 보조 서비스를 직접 연결합니다. */
@@ -59,11 +64,24 @@ public class BrokerMutationSafetyPolicy {
 			BrokerLiveOpenOrderCapacityService openOrderCapacityService,
 			BrokerLiveOrderRateLimitService orderRateLimitService,
 			BrokerMutationAuditService mutationAuditService) {
+		this(properties, dailyOrderRiskService, openOrderCapacityService,
+				orderRateLimitService, mutationAuditService, null);
+	}
+
+	/** 테스트와 명시적 조립에서 결과 불명 사고 확인 서비스까지 직접 연결합니다. */
+	BrokerMutationSafetyPolicy(
+			BrokerSafetyProperties properties,
+			BrokerLiveDailyOrderRiskService dailyOrderRiskService,
+			BrokerLiveOpenOrderCapacityService openOrderCapacityService,
+			BrokerLiveOrderRateLimitService orderRateLimitService,
+			BrokerMutationAuditService mutationAuditService,
+			BrokerUnknownIncidentAcknowledgementService unknownIncidentService) {
 		this.properties = properties;
 		this.dailyOrderRiskService = dailyOrderRiskService;
 		this.openOrderCapacityService = openOrderCapacityService;
 		this.orderRateLimitService = orderRateLimitService;
 		this.mutationAuditService = mutationAuditService;
+		this.unknownIncidentService = unknownIncidentService;
 	}
 
 	/**
@@ -367,6 +385,9 @@ public class BrokerMutationSafetyPolicy {
 
 	/** 저장된 결과 불명 토스 요청이 있으면 신규 위험 자동 정지가 활성화된 것으로 판단합니다. */
 	private boolean isUnknownIncidentHaltActive() {
+		if (unknownIncidentService != null) {
+			return unknownIncidentService.isHaltActive();
+		}
 		return mutationAuditService != null && mutationAuditService.hasUnknownBrokerRequest();
 	}
 
