@@ -6,7 +6,7 @@ import com.jusika.backend.orderexecution.OrderExecutionFailureType;
 import com.jusika.backend.orderexecution.OrderExecutionStatus;
 
 /**
- * 승인된 OCO 조건 주문의 모의 또는 향후 실제 실행 상태를 표현합니다.
+ * 승인된 OCO 조건 주문의 모의 또는 실제 실행 상태를 표현합니다.
  */
 public record OcoConditionalOrderExecutionResponse(
 		String executionId,

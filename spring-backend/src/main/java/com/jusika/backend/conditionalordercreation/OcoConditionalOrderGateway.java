@@ -5,7 +5,7 @@ import com.jusika.backend.brokersafety.BrokerOpenOrderCapacityOperation;
 import com.jusika.backend.conditionalorder.ConditionalOrderCreationResponse;
 import com.jusika.backend.conditionalorder.OcoConditionalOrderSubmissionRequest;
 
-/** 승인된 OCO 조건 주문을 모의 처리하거나 향후 실제 증권사로 전달하는 경계입니다. */
+/** 승인된 OCO 조건 주문을 모의 처리하거나 실제 증권사로 전달하는 경계입니다. */
 interface OcoConditionalOrderGateway {
 
 	/**

@@ -243,6 +243,41 @@ class OcoConditionalOrderServiceTests {
 		assertThat(gateway.callCount).isZero();
 	}
 
+	/** LIVE 경계도 최종 재검증과 실행권 확보 뒤 같은 OCO 요청을 받는지 검사합니다. */
+	@Test
+	@DisplayName("승인된 OCO 조건 주문을 LIVE 안전 경계로 전달한다")
+	void 승인된_OCO_조건_주문을_LIVE_안전_경계로_전달한다() {
+		OcoConditionalOrderPreviewResponse preview = service.createPreview(기본_OCO_요청을_만든다());
+		service.approvePreview(preview.previewId());
+		gateway.mode = "LIVE";
+
+		OcoConditionalOrderExecutionResponse result =
+				service.executeApprovedPreview(preview.previewId());
+
+		assertThat(result.status()).isEqualTo(OrderExecutionStatus.ACCEPTED);
+		assertThat(result.brokerMode()).isEqualTo("LIVE");
+		assertThat(gateway.callCount).isOne();
+		assertThat(previewStore.findById(preview.previewId()).orElseThrow().status())
+				.isEqualTo(OrderPreviewStatus.CONSUMED);
+	}
+
+	/** 지원하지 않는 실행 모드는 금융정보 재조회와 실행권 생성 전에 차단하는지 검사합니다. */
+	@Test
+	@DisplayName("지원하지 않는 OCO 조건 주문 실행 경계 모드를 차단한다")
+	void 지원하지_않는_OCO_조건_주문_실행_경계_모드를_차단한다() {
+		OcoConditionalOrderPreviewResponse preview = service.createPreview(기본_OCO_요청을_만든다());
+		service.approvePreview(preview.previewId());
+		gateway.mode = "INVALID";
+		int previewPriceCalls = priceClient.callCount;
+
+		assertThatThrownBy(() -> service.executeApprovedPreview(preview.previewId()))
+				.isInstanceOf(OrderExecutionSubmissionException.class)
+				.hasMessage("OCO 조건 주문 실행 경계의 모드가 올바르지 않습니다.");
+		assertThat(priceClient.callCount).isEqualTo(previewPriceCalls);
+		assertThat(gateway.callCount).isZero();
+		assertThat(executionStore.values).isEmpty();
+	}
+
 	/** 승인 후 현재가가 감시가격 범위를 벗어나면 실행권 생성 전에 안전하게 중단합니다. */
 	@Test
 	@DisplayName("승인 후 현재가가 OCO 범위를 벗어나면 실행을 차단한다")
@@ -275,6 +310,25 @@ class OcoConditionalOrderServiceTests {
 		assertThat(stored.status()).isEqualTo(OrderExecutionStatus.UNKNOWN);
 		assertThat(stored.failureType()).isEqualTo(OrderExecutionFailureType.SUBMISSION_UNKNOWN);
 		assertThat(gateway.callCount).isEqualTo(1);
+	}
+
+	/** 실행권 확보 뒤 토스 호출 전 안전정책이 차단되면 결과 불명으로 저장하지 않는지 검사합니다. */
+	@Test
+	@DisplayName("토스 호출 전 OCO LIVE 안전 차단을 내부 차단 상태로 저장한다")
+	void 토스_호출_전_OCO_LIVE_안전_차단을_내부_차단_상태로_저장한다() {
+		OcoConditionalOrderPreviewResponse preview = service.createPreview(기본_OCO_요청을_만든다());
+		service.approvePreview(preview.previewId());
+		gateway.mode = "LIVE";
+		gateway.failure = new BrokerMutationBlockedException("테스트 호출 직전 OCO 차단");
+
+		assertThatThrownBy(() -> service.executeApprovedPreview(preview.previewId()))
+				.isInstanceOf(BrokerMutationBlockedException.class)
+				.hasMessage("테스트 호출 직전 OCO 차단");
+		OcoConditionalOrderExecutionResponse stored =
+				executionStore.values.values().iterator().next();
+		assertThat(stored.status()).isEqualTo(OrderExecutionStatus.REJECTED);
+		assertThat(stored.failureType()).isEqualTo(OrderExecutionFailureType.INTERNAL_STATE);
+		assertThat(stored.completedAt()).isEqualTo(NOW);
 	}
 
 	/** 국내 OCO 미리보기에 필요한 정상 현재가·수량·수수료 응답을 준비합니다. */
@@ -455,6 +509,17 @@ class OcoConditionalOrderServiceTests {
 					OrderExecutionFailureType.INTERNAL_STATE, null, null, at);
 		}
 
+		/** 제출 중 토스 호출 전 안전정책 차단을 내부 오류 거절로 바꿉니다. */
+		@Override
+		public boolean markSubmissionBlocked(String id, OffsetDateTime at) {
+			OcoConditionalOrderExecutionResponse value = values.get(id);
+			if (value == null || value.status() != OrderExecutionStatus.SUBMITTING) {
+				return false;
+			}
+			return 변경한다(id, OrderExecutionStatus.REJECTED,
+					OrderExecutionFailureType.INTERNAL_STATE, null, null, at);
+		}
+
 		/** 실행을 OCO 식별값과 함께 접수 상태로 변경합니다. */
 		@Override
 		public boolean markAccepted(String id, String conditionalOrderId, OffsetDateTime at) {
@@ -514,6 +579,8 @@ class OcoConditionalOrderServiceTests {
 	private static final class RecordingGateway implements OcoConditionalOrderGateway {
 		private int callCount;
 		private boolean unknown;
+		private String mode = "MOCK";
+		private RuntimeException failure;
 		private OcoConditionalOrderSubmissionRequest request;
 		private RuntimeException availabilityFailure;
 
@@ -532,16 +599,19 @@ class OcoConditionalOrderServiceTests {
 				OcoConditionalOrderSubmissionRequest request) {
 			callCount++;
 			this.request = request;
+			if (failure != null) {
+				throw failure;
+			}
 			if (unknown) {
 				throw new OrderSubmissionException("테스트 결과 불명", true);
 			}
 			return new ConditionalOrderCreationResponse("mock-oco-id", request.clientOrderId());
 		}
 
-		/** 테스트 모의 모드 이름을 반환합니다. */
+		/** 테스트에 준비한 MOCK 또는 LIVE 실행 경계 모드를 반환합니다. */
 		@Override
 		public String mode() {
-			return "MOCK";
+			return mode;
 		}
 	}
 }
