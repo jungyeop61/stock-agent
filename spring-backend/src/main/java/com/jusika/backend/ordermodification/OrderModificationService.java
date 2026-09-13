@@ -8,8 +8,9 @@ import java.util.UUID;
 
 import org.springframework.stereotype.Service;
 
-import com.jusika.backend.brokersafety.BrokerOrderRiskSnapshot;
+import com.jusika.backend.brokersafety.BrokerMutationBlockedException;
 import com.jusika.backend.brokersafety.BrokerOpenOrderCapacityOperation;
+import com.jusika.backend.brokersafety.BrokerOrderRiskSnapshot;
 import com.jusika.backend.order.OrderModificationSubmissionRequest;
 import com.jusika.backend.order.OrderOperationResponse;
 import com.jusika.backend.orderexecution.OrderExecutionConflictException;
@@ -29,7 +30,7 @@ import com.jusika.backend.stock.StockPriceResponse;
 import com.jusika.backend.toss.market.TossPriceClient;
 import com.jusika.backend.toss.orderhistory.TossOrderHistoryClient;
 
-/** 정정 대상과 요청 내용을 고정하고 승인·재검증 뒤 중복 없는 모의 정정을 실행합니다. */
+/** 정정 대상과 요청 내용을 고정하고 승인·재검증 뒤 중복 없는 안전 정정을 실행합니다. */
 @Service
 public class OrderModificationService {
 	private static final BigDecimal HIGH_VALUE_KRW_THRESHOLD = new BigDecimal("100000000");
@@ -107,6 +108,7 @@ public class OrderModificationService {
 		OffsetDateTime startedAt = OffsetDateTime.now(clock);
 		validateExecutablePreview(preview, startedAt);
 		modificationGateway.requireModificationAvailable(preview.accountSeq());
+		String brokerMode = requireExecutionMode();
 		modificationGateway.requireInstrumentAllowed(preview.symbol(), preview.currency());
 		modificationGateway.requireOpenOrderCapacity(
 				preview.accountSeq(), preview.symbol(),
@@ -138,7 +140,7 @@ public class OrderModificationService {
 		String executionId = UUID.randomUUID().toString();
 		OrderModificationExecutionResponse prepared = new OrderModificationExecutionResponse(
 				executionId, preview.previewId(), preview.originalOrderId(), null,
-				modificationGateway.mode(), OrderExecutionStatus.PREPARED, null,
+				brokerMode, OrderExecutionStatus.PREPARED, null,
 				startedAt, startedAt, null, null);
 		if (!executionStore.claim(prepared)) {
 			throw new OrderExecutionConflictException("이미 정정했거나 정정 중인 원주문입니다.");
@@ -181,6 +183,9 @@ public class OrderModificationService {
 				throw new OrderExecutionSubmissionException("정정 접수 결과를 데이터베이스에 기록하지 못했습니다.");
 			}
 			return findExecution(executionId);
+		} catch (BrokerMutationBlockedException exception) {
+			executionStore.markSubmissionBlocked(executionId, OffsetDateTime.now(clock));
+			throw exception;
 		} catch (OrderSubmissionException exception) {
 			OffsetDateTime failedAt = OffsetDateTime.now(clock);
 			if (exception.isSubmissionStateUnknown()) {
@@ -197,6 +202,20 @@ public class OrderModificationService {
 			throw new OrderExecutionSubmissionException(
 					"주문 정정 접수 여부를 확인할 수 없습니다. 자동으로 다시 정정하지 마세요.");
 		}
+	}
+
+	/**
+	 * 현재 주문 정정 경계가 저장 가능한 MOCK 또는 LIVE 모드인지 확인합니다.
+	 *
+	 * @return 정정 실행 기록에 저장할 검증된 증권사 모드 이름
+	 */
+	private String requireExecutionMode() {
+		String mode = modificationGateway.mode();
+		if (!("MOCK".equals(mode) || "LIVE".equals(mode))) {
+			throw new OrderExecutionSubmissionException(
+					"주문 정정 실행 경계의 모드가 올바르지 않습니다.");
+		}
+		return mode;
 	}
 
 	/** 외부 조회 전에 계좌·원주문·정정 유형의 기본 형식을 검사합니다. */

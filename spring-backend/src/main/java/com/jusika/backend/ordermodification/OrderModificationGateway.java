@@ -5,7 +5,7 @@ import com.jusika.backend.brokersafety.BrokerOpenOrderCapacityOperation;
 import com.jusika.backend.order.OrderModificationSubmissionRequest;
 import com.jusika.backend.order.OrderOperationResponse;
 
-/** 승인된 주문 정정을 모의 처리하거나 향후 실제 증권사로 전달하는 경계입니다. */
+/** 승인된 주문 정정을 현재 설정된 모의 또는 실제 증권사 경계로 전달합니다. */
 interface OrderModificationGateway {
 	/**
 	 * 최신 주문·현재가 재조회, 미리보기 소비와 정정 실행권 확보 전에 경계가 안전한지 확인합니다.

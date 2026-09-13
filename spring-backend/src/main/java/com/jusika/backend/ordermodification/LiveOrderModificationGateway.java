@@ -149,7 +149,7 @@ class LiveOrderModificationGateway implements OrderModificationGateway {
 	}
 
 	/**
-	 * 이 구현이 향후 실제 증권사 정정을 담당할 LIVE 경계임을 반환합니다.
+	 * 이 구현이 실제 증권사 정정을 담당하는 LIVE 경계임을 반환합니다.
 	 *
 	 * @return 실제 정정 경계를 뜻하는 LIVE
 	 */

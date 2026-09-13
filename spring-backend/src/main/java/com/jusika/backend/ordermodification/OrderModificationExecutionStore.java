@@ -11,6 +11,8 @@ interface OrderModificationExecutionStore {
 	boolean markSubmitting(String executionId, OffsetDateTime submittedAt);
 	/** 제출 전 내부 오류로 종료합니다. */
 	boolean markPreparationFailed(String executionId, OffsetDateTime failedAt);
+	/** 토스 호출 전 안전정책에 차단된 제출 중 실행을 내부 차단 상태로 종료합니다. */
+	boolean markSubmissionBlocked(String executionId, OffsetDateTime failedAt);
 	/** 새 주문번호와 함께 접수 상태로 변경합니다. */
 	boolean markAccepted(String executionId, String operationOrderId, OffsetDateTime completedAt);
 	/** 증권사의 확정 거절로 종료합니다. */

@@ -1557,12 +1557,13 @@ curl -X POST http://localhost:8080/api/orders/modifications/previews/정정-미�
 curl -X POST http://localhost:8080/api/orders/modifications/previews/정정-미리보기-식별값/execute
 ```
 
-현재 정정 실행은 `MOCK` 전용입니다.
-토스증권 공식 주소인 `POST /api/v1/orders/{orderId}/modify`를 호출하는 내부 클라이언트는 구현했지만 `OrderModificationService`와 연결하지 않았습니다.
+기본 정정 실행 경계는 `MOCK`입니다.
+`LIVE` 모드에서는 같은 `OrderModificationService`가 토스증권 공식 `POST /api/v1/orders/{orderId}/modify` 클라이언트 경계를 사용하지만 `NORMAL_ORDER_MODIFICATION` 준비 상태가 `false`라 실제 호출 전에 차단됩니다.
 따라서 위 주소와 자동 테스트는 실제 주문을 정정하지 않습니다.
 
 같은 원주문은 여러 미리보기로도 한 번만 정정할 수 있습니다.
 정정 접수 성공 시 토스증권이 새로 발급한 주문 식별값을 `operationOrderId`로 별도 저장합니다.
+토스 호출 직전 빈도나 일일 누적 한도 예약이 차단되면 접수 여부가 명확하므로 `UNKNOWN`이 아니라 `REJECTED/INTERNAL_STATE`로 저장합니다.
 결과가 `UNKNOWN`이면 멱등성 키가 없는 정정 요청을 자동 재전송하지 않고 주문 상세와 토스증권 앱에서 사람이 확인해야 합니다.
 
 저장된 정정 실행 결과는 다음 주소로 조회합니다.

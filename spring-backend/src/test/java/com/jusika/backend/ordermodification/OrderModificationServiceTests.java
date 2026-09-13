@@ -169,6 +169,41 @@ class OrderModificationServiceTests {
 		assertThat(gateway.callCount).isZero();
 	}
 
+	/** LIVE 경계도 원주문 재검증과 실행권 확보 뒤 같은 정정 요청을 받는지 검사합니다. */
+	@Test
+	@DisplayName("승인된 주문 정정을 LIVE 안전 경계로 전달한다")
+	void 승인된_주문_정정을_LIVE_안전_경계로_전달한다() {
+		historyClient.response = 주문을_만든다(
+				"KRW", OrderStatus.PENDING, "LIMIT", "10", "0", "70000");
+		OrderModificationPreviewResponse preview = 승인된_미리보기를_저장한다();
+		gateway.mode = "LIVE";
+
+		OrderModificationExecutionResponse result = service.executeApprovedPreview(
+				preview.previewId());
+
+		assertThat(result.status()).isEqualTo(OrderExecutionStatus.ACCEPTED);
+		assertThat(result.brokerMode()).isEqualTo("LIVE");
+		assertThat(gateway.callCount).isOne();
+		assertThat(previewStore.findById(preview.previewId()).orElseThrow().status())
+				.isEqualTo(OrderModificationPreviewStatus.CONSUMED);
+	}
+
+	/** 지원하지 않는 정정 경계 모드는 원주문 재조회와 실행권 생성 전에 차단하는지 검사합니다. */
+	@Test
+	@DisplayName("지원하지 않는 주문 정정 실행 경계 모드를 차단한다")
+	void 지원하지_않는_주문_정정_실행_경계_모드를_차단한다() {
+		OrderModificationPreviewResponse preview = 승인된_미리보기를_저장한다();
+		gateway.mode = "INVALID";
+
+		assertThatThrownBy(() -> service.executeApprovedPreview(preview.previewId()))
+				.isInstanceOf(OrderExecutionSubmissionException.class)
+				.hasMessage("주문 정정 실행 경계의 모드가 올바르지 않습니다.");
+		assertThat(historyClient.callCount).isZero();
+		assertThat(priceClient.callCount).isZero();
+		assertThat(gateway.callCount).isZero();
+		assertThat(executionStore.values).isEmpty();
+	}
+
 	/** 정정 결과가 불명확하면 UNKNOWN으로 기록하고 자동 재시도를 하지 않는지 검사합니다. */
 	@Test
 	@DisplayName("정정 결과 불명은 UNKNOWN으로 저장하고 자동 재시도하지 않는다")
@@ -185,6 +220,25 @@ class OrderModificationServiceTests {
 		assertThat(stored.status()).isEqualTo(OrderExecutionStatus.UNKNOWN);
 		assertThat(stored.failureType()).isEqualTo(OrderExecutionFailureType.SUBMISSION_UNKNOWN);
 		assertThat(gateway.callCount).isEqualTo(1);
+	}
+
+	/** 실행권 확보 뒤 토스 호출 전 안전정책이 차단되면 결과 불명으로 저장하지 않는지 검사합니다. */
+	@Test
+	@DisplayName("토스 호출 전 주문 정정 LIVE 안전 차단을 내부 차단 상태로 저장한다")
+	void 토스_호출_전_주문_정정_LIVE_안전_차단을_내부_차단_상태로_저장한다() {
+		historyClient.response = 주문을_만든다(
+				"KRW", OrderStatus.PENDING, "LIMIT", "10", "0", "70000");
+		OrderModificationPreviewResponse preview = 승인된_미리보기를_저장한다();
+		gateway.mode = "LIVE";
+		gateway.failure = new BrokerMutationBlockedException("테스트 호출 직전 정정 차단");
+
+		assertThatThrownBy(() -> service.executeApprovedPreview(preview.previewId()))
+				.isInstanceOf(BrokerMutationBlockedException.class)
+				.hasMessage("테스트 호출 직전 정정 차단");
+		OrderModificationExecutionResponse stored = executionStore.values.values().iterator().next();
+		assertThat(stored.status()).isEqualTo(OrderExecutionStatus.REJECTED);
+		assertThat(stored.failureType()).isEqualTo(OrderExecutionFailureType.INTERNAL_STATE);
+		assertThat(stored.completedAt()).isEqualTo(NOW);
 	}
 
 	/** 실행 테스트에 사용할 승인된 국내 지정가 정정 사본을 메모리에 저장합니다. */
@@ -292,6 +346,13 @@ class OrderModificationServiceTests {
 			return 변경한다(id, OrderExecutionStatus.REJECTED,
 					OrderExecutionFailureType.INTERNAL_STATE, null, null, at);
 		}
+		/** 제출 중 토스 호출 전 안전정책 차단을 내부 오류 거절로 바꿉니다. */
+		@Override public boolean markSubmissionBlocked(String id, OffsetDateTime at) {
+			OrderModificationExecutionResponse value = values.get(id);
+			if (value == null || value.status() != OrderExecutionStatus.SUBMITTING) return false;
+			return 변경한다(id, OrderExecutionStatus.REJECTED,
+					OrderExecutionFailureType.INTERNAL_STATE, null, null, at);
+		}
 		/** 실행을 새 주문번호와 함께 접수 상태로 변경합니다. */
 		@Override public boolean markAccepted(String id, String operationOrderId, OffsetDateTime at) {
 			return 변경한다(id, OrderExecutionStatus.ACCEPTED, null, operationOrderId, null, at);
@@ -338,6 +399,8 @@ class OrderModificationServiceTests {
 	private static final class RecordingModificationGateway implements OrderModificationGateway {
 		private int callCount;
 		private boolean unknown;
+		private String mode = "MOCK";
+		private RuntimeException failure;
 		private RuntimeException availabilityFailure;
 		/** 준비한 LIVE 안전 차단을 재현하거나 MOCK 정정 사용 가능 상태를 유지합니다. */
 		@Override public void requireModificationAvailable() {
@@ -347,10 +410,11 @@ class OrderModificationServiceTests {
 		@Override public OrderOperationResponse modifyOrder(
 				long accountSeq, String originalOrderId, OrderModificationSubmissionRequest request) {
 			callCount++;
+			if (failure != null) throw failure;
 			if (unknown) throw new OrderSubmissionException("테스트 결과 불명", true);
 			return new OrderOperationResponse("new-order-id");
 		}
-		/** 테스트 모의 모드 이름을 반환합니다. */
-		@Override public String mode() { return "MOCK"; }
+		/** 테스트에 준비한 MOCK 또는 LIVE 정정 경계 모드를 반환합니다. */
+		@Override public String mode() { return mode; }
 	}
 }

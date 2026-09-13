@@ -37,6 +37,12 @@ class JpaOrderModificationExecutionStore implements OrderModificationExecutionSt
 		return repository.markFailed(id, OrderExecutionStatus.PREPARED, OrderExecutionStatus.REJECTED,
 				OrderExecutionFailureType.INTERNAL_STATE, at, at) == 1;
 	}
+	/** 토스 호출 전 안전정책에 차단된 제출 중 정정 실행을 내부 오류 거절로 종료합니다. */
+	@Override @Transactional
+	public boolean markSubmissionBlocked(String id, OffsetDateTime at) {
+		return repository.markFailed(id, OrderExecutionStatus.SUBMITTING, OrderExecutionStatus.REJECTED,
+				OrderExecutionFailureType.INTERNAL_STATE, at, at) == 1;
+	}
 	/** 제출 중인 실행에 새 주문번호를 기록하고 접수 상태로 변경합니다. */
 	@Override @Transactional
 	public boolean markAccepted(String id, String operationOrderId, OffsetDateTime at) {

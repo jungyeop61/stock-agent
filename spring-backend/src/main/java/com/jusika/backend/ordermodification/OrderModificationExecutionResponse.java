@@ -5,7 +5,7 @@ import java.time.OffsetDateTime;
 import com.jusika.backend.orderexecution.OrderExecutionFailureType;
 import com.jusika.backend.orderexecution.OrderExecutionStatus;
 
-/** 승인된 주문 정정의 모의 또는 향후 실제 실행 상태를 표현합니다. */
+/** 승인된 주문 정정의 모의 또는 실제 실행 상태를 표현합니다. */
 public record OrderModificationExecutionResponse(
 		String executionId,
 		String previewId,
