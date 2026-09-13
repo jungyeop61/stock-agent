@@ -84,7 +84,9 @@ class AmountOrderRecoveryServiceTests {
 	@Test
 	@DisplayName("LIVE 안전정책 차단은 금액 주문 복구권 확보 전에 적용된다")
 	void LIVE_안전정책_차단은_금액_주문_복구권_확보_전에_적용된다() {
-		AmountOrderExecutionResponse unknown = 결과_불명_실행을_저장한다(NOW.minusMinutes(1));
+		AmountOrderExecutionResponse unknown = 결과_불명_실행을_저장한다(
+				NOW.minusMinutes(1), "LIVE");
+		recoveryGateway.mode = "LIVE";
 		recoveryGateway.availabilityFailure = new BrokerMutationBlockedException(
 				"테스트 LIVE 금액 주문 복구 차단");
 
@@ -137,10 +139,10 @@ class AmountOrderRecoveryServiceTests {
 		assertThat(executionStore.execution.status()).isEqualTo(OrderExecutionStatus.UNKNOWN);
 	}
 
-	/** 최초 실행이나 현재 경계가 MOCK이 아니면 복구하지 않는지 검사합니다. */
+	/** 최초 실행과 현재 경계의 모드가 다르면 복구하지 않는지 검사합니다. */
 	@Test
-	@DisplayName("MOCK 모드가 아닌 금액 주문 복구를 차단한다")
-	void MOCK_모드가_아닌_금액_주문_복구를_차단한다() {
+	@DisplayName("최초 금액 주문과 현재 복구 경계의 모드가 다르면 차단한다")
+	void 최초_금액_주문과_현재_복구_경계의_모드가_다르면_차단한다() {
 		AmountOrderExecutionResponse unknown = 결과_불명_실행을_저장한다(NOW.minusMinutes(1));
 		recoveryGateway.mode = "LIVE";
 
@@ -148,6 +150,25 @@ class AmountOrderRecoveryServiceTests {
 				.isInstanceOf(AmountOrderExecutionConflictException.class)
 				.hasMessageContaining("현재 실행 모드가 달라");
 		assertThat(recoveryGateway.recoveryCallCount).isZero();
+	}
+
+	/** LIVE로 저장된 최초 주문을 같은 LIVE 경계에서만 동일 요청으로 복구하는지 검사합니다. */
+	@Test
+	@DisplayName("LIVE 금액 주문도 같은 LIVE 경계에서 안전 복구한다")
+	void LIVE_금액_주문도_같은_LIVE_경계에서_안전_복구한다() {
+		AmountOrderExecutionResponse unknown = 결과_불명_실행을_저장한다(
+				NOW.minusMinutes(1), "LIVE");
+		recoveryGateway.mode = "LIVE";
+
+		AmountOrderExecutionResponse recovered = service.recoverUnknownExecution(
+				unknown.executionId());
+
+		assertThat(recovered.status()).isEqualTo(OrderExecutionStatus.ACCEPTED);
+		assertThat(recovered.brokerMode()).isEqualTo("LIVE");
+		assertThat(recoveryGateway.recoveryCallCount).isOne();
+		assertThat(recoveryGateway.lastRequest.clientOrderId())
+				.isEqualTo(unknown.clientOrderId());
+		assertThat(recoveryGateway.lastRequest.orderAmount()).isEqualByComparingTo("100");
 	}
 
 	/** 복구 경계 결과가 불명확하면 재복구 불가 실패 분류를 저장하는지 검사합니다. */
@@ -201,10 +222,17 @@ class AmountOrderRecoveryServiceTests {
 
 	/** 복구 테스트에 사용할 최초 미리보기와 결과 불명 실행, 정확한 지문을 저장합니다. */
 	private AmountOrderExecutionResponse 결과_불명_실행을_저장한다(OffsetDateTime submittedAt) {
+		return 결과_불명_실행을_저장한다(submittedAt, "MOCK");
+	}
+
+	/** 지정한 증권사 모드로 최초 미리보기와 결과 불명 실행, 정확한 지문을 저장합니다. */
+	private AmountOrderExecutionResponse 결과_불명_실행을_저장한다(
+			OffsetDateTime submittedAt,
+			String brokerMode) {
 		AmountOrderPreviewResponse preview = previewStore.save(미리보기를_만든다());
 		AmountOrderExecutionResponse execution = new AmountOrderExecutionResponse(
 				UUID.randomUUID().toString(), preview.previewId(), UUID.randomUUID().toString(),
-				"MOCK", OrderExecutionStatus.UNKNOWN, null,
+				brokerMode, OrderExecutionStatus.UNKNOWN, null,
 				OrderExecutionFailureType.SUBMISSION_UNKNOWN,
 				submittedAt.minusSeconds(1), submittedAt, submittedAt, null, null);
 		AmountOrderSubmissionRequest request = new AmountOrderSubmissionRequest(

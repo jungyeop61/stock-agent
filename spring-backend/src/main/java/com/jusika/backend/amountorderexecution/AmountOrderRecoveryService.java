@@ -35,7 +35,7 @@ public class AmountOrderRecoveryService {
 	private final Clock clock;
 
 	/**
-	 * 저장된 원본 금액 주문과 MOCK 복구 경계, 요청 지문 계산기와 시계를 전달받습니다.
+	 * 저장된 원본 금액 주문과 현재 복구 경계, 요청 지문 계산기와 시계를 전달받습니다.
 	 *
 	 * @param previewStore 최초 금액 주문 내용을 보관한 미리보기 저장소
 	 * @param executionStore 금액 주문 실행 상태와 비공개 요청 지문 저장소
@@ -61,7 +61,7 @@ public class AmountOrderRecoveryService {
 	 * 복구는 새 주문 판단이 아니므로 현재가·장 시간·잔고를 다시 조회해 본문을 바꾸지 않습니다.
 	 *
 	 * @param executionId 안전 복구할 우리 서버의 금액 주문 실행 식별값
-	 * @return 회수한 모의 주문번호가 기록된 접수 상태
+	 * @return 회수한 증권사 주문번호가 기록된 접수 상태
 	 */
 	public AmountOrderExecutionResponse recoverUnknownExecution(String executionId) {
 		validateExecutionId(executionId);
@@ -119,7 +119,7 @@ public class AmountOrderRecoveryService {
 	}
 
 	/**
-	 * 상태·시간·MOCK 모드·원본 요청 지문이 모두 안전 복구 조건과 일치하는지 확인합니다.
+	 * 상태·시간·최초 실행 모드·원본 요청 지문이 모두 안전 복구 조건과 일치하는지 확인합니다.
 	 *
 	 * @param candidate 비공개 요청 지문을 포함한 금액 주문 실행 기록
 	 * @param preview 최초 주문의 계좌와 본문을 보관한 미리보기
@@ -148,8 +148,7 @@ public class AmountOrderRecoveryService {
 			throw new AmountOrderRecoveryExpiredException(
 					"금액 주문 복구 가능 시간 10분이 지났습니다. 토스증권 앱에서 직접 확인해 주세요.");
 		}
-		if (!"MOCK".equals(execution.brokerMode())
-				|| !Objects.equals(submissionGateway.mode(), execution.brokerMode())) {
+		if (!Objects.equals(submissionGateway.mode(), execution.brokerMode())) {
 			throw new AmountOrderExecutionConflictException(
 					"최초 금액 주문과 현재 실행 모드가 달라 안전 복구할 수 없습니다.");
 		}
@@ -166,7 +165,7 @@ public class AmountOrderRecoveryService {
 	}
 
 	/**
-	 * 원본 금액 주문을 복구 전용 MOCK 경계로 한 번 호출하고 성공 또는 결과 불명을 기록합니다.
+	 * 원본 금액 주문을 현재 복구 전용 경계로 한 번 호출하고 성공 또는 결과 불명을 기록합니다.
 	 *
 	 * @param execution 최초 금액 주문 실행 기록
 	 * @param accountSeq 최초 금액 주문에 사용한 계좌 식별값
@@ -203,7 +202,7 @@ public class AmountOrderRecoveryService {
 	/**
 	 * 복구 응답에 유효한 주문번호와 최초 멱등성 식별값이 있는지 확인합니다.
 	 *
-	 * @param submission MOCK 제출 경계가 반환한 복구 응답
+	 * @param submission 모의 또는 실제 증권사가 반환한 복구 응답
 	 * @param clientOrderId 최초 금액 주문에 사용한 멱등성 식별값
 	 */
 	private void validateRecoveryResponse(
