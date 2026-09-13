@@ -8,6 +8,7 @@ import java.util.UUID;
 
 import org.springframework.stereotype.Service;
 
+import com.jusika.backend.brokersafety.BrokerMutationBlockedException;
 import com.jusika.backend.order.OrderOperationResponse;
 import com.jusika.backend.orderexecution.OrderExecutionConflictException;
 import com.jusika.backend.orderexecution.OrderExecutionNotFoundException;
@@ -23,7 +24,7 @@ import com.jusika.backend.orderpreview.OrderPreviewProperties;
 import com.jusika.backend.orderpreview.OrderPreviewStateException;
 import com.jusika.backend.toss.orderhistory.TossOrderHistoryClient;
 
-/** 취소 가능한 주문을 조회해 승인용 사본을 만들고 중복 없는 모의 취소를 실행합니다. */
+/** 취소 가능한 주문을 조회해 승인용 사본을 만들고 중복 없는 안전 취소를 실행합니다. */
 @Service
 public class OrderCancellationService {
 
@@ -86,13 +87,14 @@ public class OrderCancellationService {
 		throw new IllegalStateException("처리할 수 없는 취소 미리보기 상태입니다.");
 	}
 
-	/** 승인된 사본과 현재 주문이 같은지 재검증한 뒤 원주문당 한 번만 모의 취소합니다. */
+	/** 승인된 사본과 현재 주문이 같은지 재검증한 뒤 원주문당 한 번만 안전 취소합니다. */
 	public OrderCancellationExecutionResponse executeApprovedPreview(String previewId) {
 		validateUuid(previewId, "취소 미리보기");
 		OrderCancellationPreviewResponse preview = findPreview(previewId);
 		OffsetDateTime startedAt = OffsetDateTime.now(clock);
 		validateExecutablePreview(preview, startedAt);
 		cancellationGateway.requireCancellationAvailable(preview.accountSeq());
+		String brokerMode = requireExecutionMode();
 
 		OrderDetailResponse current = historyClient.getOrder(preview.accountSeq(), preview.orderId());
 		validateOrderIdentity(current, preview.accountSeq(), preview.orderId());
@@ -101,7 +103,7 @@ public class OrderCancellationService {
 
 		String executionId = UUID.randomUUID().toString();
 		OrderCancellationExecutionResponse prepared = new OrderCancellationExecutionResponse(
-				executionId, preview.previewId(), preview.orderId(), null, cancellationGateway.mode(),
+				executionId, preview.previewId(), preview.orderId(), null, brokerMode,
 				OrderExecutionStatus.PREPARED, null, startedAt, startedAt, null, null);
 		if (!executionStore.claim(prepared)) {
 			throw new OrderExecutionConflictException("이미 취소했거나 취소 중인 주문입니다.");
@@ -138,6 +140,9 @@ public class OrderCancellationService {
 				throw new OrderExecutionSubmissionException("취소 접수 결과를 데이터베이스에 기록하지 못했습니다.");
 			}
 			return findExecution(executionId);
+		} catch (BrokerMutationBlockedException exception) {
+			executionStore.markSubmissionBlocked(executionId, OffsetDateTime.now(clock));
+			throw exception;
 		} catch (OrderSubmissionException exception) {
 			OffsetDateTime failedAt = OffsetDateTime.now(clock);
 			if (exception.isSubmissionStateUnknown()) {
@@ -154,6 +159,20 @@ public class OrderCancellationService {
 			throw new OrderExecutionSubmissionException(
 					"주문 취소 접수 여부를 확인할 수 없습니다. 자동으로 다시 취소하지 마세요.");
 		}
+	}
+
+	/**
+	 * 현재 주문 취소 경계가 저장 가능한 MOCK 또는 LIVE 모드인지 확인합니다.
+	 *
+	 * @return 취소 실행 기록에 저장할 검증된 증권사 모드 이름
+	 */
+	private String requireExecutionMode() {
+		String mode = cancellationGateway.mode();
+		if (!("MOCK".equals(mode) || "LIVE".equals(mode))) {
+			throw new OrderExecutionSubmissionException(
+					"주문 취소 실행 경계의 모드가 올바르지 않습니다.");
+		}
+		return mode;
 	}
 
 	/** 외부 조회 전에 계좌와 주문 식별값 형식을 검사합니다. */

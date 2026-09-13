@@ -82,7 +82,7 @@ class LiveOrderCancellationGateway implements OrderCancellationGateway {
 	}
 
 	/**
-	 * 이 구현이 향후 실제 증권사 취소를 담당할 LIVE 경계임을 반환합니다.
+	 * 이 구현이 실제 증권사 취소를 담당하는 LIVE 경계임을 반환합니다.
 	 *
 	 * @return 실제 취소 경계를 뜻하는 LIVE
 	 */

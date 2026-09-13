@@ -12,6 +12,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
+import com.jusika.backend.orderexecution.OrderExecutionFailureType;
 import com.jusika.backend.orderexecution.OrderExecutionStatus;
 import com.jusika.backend.orderhistory.OrderStatus;
 import com.jusika.backend.orderpreview.OrderSide;
@@ -59,6 +60,33 @@ class OrderCancellationPersistenceTests {
 		assertThat(stored.completedAt()).isEqualTo(createdAt.plusSeconds(6));
 		assertThat(previewStore.findById(firstPreview.previewId()).orElseThrow().status())
 				.isEqualTo(OrderCancellationPreviewStatus.CONSUMED);
+	}
+
+	/** 토스 호출 전 차단을 결과 불명이 아닌 내부 차단으로 한 번만 저장하는지 검사합니다. */
+	@Test
+	@DisplayName("주문 취소 제출 직전 안전 차단 상태를 데이터베이스에 저장한다")
+	void 주문_취소_제출_직전_안전_차단_상태를_데이터베이스에_저장한다() {
+		OffsetDateTime createdAt = OffsetDateTime.of(
+				2026, 9, 6, 22, 0, 0, 0, ZoneOffset.ofHours(9));
+		String orderId = "test-order-" + UUID.randomUUID();
+		OrderCancellationPreviewResponse preview = 미리보기를_저장한다(orderId, createdAt);
+		OrderCancellationExecutionResponse prepared = 실행_준비_기록을_만든다(
+				preview.previewId(), orderId, createdAt.plusSeconds(1));
+		executionStore.claim(prepared);
+		executionStore.markSubmitting(prepared.executionId(), createdAt.plusSeconds(2));
+
+		boolean blocked = executionStore.markSubmissionBlocked(
+				prepared.executionId(), createdAt.plusSeconds(3));
+		boolean duplicate = executionStore.markSubmissionBlocked(
+				prepared.executionId(), createdAt.plusSeconds(4));
+		OrderCancellationExecutionResponse stored = executionStore.findById(
+				prepared.executionId()).orElseThrow();
+
+		assertThat(blocked).isTrue();
+		assertThat(duplicate).isFalse();
+		assertThat(stored.status()).isEqualTo(OrderExecutionStatus.REJECTED);
+		assertThat(stored.failureType()).isEqualTo(OrderExecutionFailureType.INTERNAL_STATE);
+		assertThat(stored.completedAt()).isEqualTo(createdAt.plusSeconds(3));
 	}
 
 	/** 데이터베이스 테스트에 사용할 승인 대기 취소 미리보기를 저장합니다. */

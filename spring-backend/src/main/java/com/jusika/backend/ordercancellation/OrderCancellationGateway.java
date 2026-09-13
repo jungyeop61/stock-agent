@@ -2,7 +2,7 @@ package com.jusika.backend.ordercancellation;
 
 import com.jusika.backend.order.OrderOperationResponse;
 
-/** 승인된 취소 요청을 모의 처리 또는 향후 실제 증권사로 전달하는 경계입니다. */
+/** 승인된 취소 요청을 현재 설정된 모의 또는 실제 증권사 경계로 전달합니다. */
 interface OrderCancellationGateway {
 
 	/**

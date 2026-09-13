@@ -1482,7 +1482,7 @@ curl -X POST http://localhost:8080/api/orders/cancellations/previews/취소-미�
 ```
 
 기본 실행 결과의 `brokerMode`는 `MOCK`입니다.
-LIVE 경계에는 토스증권 공식 `POST /api/v1/orders/{orderId}/cancel` 클라이언트 연결 코드를 준비했지만 `NORMAL_ORDER_CANCELLATION` 준비 상태가 `false`라 실제 호출 전에 차단됩니다.
+`LIVE` 모드에서는 같은 취소 서비스가 토스증권 공식 `POST /api/v1/orders/{orderId}/cancel` 클라이언트 경계를 사용하지만 `NORMAL_ORDER_CANCELLATION` 준비 상태가 `false`라 실제 호출 전에 차단됩니다.
 따라서 위 실행 주소와 자동 테스트는 실제 주문을 취소하지 않습니다.
 
 토스증권은 취소가 접수되면 원주문과 다른 새 `orderId`를 반환합니다.
@@ -1490,6 +1490,7 @@ LIVE 경계에는 토스증권 공식 `POST /api/v1/orders/{orderId}/cancel` 클
 
 같은 원주문으로 여러 미리보기를 만들어도 데이터베이스 잠금과 고유 제약으로 취소 실행은 하나만 생성됩니다.
 HTTP 4xx는 확정 거절로, HTTP 5xx·네트워크 단절·불완전한 성공 응답은 `UNKNOWN`으로 분류합니다.
+토스 호출 직전 중앙 안전정책이 차단되면 접수 여부가 명확하므로 `UNKNOWN`이 아니라 `REJECTED/INTERNAL_STATE`로 저장합니다.
 취소 결과가 `UNKNOWN`이면 자동으로 다시 취소하지 않고 주문 상세와 토스증권 앱에서 사람이 확인해야 합니다.
 
 저장된 취소 실행 결과는 읽기 전용으로 조회할 수 있습니다.

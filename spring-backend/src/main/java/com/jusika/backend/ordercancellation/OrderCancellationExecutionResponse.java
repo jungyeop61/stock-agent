@@ -6,7 +6,7 @@ import com.jusika.backend.orderexecution.OrderExecutionFailureType;
 import com.jusika.backend.orderexecution.OrderExecutionStatus;
 
 /**
- * 승인된 취소 미리보기의 모의 또는 향후 실제 취소 실행 상태를 표현합니다.
+ * 승인된 취소 미리보기의 모의 또는 실제 취소 실행 상태를 표현합니다.
  *
  * @param executionId 우리 서버가 만든 취소 실행 식별값
  * @param previewId 실행에 사용한 취소 미리보기 식별값

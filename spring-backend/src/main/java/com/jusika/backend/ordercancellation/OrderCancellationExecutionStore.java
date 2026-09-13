@@ -15,6 +15,9 @@ interface OrderCancellationExecutionStore {
 	/** 제출 전 내부 오류로 종료합니다. */
 	boolean markPreparationFailed(String executionId, OffsetDateTime failedAt);
 
+	/** 토스 호출 전 안전정책에 차단된 제출 중 실행을 내부 차단 상태로 종료합니다. */
+	boolean markSubmissionBlocked(String executionId, OffsetDateTime failedAt);
+
 	/** 증권사 취소 접수를 확인한 상태로 변경합니다. */
 	boolean markAccepted(String executionId, String operationOrderId, OffsetDateTime completedAt);
 

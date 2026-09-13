@@ -130,6 +130,43 @@ class OrderCancellationServiceTests {
 		assertThat(gateway.callCount).isZero();
 	}
 
+	/** LIVE 경계도 원주문 재검증과 실행권 확보 뒤 같은 취소 요청을 받는지 검사합니다. */
+	@Test
+	@DisplayName("승인된 주문 취소를 LIVE 안전 경계로 전달한다")
+	void 승인된_주문_취소를_LIVE_안전_경계로_전달한다() {
+		historyClient.response = 주문을_만든다(OrderStatus.PENDING,
+				new BigDecimal("10"), BigDecimal.ZERO, new BigDecimal("70000"));
+		OrderCancellationPreviewResponse preview = 승인된_미리보기를_만든다();
+		gateway.mode = "LIVE";
+
+		OrderCancellationExecutionResponse response = service.executeApprovedPreview(
+				preview.previewId());
+
+		assertThat(response.status()).isEqualTo(OrderExecutionStatus.ACCEPTED);
+		assertThat(response.brokerMode()).isEqualTo("LIVE");
+		assertThat(gateway.callCount).isOne();
+		assertThat(previewStore.findById(preview.previewId()).orElseThrow().status())
+				.isEqualTo(OrderCancellationPreviewStatus.CONSUMED);
+	}
+
+	/** 지원하지 않는 취소 경계 모드는 원주문 재조회와 실행권 생성 전에 차단하는지 검사합니다. */
+	@Test
+	@DisplayName("지원하지 않는 주문 취소 실행 경계 모드를 차단한다")
+	void 지원하지_않는_주문_취소_실행_경계_모드를_차단한다() {
+		historyClient.response = 주문을_만든다(OrderStatus.PENDING,
+				new BigDecimal("10"), BigDecimal.ZERO, new BigDecimal("70000"));
+		OrderCancellationPreviewResponse preview = 승인된_미리보기를_만든다();
+		gateway.mode = "INVALID";
+		int previewHistoryCalls = historyClient.callCount;
+
+		assertThatThrownBy(() -> service.executeApprovedPreview(preview.previewId()))
+				.isInstanceOf(OrderExecutionSubmissionException.class)
+				.hasMessage("주문 취소 실행 경계의 모드가 올바르지 않습니다.");
+		assertThat(historyClient.callCount).isEqualTo(previewHistoryCalls);
+		assertThat(gateway.callCount).isZero();
+		assertThat(executionStore.values).isEmpty();
+	}
+
 	/** 한 주문을 정상 취소한 뒤 다른 미리보기로 다시 취소하지 못하는지 검사합니다. */
 	@Test
 	@DisplayName("같은 원주문은 여러 미리보기로도 한 번만 취소한다")
@@ -162,6 +199,25 @@ class OrderCancellationServiceTests {
 		assertThat(stored.status()).isEqualTo(OrderExecutionStatus.UNKNOWN);
 		assertThat(stored.failureType()).isEqualTo(OrderExecutionFailureType.SUBMISSION_UNKNOWN);
 		assertThat(gateway.callCount).isEqualTo(1);
+	}
+
+	/** 실행권 확보 뒤 토스 호출 전 안전정책이 차단되면 결과 불명으로 저장하지 않는지 검사합니다. */
+	@Test
+	@DisplayName("토스 호출 전 주문 취소 LIVE 안전 차단을 내부 차단 상태로 저장한다")
+	void 토스_호출_전_주문_취소_LIVE_안전_차단을_내부_차단_상태로_저장한다() {
+		historyClient.response = 주문을_만든다(OrderStatus.PENDING,
+				new BigDecimal("10"), BigDecimal.ZERO, new BigDecimal("70000"));
+		OrderCancellationPreviewResponse preview = 승인된_미리보기를_만든다();
+		gateway.mode = "LIVE";
+		gateway.failure = new BrokerMutationBlockedException("테스트 호출 직전 취소 차단");
+
+		assertThatThrownBy(() -> service.executeApprovedPreview(preview.previewId()))
+				.isInstanceOf(BrokerMutationBlockedException.class)
+				.hasMessage("테스트 호출 직전 취소 차단");
+		OrderCancellationExecutionResponse stored = executionStore.values.values().iterator().next();
+		assertThat(stored.status()).isEqualTo(OrderExecutionStatus.REJECTED);
+		assertThat(stored.failureType()).isEqualTo(OrderExecutionFailureType.INTERNAL_STATE);
+		assertThat(stored.completedAt()).isEqualTo(NOW);
 	}
 
 	/** 생성과 승인을 연속 수행해 실행 가능한 취소 미리보기를 만듭니다. */
@@ -250,6 +306,13 @@ class OrderCancellationServiceTests {
 			return 변경한다(id, OrderExecutionStatus.REJECTED,
 					OrderExecutionFailureType.INTERNAL_STATE, null, null, at);
 		}
+		/** 제출 중 토스 호출 전 안전정책 차단을 내부 오류 거절로 바꿉니다. */
+		@Override public boolean markSubmissionBlocked(String id, OffsetDateTime at) {
+			OrderCancellationExecutionResponse value = values.get(id);
+			if (value == null || value.status() != OrderExecutionStatus.SUBMITTING) return false;
+			return 변경한다(id, OrderExecutionStatus.REJECTED,
+					OrderExecutionFailureType.INTERNAL_STATE, null, null, at);
+		}
 		/** 실행을 접수 상태로 변경합니다. */
 		@Override public boolean markAccepted(String id, String operationOrderId, OffsetDateTime at) {
 			return 변경한다(id, OrderExecutionStatus.ACCEPTED, null, operationOrderId, null, at);
@@ -284,6 +347,8 @@ class OrderCancellationServiceTests {
 	private static final class RecordingCancellationGateway implements OrderCancellationGateway {
 		private int callCount;
 		private boolean unknown;
+		private String mode = "MOCK";
+		private RuntimeException failure;
 		private RuntimeException availabilityFailure;
 		/** 준비한 LIVE 안전 차단을 재현하거나 MOCK 취소 사용 가능 상태를 유지합니다. */
 		@Override public void requireCancellationAvailable() {
@@ -292,10 +357,11 @@ class OrderCancellationServiceTests {
 		/** 취소 호출을 기록하고 설정된 결과를 반환합니다. */
 		@Override public OrderOperationResponse cancelOrder(long accountSeq, String orderId) {
 			callCount++;
+			if (failure != null) throw failure;
 			if (unknown) throw new OrderSubmissionException("테스트 결과 불명", true);
 			return new OrderOperationResponse("new-" + orderId);
 		}
-		/** 테스트가 사용하는 모의 모드 이름을 반환합니다. */
-		@Override public String mode() { return "MOCK"; }
+		/** 테스트에 준비한 MOCK 또는 LIVE 취소 경계 모드를 반환합니다. */
+		@Override public String mode() { return mode; }
 	}
 }
