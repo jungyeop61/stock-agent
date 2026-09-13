@@ -335,6 +335,12 @@ class AmountOrderRecoveryServiceTests {
 			return false;
 		}
 
+		/** 복구 테스트에서는 최초 제출 직전 안전 차단 전이를 사용하지 않습니다. */
+		@Override
+		public boolean markSubmissionBlocked(String executionId, OffsetDateTime failedAt) {
+			return false;
+		}
+
 		/** 복구 테스트에서는 최초 접수 전이를 사용하지 않습니다. */
 		@Override
 		public boolean markAccepted(

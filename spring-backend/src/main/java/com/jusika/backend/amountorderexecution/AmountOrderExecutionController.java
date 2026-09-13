@@ -10,7 +10,7 @@ import com.jusika.backend.internalauth.InternalApiAuthority;
 import com.jusika.backend.internalauth.RequiresInternalApiAuthority;
 
 /**
- * 승인된 금액 주문의 MOCK 실행과 저장 결과 조회 HTTP 주소를 제공합니다.
+ * 승인된 금액 주문의 안전 실행과 저장 결과 조회 HTTP 주소를 제공합니다.
  */
 @RestController
 @RequestMapping("/api/orders/amount")
@@ -21,7 +21,7 @@ public class AmountOrderExecutionController {
 	private final AmountOrderRecoveryService recoveryService;
 
 	/**
-	 * 금액 주문의 최종 재검증과 MOCK 실행을 담당하는 서비스를 전달받습니다.
+	 * 금액 주문의 최종 재검증과 현재 설정된 실행 경계 호출을 담당하는 서비스를 전달받습니다.
 	 *
 	 * @param executionService 금액 주문 실행 서비스
 	 * @param recoveryService 결과 불명 금액 주문의 안전 복구 서비스
@@ -34,10 +34,10 @@ public class AmountOrderExecutionController {
 	}
 
 	/**
-	 * 승인된 금액 주문 미리보기를 실행 직전 다시 검사하고 MOCK으로 한 번만 실행합니다.
+	 * 승인된 금액 주문 미리보기를 실행 직전 다시 검사하고 현재 설정된 경계로 한 번만 실행합니다.
 	 *
 	 * @param previewId 실행할 금액 주문 미리보기 식별값
-	 * @return 데이터베이스에 저장된 MOCK 실행 결과
+	 * @return 데이터베이스에 저장된 실행 결과
 	 */
 	@PostMapping("/previews/{previewId}/execute")
 	public AmountOrderExecutionResponse executePreview(@PathVariable String previewId) {
@@ -57,7 +57,7 @@ public class AmountOrderExecutionController {
 	}
 
 	/**
-	 * 최초 제출 결과가 불명확한 금액 주문의 기존 모의 주문번호를 같은 요청으로 한 번 회수합니다.
+	 * 최초 제출 결과가 불명확한 금액 주문을 같은 요청으로 한 번 안전 복구합니다.
 	 *
 	 * @param executionId 안전 복구할 금액 주문 실행 식별값
 	 * @return 복구 뒤 데이터베이스에 저장된 금액 주문 실행 기록

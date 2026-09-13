@@ -26,7 +26,7 @@ import com.jusika.backend.orderpreview.OrderSide;
 import com.jusika.backend.orderpreview.OrderType;
 
 /**
- * 금액 주문 MOCK 실행과 저장 결과 조회 HTTP 주소의 상태 코드를 검사합니다.
+ * 금액 주문 안전 실행과 저장 결과 조회 HTTP 주소의 상태 코드를 검사합니다.
  */
 @SpringBootTest(properties = {
 		"jusika.internal-api.read-key=테스트-읽기-키",

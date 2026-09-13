@@ -57,7 +57,7 @@ interface AmountOrderExecutionJpaRepository
 			@Param("submittedAt") OffsetDateTime submittedAt);
 
 	/**
-	 * 제출 중 실행을 모의 또는 향후 실제 증권사 접수 상태로 변경합니다.
+	 * 제출 중 실행을 현재 설정된 증권사 경계의 접수 상태로 변경합니다.
 	 *
 	 * @param executionId 변경할 금액 주문 실행 식별값
 	 * @param brokerOrderId 제출 경계가 반환한 주문 식별값

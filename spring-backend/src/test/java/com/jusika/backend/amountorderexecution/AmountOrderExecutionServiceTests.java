@@ -44,7 +44,7 @@ import com.jusika.backend.toss.orderinfo.TossBuyingPowerClient;
 import com.jusika.backend.toss.orderinfo.TossCommissionsClient;
 
 /**
- * 실제 토스증권 주문 없이 금액 주문의 최종 재검증과 MOCK 실행 상태를 검사합니다.
+ * 실제 토스증권 주문 없이 금액 주문의 최종 재검증과 현재 경계 실행 상태를 검사합니다.
  */
 class AmountOrderExecutionServiceTests {
 
@@ -118,6 +118,7 @@ class AmountOrderExecutionServiceTests {
 	@DisplayName("LIVE 안전정책 차단은 금액 주문 미리보기 소비 전에 적용된다")
 	void LIVE_안전정책_차단은_금액_주문_미리보기_소비_전에_적용된다() {
 		AmountOrderPreviewResponse preview = 승인된_미리보기를_저장한다(false);
+		submissionGateway.mode = "LIVE";
 		submissionGateway.availabilityFailure = new BrokerMutationBlockedException(
 				"테스트 LIVE 금액 주문 차단");
 
@@ -241,20 +242,54 @@ class AmountOrderExecutionServiceTests {
 		assertThat(submissionGateway.callCount).isOne();
 	}
 
-	/** 제출 경계가 MOCK이 아니면 요청 메서드를 호출하지 않는지 검사합니다. */
+	/** LIVE 경계도 최종 재검증과 실행권 확보 뒤 같은 금액 주문 요청을 받는지 검사합니다. */
 	@Test
-	@DisplayName("금액 주문 실행 경계가 MOCK이 아니면 실행을 차단한다")
-	void 금액_주문_실행_경계가_MOCK이_아니면_실행을_차단한다() {
+	@DisplayName("승인된 금액 주문을 LIVE 안전 경계로 전달한다")
+	void 승인된_금액_주문을_LIVE_안전_경계로_전달한다() {
 		AmountOrderPreviewResponse preview = 승인된_미리보기를_저장한다(false);
 		submissionGateway.mode = "LIVE";
 
+		AmountOrderExecutionResponse result = service.executeApprovedPreview(preview.previewId());
+
+		assertThat(result.status()).isEqualTo(OrderExecutionStatus.ACCEPTED);
+		assertThat(result.brokerMode()).isEqualTo("LIVE");
+		assertThat(submissionGateway.callCount).isOne();
+		assertThat(submissionGateway.lastRequest.symbol()).isEqualTo("AAPL");
+		assertThat(previewStore.findById(preview.previewId()).orElseThrow().status())
+				.isEqualTo(OrderPreviewStatus.CONSUMED);
+	}
+
+	/** 지원하지 않는 실행 모드는 외부 금융정보 조회와 실행권 생성 전에 차단하는지 검사합니다. */
+	@Test
+	@DisplayName("지원하지 않는 금액 주문 실행 경계 모드를 차단한다")
+	void 지원하지_않는_금액_주문_실행_경계_모드를_차단한다() {
+		AmountOrderPreviewResponse preview = 승인된_미리보기를_저장한다(false);
+		submissionGateway.mode = "INVALID";
+
 		assertThatThrownBy(() -> service.executeApprovedPreview(preview.previewId()))
 				.isInstanceOf(AmountOrderExecutionSubmissionException.class)
-				.hasMessage("금액 주문 실행은 현재 MOCK 모드에서만 허용됩니다.");
+				.hasMessage("금액 주문 실행 경계의 모드가 올바르지 않습니다.");
+		assertThat(windowService.callCount).isZero();
 		assertThat(submissionGateway.callCount).isZero();
 		assertThat(executionStore.findByPreviewId(preview.previewId())).isEmpty();
-		assertThat(previewStore.findById(preview.previewId()).orElseThrow().status())
-				.isEqualTo(OrderPreviewStatus.APPROVED);
+	}
+
+	/** 실행권 확보 뒤 토스 호출 전 안전정책이 차단하면 결과 불명으로 저장하지 않는지 검사합니다. */
+	@Test
+	@DisplayName("토스 호출 전 LIVE 안전 차단을 내부 차단 상태로 저장한다")
+	void 토스_호출_전_LIVE_안전_차단을_내부_차단_상태로_저장한다() {
+		AmountOrderPreviewResponse preview = 승인된_미리보기를_저장한다(false);
+		submissionGateway.mode = "LIVE";
+		submissionGateway.failure = new BrokerMutationBlockedException("테스트 호출 직전 차단");
+
+		assertThatThrownBy(() -> service.executeApprovedPreview(preview.previewId()))
+				.isInstanceOf(BrokerMutationBlockedException.class)
+				.hasMessage("테스트 호출 직전 차단");
+		AmountOrderExecutionResponse stored = executionStore
+				.findByPreviewId(preview.previewId()).orElseThrow();
+		assertThat(stored.status()).isEqualTo(OrderExecutionStatus.REJECTED);
+		assertThat(stored.failureType()).isEqualTo(OrderExecutionFailureType.INTERNAL_STATE);
+		assertThat(stored.completedAt()).isEqualTo(NOW);
 	}
 
 	/** 유효시간이 끝난 승인 미리보기는 장 일정 조회 전에 차단하는지 검사합니다. */
@@ -423,6 +458,21 @@ class AmountOrderExecutionServiceTests {
 		@Override
 		public boolean markPreparationFailed(String executionId, OffsetDateTime failedAt) {
 			if (!matches(executionId, OrderExecutionStatus.PREPARED)) {
+				return false;
+			}
+			execution = copy(
+					OrderExecutionStatus.REJECTED,
+					OrderExecutionFailureType.INTERNAL_STATE,
+					null,
+					execution.submittedAt(),
+					failedAt);
+			return true;
+		}
+
+		/** 제출 중 토스 호출 전 안전정책 차단을 내부 오류 거절로 바꿉니다. */
+		@Override
+		public boolean markSubmissionBlocked(String executionId, OffsetDateTime failedAt) {
+			if (!matches(executionId, OrderExecutionStatus.SUBMITTING)) {
 				return false;
 			}
 			execution = copy(
@@ -653,7 +703,7 @@ class AmountOrderExecutionServiceTests {
 		private int callCount;
 		private long lastAccountSeq;
 		private AmountOrderSubmissionRequest lastRequest;
-		private OrderSubmissionException failure;
+		private RuntimeException failure;
 		private String mode = "MOCK";
 		private RuntimeException availabilityFailure;
 
@@ -688,7 +738,7 @@ class AmountOrderExecutionServiceTests {
 			throw new AssertionError("새 금액 주문 실행 중 복구 경계를 호출하면 안 됩니다.");
 		}
 
-		/** 테스트 제출 경계가 모의 모드임을 반환합니다. */
+		/** 테스트 제출 경계에 준비한 MOCK 또는 LIVE 모드를 반환합니다. */
 		@Override
 		public String mode() {
 			return mode;

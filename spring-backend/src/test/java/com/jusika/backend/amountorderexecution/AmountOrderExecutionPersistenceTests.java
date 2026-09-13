@@ -87,6 +87,30 @@ class AmountOrderExecutionPersistenceTests {
 		assertThat(stored.completedAt()).isNull();
 	}
 
+	/** 제출 중 토스 호출 전 차단을 결과 불명이 아닌 내부 차단으로 한 번만 저장하는지 검사합니다. */
+	@Test
+	@DisplayName("금액 주문 제출 직전 안전 차단 상태를 데이터베이스에 저장한다")
+	void 금액_주문_제출_직전_안전_차단_상태를_데이터베이스에_저장한다() {
+		OffsetDateTime now = OffsetDateTime.of(2026, 9, 8, 11, 30, 0, 0, ZoneOffset.ofHours(9));
+		AmountOrderPreviewResponse preview = 승인된_미리보기를_저장한다(now);
+		AmountOrderExecutionResponse execution = 실행_준비_기록을_만든다(preview.previewId(), now);
+		executionStore.claim(execution, "9".repeat(64));
+		executionStore.markSubmitting(execution.executionId(), now.plusSeconds(1));
+
+		boolean blocked = executionStore.markSubmissionBlocked(
+				execution.executionId(), now.plusSeconds(2));
+		boolean duplicate = executionStore.markSubmissionBlocked(
+				execution.executionId(), now.plusSeconds(3));
+		AmountOrderExecutionResponse stored = executionStore.findById(
+				execution.executionId()).orElseThrow();
+
+		assertThat(blocked).isTrue();
+		assertThat(duplicate).isFalse();
+		assertThat(stored.status()).isEqualTo(OrderExecutionStatus.REJECTED);
+		assertThat(stored.failureType()).isEqualTo(OrderExecutionFailureType.INTERNAL_STATE);
+		assertThat(stored.completedAt()).isEqualTo(now.plusSeconds(2));
+	}
+
 	/** 결과 불명 실행의 지문을 읽고 복구권과 회수한 주문번호를 한 번만 저장하는지 검사합니다. */
 	@Test
 	@DisplayName("결과 불명 금액 주문을 데이터베이스에서 한 번만 복구한다")

@@ -9,8 +9,9 @@ import java.util.UUID;
 
 import org.springframework.stereotype.Service;
 
-import com.jusika.backend.brokersafety.BrokerOrderRiskSnapshot;
+import com.jusika.backend.brokersafety.BrokerMutationBlockedException;
 import com.jusika.backend.brokersafety.BrokerOpenOrderCapacityOperation;
+import com.jusika.backend.brokersafety.BrokerOrderRiskSnapshot;
 import com.jusika.backend.amountorderpreview.AmountOrderPreviewExpiredException;
 import com.jusika.backend.amountorderpreview.AmountOrderPreviewNotFoundException;
 import com.jusika.backend.amountorderpreview.AmountOrderPreviewResponse;
@@ -37,7 +38,7 @@ import com.jusika.backend.toss.orderinfo.TossBuyingPowerClient;
 import com.jusika.backend.toss.orderinfo.TossCommissionsClient;
 
 /**
- * 승인된 미국 주식 달러 금액 주문을 최종 재검증하고 MOCK 경계로 한 번만 제출합니다.
+ * 승인된 미국 주식 달러 금액 주문을 최종 재검증하고 현재 안전 경계로 한 번만 제출합니다.
  */
 @Service
 public class AmountOrderExecutionService {
@@ -62,7 +63,7 @@ public class AmountOrderExecutionService {
 	private final Clock clock;
 
 	/**
-	 * 금액 주문 실행에 필요한 저장소, MOCK 경계와 최신 조회 기능을 전달받습니다.
+	 * 금액 주문 실행에 필요한 저장소, 현재 제출 경계와 최신 조회 기능을 전달받습니다.
 	 *
 	 * @param previewStore 승인된 금액 주문 미리보기 저장소
 	 * @param executionStore 중복 실행을 막고 결과를 기록할 저장소
@@ -99,8 +100,8 @@ public class AmountOrderExecutionService {
 	}
 
 	/**
-	 * 승인된 금액 주문 미리보기를 최신 시장·계좌 조건으로 다시 검사하고 한 번만 MOCK 제출합니다.
-	 * 실제 토스증권 금액 주문 클라이언트는 호출하지 않습니다.
+	 * 승인된 금액 주문 미리보기를 최신 시장·계좌 조건으로 다시 검사하고 한 번만 제출합니다.
+	 * 기본 설정에서는 MOCK 경계만 사용하며 LIVE 경계는 중앙 안전정책이 먼저 허용해야 합니다.
 	 *
 	 * @param previewId 실행할 금액 주문 미리보기 식별값
 	 * @return 데이터베이스에 기록된 최종 금액 주문 실행 상태
@@ -112,13 +113,12 @@ public class AmountOrderExecutionService {
 		validateExecutableState(preview, startedAt);
 		validateImmutablePreview(preview);
 		submissionGateway.requireSubmissionAvailable(preview.accountSeq());
+		String brokerMode = requireExecutionMode();
 		submissionGateway.requireInstrumentAllowed(preview.symbol(), preview.currency());
 		submissionGateway.requireOpenOrderCapacity(
 				preview.accountSeq(), preview.symbol(), BrokerOpenOrderCapacityOperation.CREATE);
 		submissionGateway.requireOrderRateAvailable(preview.accountSeq(), preview.symbol());
 		revalidateLatestConditions(preview, startedAt);
-		String brokerMode = requireMockMode();
-
 		String executionId = UUID.randomUUID().toString();
 		String clientOrderId = UUID.randomUUID().toString();
 		AmountOrderSubmissionRequest request = new AmountOrderSubmissionRequest(
@@ -164,15 +164,15 @@ public class AmountOrderExecutionService {
 	}
 
 	/**
-	 * 이번 단계의 금액 주문 실행 경계가 MOCK으로 고정되어 있는지 확인합니다.
+	 * 현재 금액 주문 실행 경계가 저장 가능한 MOCK 또는 LIVE 모드인지 확인합니다.
 	 *
-	 * @return 안전한 모의 실행 모드 이름
+	 * @return 실행 기록에 저장할 검증된 증권사 모드 이름
 	 */
-	private String requireMockMode() {
+	private String requireExecutionMode() {
 		String mode = submissionGateway.mode();
-		if (!"MOCK".equals(mode)) {
+		if (!("MOCK".equals(mode) || "LIVE".equals(mode))) {
 			throw new AmountOrderExecutionSubmissionException(
-					"금액 주문 실행은 현재 MOCK 모드에서만 허용됩니다.");
+					"금액 주문 실행 경계의 모드가 올바르지 않습니다.");
 		}
 		return mode;
 	}
@@ -191,7 +191,7 @@ public class AmountOrderExecutionService {
 	}
 
 	/**
-	 * MOCK 제출 결과를 접수·거절·불명 상태로 나눠 데이터베이스에 기록합니다.
+	 * 현재 경계의 제출 결과를 접수·거절·불명 상태로 나눠 데이터베이스에 기록합니다.
 	 *
 	 * @param executionId 상태를 변경할 금액 주문 실행 식별값
 	 * @param accountSeq 주문에 사용할 계좌 식별값
@@ -211,6 +211,9 @@ public class AmountOrderExecutionService {
 						"금액 주문 접수 결과를 데이터베이스에 기록하지 못했습니다.");
 			}
 			return findExecution(executionId);
+		} catch (BrokerMutationBlockedException exception) {
+			executionStore.markSubmissionBlocked(executionId, OffsetDateTime.now(clock));
+			throw exception;
 		} catch (OrderSubmissionException exception) {
 			OffsetDateTime failedAt = OffsetDateTime.now(clock);
 			if (exception.isSubmissionStateUnknown()) {
@@ -233,7 +236,7 @@ public class AmountOrderExecutionService {
 	/**
 	 * 제출 경계가 주문번호와 요청 멱등성 식별값을 정확히 반환했는지 확인합니다.
 	 *
-	 * @param submission MOCK 제출 경계가 반환한 주문 생성 결과
+	 * @param submission 모의 또는 실제 증권사가 반환한 주문 생성 결과
 	 * @param clientOrderId 요청에 사용한 멱등성 식별값
 	 */
 	private void validateSubmissionResponse(
