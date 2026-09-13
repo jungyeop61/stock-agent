@@ -9,6 +9,7 @@ import java.util.UUID;
 import org.springframework.stereotype.Service;
 
 import com.jusika.backend.brokersafety.BrokerOrderRiskSnapshot;
+import com.jusika.backend.brokersafety.BrokerOpenOrderCapacityOperation;
 import com.jusika.backend.order.OrderModificationSubmissionRequest;
 import com.jusika.backend.order.OrderOperationResponse;
 import com.jusika.backend.orderexecution.OrderExecutionConflictException;
@@ -107,6 +108,9 @@ public class OrderModificationService {
 		validateExecutablePreview(preview, startedAt);
 		modificationGateway.requireModificationAvailable(preview.accountSeq());
 		modificationGateway.requireInstrumentAllowed(preview.symbol(), preview.currency());
+		modificationGateway.requireOpenOrderCapacity(
+				preview.accountSeq(), preview.symbol(),
+				BrokerOpenOrderCapacityOperation.REPLACE_OR_RECOVER);
 
 		OrderDetailResponse current = historyClient.getOrder(
 				preview.accountSeq(), preview.originalOrderId());

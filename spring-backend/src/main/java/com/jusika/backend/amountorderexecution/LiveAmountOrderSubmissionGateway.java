@@ -6,6 +6,7 @@ import org.springframework.stereotype.Component;
 import com.jusika.backend.brokersafety.BrokerMutationSafetyPolicy;
 import com.jusika.backend.brokersafety.BrokerMutationCapability;
 import com.jusika.backend.brokersafety.BrokerOrderRiskSnapshot;
+import com.jusika.backend.brokersafety.BrokerOpenOrderCapacityOperation;
 import com.jusika.backend.order.AmountOrderSubmissionRequest;
 import com.jusika.backend.order.OrderCreationResponse;
 import com.jusika.backend.orderexecution.OrderSubmissionException;
@@ -59,6 +60,13 @@ class LiveAmountOrderSubmissionGateway implements AmountOrderSubmissionGateway {
 		safetyPolicy.requireLiveInstrumentAllowed(symbol, currency);
 	}
 
+	/** 토스 호출 전에 계좌·종목 활성 주문 개수의 남은 여유를 다시 검사합니다. */
+	@Override
+	public void requireOpenOrderCapacity(
+			long accountSeq, String symbol, BrokerOpenOrderCapacityOperation operation) {
+		safetyPolicy.requireLiveOpenOrderCapacity(accountSeq, symbol, operation);
+	}
+
 	/** 최종 계산한 달러 주문금액이 LIVE 1회 한도를 넘지 않는지 검사합니다. */
 	@Override
 	public void requireOrderWithinLimits(BrokerOrderRiskSnapshot riskSnapshot) {
@@ -106,6 +114,7 @@ class LiveAmountOrderSubmissionGateway implements AmountOrderSubmissionGateway {
 			AmountOrderSubmissionRequest request) {
 		requireSubmissionAvailable(accountSeq);
 		requireInstrumentAllowed(request.symbol(), "USD");
+		requireOpenOrderCapacity(accountSeq, request.symbol(), BrokerOpenOrderCapacityOperation.CREATE);
 		requireOrderWithinLimits(request.riskSnapshot());
 		reserveDailyOrderRisk(
 				accountSeq, "AMOUNT_ORDER:" + request.clientOrderId(), request.riskSnapshot());
@@ -126,6 +135,8 @@ class LiveAmountOrderSubmissionGateway implements AmountOrderSubmissionGateway {
 			AmountOrderSubmissionRequest request) {
 		requireSubmissionAvailable(accountSeq);
 		requireInstrumentAllowed(request.symbol(), "USD");
+		requireOpenOrderCapacity(
+				accountSeq, request.symbol(), BrokerOpenOrderCapacityOperation.REPLACE_OR_RECOVER);
 		requireOrderWithinLimits(request.riskSnapshot());
 		reserveDailyOrderRisk(
 				accountSeq, "AMOUNT_ORDER:" + request.clientOrderId(), request.riskSnapshot());

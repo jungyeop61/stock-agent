@@ -1,6 +1,7 @@
 package com.jusika.backend.orderexecution;
 
 import com.jusika.backend.brokersafety.BrokerOrderRiskSnapshot;
+import com.jusika.backend.brokersafety.BrokerOpenOrderCapacityOperation;
 import com.jusika.backend.order.OrderCreationResponse;
 import com.jusika.backend.order.QuantityOrderSubmissionRequest;
 
@@ -28,6 +29,14 @@ public interface OrderSubmissionGateway {
 	/** 실행 상태를 만들기 전에 시장별 LIVE 종목 허용 목록을 검사합니다. */
 	default void requireInstrumentAllowed(String symbol, String currency) {
 		// MOCK 모드는 실제 주문을 만들지 않으므로 LIVE 종목 목록을 적용하지 않습니다.
+	}
+
+	/** 실행 상태를 만들기 전에 계좌·종목 활성 주문 개수의 남은 여유를 검사합니다. */
+	default void requireOpenOrderCapacity(
+			long accountSeq,
+			String symbol,
+			BrokerOpenOrderCapacityOperation operation) {
+		// MOCK 모드는 실제 활성 주문을 늘리지 않으므로 LIVE 개수 한도를 적용하지 않습니다.
 	}
 
 	/**

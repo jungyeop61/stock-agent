@@ -11,6 +11,7 @@ import java.util.UUID;
 import org.springframework.stereotype.Service;
 
 import com.jusika.backend.brokersafety.BrokerOrderRiskSnapshot;
+import com.jusika.backend.brokersafety.BrokerOpenOrderCapacityOperation;
 import com.jusika.backend.order.OrderCreationResponse;
 import com.jusika.backend.order.OrderTimeInForce;
 import com.jusika.backend.order.QuantityOrderSubmissionRequest;
@@ -75,6 +76,9 @@ public class OrderRecoveryService {
 		validateRecoveryCandidate(candidate, preview, request, startedAt);
 		submissionGateway.requireSubmissionAvailable(preview.accountSeq());
 		submissionGateway.requireInstrumentAllowed(request.symbol(), request.riskSnapshot().currency());
+		submissionGateway.requireOpenOrderCapacity(
+				preview.accountSeq(), request.symbol(),
+				BrokerOpenOrderCapacityOperation.REPLACE_OR_RECOVER);
 		submissionGateway.requireOrderWithinLimits(request.riskSnapshot());
 		submissionGateway.requireDailyOrderWithinLimits(
 				preview.accountSeq(),

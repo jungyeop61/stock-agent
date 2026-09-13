@@ -1,7 +1,7 @@
 package com.jusika.backend.brokersafety;
 
-import java.util.Set;
 import java.util.Locale;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
@@ -19,6 +19,7 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
  * @param allowedInstruments 실제 주문 생성·정정을 허용한 시장별 종목 집합
  * @param liveOrderLimits 실제 주문 한 건에 적용할 수량과 통화별 금액 상한
  * @param liveDailyOrderLimits 실제 주문의 하루 누적 수량과 통화별 금액 상한
+ * @param liveOpenOrderLimits 계좌 전체와 동일 종목의 활성 주문 개수 상한
  */
 @ConfigurationProperties(prefix = "jusika.broker")
 public record BrokerSafetyProperties(
@@ -29,7 +30,8 @@ public record BrokerSafetyProperties(
 		@DefaultValue Set<Long> allowedAccountSeqs,
 		@DefaultValue Set<String> allowedInstruments,
 		@DefaultValue BrokerLiveOrderLimitProperties liveOrderLimits,
-		@DefaultValue BrokerLiveDailyOrderLimitProperties liveDailyOrderLimits) {
+		@DefaultValue BrokerLiveDailyOrderLimitProperties liveDailyOrderLimits,
+		@DefaultValue BrokerLiveOpenOrderLimitProperties liveOpenOrderLimits) {
 
 	/** 기존 호출부에서도 모든 기능이 닫힌 안전 설정을 만들 수 있게 합니다. */
 	public BrokerSafetyProperties(
@@ -44,7 +46,8 @@ public record BrokerSafetyProperties(
 				Set.of(),
 				Set.of(),
 				BrokerLiveOrderLimitProperties.allDisabled(),
-				BrokerLiveDailyOrderLimitProperties.allDisabled());
+				BrokerLiveDailyOrderLimitProperties.allDisabled(),
+				BrokerLiveOpenOrderLimitProperties.allDisabled());
 	}
 
 	/** 기능별 설정을 직접 지정해도 계좌 허용 목록은 닫힌 상태로 만듭니다. */
@@ -61,7 +64,8 @@ public record BrokerSafetyProperties(
 				Set.of(),
 				Set.of(),
 				BrokerLiveOrderLimitProperties.allDisabled(),
-				BrokerLiveDailyOrderLimitProperties.allDisabled());
+				BrokerLiveDailyOrderLimitProperties.allDisabled(),
+				BrokerLiveOpenOrderLimitProperties.allDisabled());
 	}
 
 	/** 계좌 허용 목록을 직접 지정해도 주문 한도는 닫힌 상태로 만듭니다. */
@@ -79,7 +83,8 @@ public record BrokerSafetyProperties(
 				allowedAccountSeqs,
 				Set.of(),
 				BrokerLiveOrderLimitProperties.allDisabled(),
-				BrokerLiveDailyOrderLimitProperties.allDisabled());
+				BrokerLiveDailyOrderLimitProperties.allDisabled(),
+				BrokerLiveOpenOrderLimitProperties.allDisabled());
 	}
 
 	/** 1회 주문 한도를 직접 지정해도 일일 누적 한도는 닫힌 상태로 만듭니다. */
@@ -98,7 +103,8 @@ public record BrokerSafetyProperties(
 				allowedAccountSeqs,
 				Set.of(),
 				liveOrderLimits,
-				BrokerLiveDailyOrderLimitProperties.allDisabled());
+				BrokerLiveDailyOrderLimitProperties.allDisabled(),
+				BrokerLiveOpenOrderLimitProperties.allDisabled());
 	}
 
 	/** 기존 전체 한도 호출 형식을 유지하되 종목 허용 목록은 닫힌 상태로 만듭니다. */
@@ -111,7 +117,23 @@ public record BrokerSafetyProperties(
 			BrokerLiveOrderLimitProperties liveOrderLimits,
 			BrokerLiveDailyOrderLimitProperties liveDailyOrderLimits) {
 		this(mode, liveEnabled, killSwitchActive, liveAdapters, allowedAccountSeqs,
-				Set.of(), liveOrderLimits, liveDailyOrderLimits);
+				Set.of(), liveOrderLimits, liveDailyOrderLimits,
+				BrokerLiveOpenOrderLimitProperties.allDisabled());
+	}
+
+	/** 기존 종목·전체 한도 호출 형식을 유지하되 활성 주문 개수 한도는 닫힌 상태로 만듭니다. */
+	public BrokerSafetyProperties(
+			BrokerExecutionMode mode,
+			boolean liveEnabled,
+			boolean killSwitchActive,
+			BrokerLiveAdapterProperties liveAdapters,
+			Set<Long> allowedAccountSeqs,
+			Set<String> allowedInstruments,
+			BrokerLiveOrderLimitProperties liveOrderLimits,
+			BrokerLiveDailyOrderLimitProperties liveDailyOrderLimits) {
+		this(mode, liveEnabled, killSwitchActive, liveAdapters, allowedAccountSeqs,
+				allowedInstruments, liveOrderLimits, liveDailyOrderLimits,
+				BrokerLiveOpenOrderLimitProperties.allDisabled());
 	}
 
 	/**
@@ -136,6 +158,9 @@ public record BrokerSafetyProperties(
 		}
 		if (liveDailyOrderLimits == null) {
 			throw new IllegalArgumentException("실제 일일 누적 주문 한도 설정이 필요합니다.");
+		}
+		if (liveOpenOrderLimits == null) {
+			throw new IllegalArgumentException("실제 활성 주문 개수 한도 설정이 필요합니다.");
 		}
 		if (allowedAccountSeqs.stream().anyMatch(accountSeq -> accountSeq == null || accountSeq <= 0)) {
 			throw new IllegalArgumentException("계좌 허용 목록에는 1 이상의 식별값만 사용할 수 있습니다.");

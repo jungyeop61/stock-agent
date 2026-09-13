@@ -147,7 +147,8 @@ class BrokerMutationSafetyPolicyTests {
 						Set.of(1L),
 						Set.of("KR:005930", "US:AAPL"),
 						설정된_주문_한도를_만든다(),
-						설정된_일일_주문_한도를_만든다()));
+						설정된_일일_주문_한도를_만든다(),
+						설정된_활성_주문_한도를_만든다()));
 
 		BrokerSafetyStatusResponse status = policy.getStatus();
 
@@ -157,6 +158,7 @@ class BrokerMutationSafetyPolicyTests {
 		assertThat(status.liveInstrumentAllowlistConfigured()).isTrue();
 		assertThat(status.liveOrderLimitsConfigured()).isTrue();
 		assertThat(status.liveDailyOrderLimitsConfigured()).isTrue();
+		assertThat(status.liveOpenOrderLimitsConfigured()).isTrue();
 		assertThat(status.liveMutationAvailable()).isTrue();
 		assertThat(status.blockReason()).isEqualTo(BrokerSafetyBlockReason.NONE);
 	}
@@ -206,6 +208,24 @@ class BrokerMutationSafetyPolicyTests {
 		assertThat(status.liveMutationAvailable()).isFalse();
 		assertThat(status.blockReason())
 				.isEqualTo(BrokerSafetyBlockReason.LIVE_DAILY_ORDER_LIMITS_NOT_CONFIGURED);
+	}
+
+	/** 기존 안전 설정을 모두 열어도 활성 주문 개수 상한이 0이면 LIVE가 열리지 않는지 검사합니다. */
+	@Test
+	@DisplayName("LIVE 활성 주문 개수 한도가 설정되지 않으면 실제 주문을 차단한다")
+	void LIVE_활성_주문_개수_한도가_설정되지_않으면_실제_주문을_차단한다() {
+		BrokerMutationSafetyPolicy policy = new BrokerMutationSafetyPolicy(
+				new BrokerSafetyProperties(
+						BrokerExecutionMode.LIVE, true, false,
+						모든_어댑터를_연결한다(), Set.of(1L), Set.of("KR:005930"),
+						설정된_주문_한도를_만든다(), 설정된_일일_주문_한도를_만든다()));
+
+		BrokerSafetyStatusResponse status = policy.getStatus();
+
+		assertThat(status.liveOpenOrderLimitsConfigured()).isFalse();
+		assertThat(status.liveMutationAvailable()).isFalse();
+		assertThat(status.blockReason())
+				.isEqualTo(BrokerSafetyBlockReason.LIVE_OPEN_ORDER_LIMITS_NOT_CONFIGURED);
 	}
 
 	/** 수량 주문과 수량 없는 달러 금액 주문이 설정한 경계값 안에서 통과하는지 검사합니다. */
@@ -391,7 +411,8 @@ class BrokerMutationSafetyPolicyTests {
 				Set.of(1L),
 				Set.of("KR:005930", "US:AAPL"),
 				설정된_주문_한도를_만든다(),
-				설정된_일일_주문_한도를_만든다()));
+				설정된_일일_주문_한도를_만든다(),
+				설정된_활성_주문_한도를_만든다()));
 	}
 
 	/** 아홉 주문 변경 기능을 모두 준비된 상태로 만드는 테스트 설정을 반환합니다. */
@@ -414,6 +435,11 @@ class BrokerMutationSafetyPolicyTests {
 				new BigDecimal("1000"),
 				new BigDecimal("10000000"),
 				new BigDecimal("100000"));
+	}
+
+	/** 계좌 전체와 동일 종목에 사용할 테스트용 양수 활성 주문 상한을 반환합니다. */
+	private BrokerLiveOpenOrderLimitProperties 설정된_활성_주문_한도를_만든다() {
+		return new BrokerLiveOpenOrderLimitProperties(20, 5);
 	}
 
 	/** 지정한 세 안전 설정으로 중앙 주문 변경 정책을 만듭니다. */

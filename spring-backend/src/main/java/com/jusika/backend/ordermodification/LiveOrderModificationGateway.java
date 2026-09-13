@@ -6,6 +6,7 @@ import org.springframework.stereotype.Component;
 import com.jusika.backend.brokersafety.BrokerMutationSafetyPolicy;
 import com.jusika.backend.brokersafety.BrokerMutationCapability;
 import com.jusika.backend.brokersafety.BrokerOrderRiskSnapshot;
+import com.jusika.backend.brokersafety.BrokerOpenOrderCapacityOperation;
 import com.jusika.backend.order.OrderModificationSubmissionRequest;
 import com.jusika.backend.order.OrderOperationResponse;
 import com.jusika.backend.orderexecution.OrderSubmissionException;
@@ -59,6 +60,13 @@ class LiveOrderModificationGateway implements OrderModificationGateway {
 		safetyPolicy.requireLiveInstrumentAllowed(symbol, currency);
 	}
 
+	/** 토스 호출 전에 정정 대상 계좌·종목의 현재 활성 주문 수를 다시 검사합니다. */
+	@Override
+	public void requireOpenOrderCapacity(
+			long accountSeq, String symbol, BrokerOpenOrderCapacityOperation operation) {
+		safetyPolicy.requireLiveOpenOrderCapacity(accountSeq, symbol, operation);
+	}
+
 	/** 최종 계산한 정정 수량과 주문금액이 LIVE 1회 한도를 넘지 않는지 검사합니다. */
 	@Override
 	public void requireOrderWithinLimits(BrokerOrderRiskSnapshot riskSnapshot) {
@@ -98,6 +106,8 @@ class LiveOrderModificationGateway implements OrderModificationGateway {
 			OrderModificationSubmissionRequest request) {
 		requireModificationAvailable(accountSeq);
 		requireInstrumentAllowed(request.symbol(), request.currency());
+		requireOpenOrderCapacity(
+				accountSeq, request.symbol(), BrokerOpenOrderCapacityOperation.REPLACE_OR_RECOVER);
 		requireOrderWithinLimits(request.riskSnapshot());
 		reserveDailyOrderRisk(
 				accountSeq, "NORMAL_ORDER_MODIFICATION:" + originalOrderId,

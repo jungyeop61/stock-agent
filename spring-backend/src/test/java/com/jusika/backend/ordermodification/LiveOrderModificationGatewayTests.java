@@ -18,6 +18,7 @@ import com.jusika.backend.brokersafety.BrokerMutationBlockedException;
 import com.jusika.backend.brokersafety.BrokerMutationCapability;
 import com.jusika.backend.brokersafety.BrokerMutationSafetyPolicy;
 import com.jusika.backend.brokersafety.BrokerOrderRiskSnapshot;
+import com.jusika.backend.brokersafety.BrokerOpenOrderCapacityOperation;
 import com.jusika.backend.brokersafety.BrokerSafetyProperties;
 import com.jusika.backend.order.OrderModificationSubmissionRequest;
 import com.jusika.backend.order.OrderOperationResponse;
@@ -248,6 +249,13 @@ class LiveOrderModificationGatewayTests {
 		@Override
 		public void requireLiveInstrumentAllowed(String symbol, String currency) {
 			// 종목 전달 자체는 서비스 테스트에서 검사하고 여기서는 경계 위임만 허용합니다.
+		}
+
+		/** 기존 클라이언트 위임 검사에서는 정정의 활성 주문 개수 검사를 통과시킵니다. */
+		@Override
+		public void requireLiveOpenOrderCapacity(
+				long accountSeq, String symbol, BrokerOpenOrderCapacityOperation operation) {
+			assertThat(operation).isEqualTo(BrokerOpenOrderCapacityOperation.REPLACE_OR_RECOVER);
 		}
 
 		/** 기존 클라이언트 위임 검사가 주문 한도 설정과 독립적으로 실행되게 합니다. */

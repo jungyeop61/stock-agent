@@ -10,6 +10,7 @@ import java.util.UUID;
 import org.springframework.stereotype.Service;
 
 import com.jusika.backend.brokersafety.BrokerOrderRiskSnapshot;
+import com.jusika.backend.brokersafety.BrokerOpenOrderCapacityOperation;
 import com.jusika.backend.amountorderpreview.AmountOrderPreviewExpiredException;
 import com.jusika.backend.amountorderpreview.AmountOrderPreviewNotFoundException;
 import com.jusika.backend.amountorderpreview.AmountOrderPreviewResponse;
@@ -112,6 +113,8 @@ public class AmountOrderExecutionService {
 		validateImmutablePreview(preview);
 		submissionGateway.requireSubmissionAvailable(preview.accountSeq());
 		submissionGateway.requireInstrumentAllowed(preview.symbol(), preview.currency());
+		submissionGateway.requireOpenOrderCapacity(
+				preview.accountSeq(), preview.symbol(), BrokerOpenOrderCapacityOperation.CREATE);
 		revalidateLatestConditions(preview, startedAt);
 		String brokerMode = requireMockMode();
 

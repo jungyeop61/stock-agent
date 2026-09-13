@@ -6,6 +6,7 @@ import org.springframework.stereotype.Component;
 import com.jusika.backend.brokersafety.BrokerMutationSafetyPolicy;
 import com.jusika.backend.brokersafety.BrokerMutationCapability;
 import com.jusika.backend.brokersafety.BrokerOrderRiskSnapshot;
+import com.jusika.backend.brokersafety.BrokerOpenOrderCapacityOperation;
 import com.jusika.backend.conditionalorder.ConditionalOrderCreationResponse;
 import com.jusika.backend.conditionalorder.SingleConditionalOrderSubmissionRequest;
 import com.jusika.backend.toss.conditionalorder.TossConditionalOrderClient;
@@ -57,6 +58,13 @@ class LiveSingleConditionalOrderGateway implements SingleConditionalOrderGateway
 		safetyPolicy.requireLiveInstrumentAllowed(symbol, currency);
 	}
 
+	/** 토스 호출 전에 SINGLE을 더할 활성 주문 여유를 다시 검사합니다. */
+	@Override
+	public void requireOpenOrderCapacity(
+			long accountSeq, String symbol, BrokerOpenOrderCapacityOperation operation) {
+		safetyPolicy.requireLiveOpenOrderCapacity(accountSeq, symbol, operation);
+	}
+
 	/** 최종 계산한 SINGLE 수량과 주문금액이 LIVE 1회 한도를 넘지 않는지 검사합니다. */
 	@Override
 	public void requireOrderWithinLimits(BrokerOrderRiskSnapshot riskSnapshot) {
@@ -95,6 +103,7 @@ class LiveSingleConditionalOrderGateway implements SingleConditionalOrderGateway
 		requireSubmissionAvailable(accountSeq);
 		requireInstrumentAllowed(request.symbol(),
 				request.riskSnapshot() == null ? null : request.riskSnapshot().currency());
+		requireOpenOrderCapacity(accountSeq, request.symbol(), BrokerOpenOrderCapacityOperation.CREATE);
 		requireOrderWithinLimits(request.riskSnapshot());
 		reserveDailyOrderRisk(
 				accountSeq, "SINGLE_CONDITIONAL_ORDER:" + request.clientOrderId(),

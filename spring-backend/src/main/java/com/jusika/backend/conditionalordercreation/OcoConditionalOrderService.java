@@ -11,6 +11,7 @@ import java.util.UUID;
 import org.springframework.stereotype.Service;
 
 import com.jusika.backend.brokersafety.BrokerOrderRiskSnapshot;
+import com.jusika.backend.brokersafety.BrokerOpenOrderCapacityOperation;
 import com.jusika.backend.commission.CommissionsResponse;
 import com.jusika.backend.commission.CommissionsResponse.CommissionItem;
 import com.jusika.backend.conditionalorder.ConditionalOrderCreationResponse;
@@ -170,6 +171,8 @@ public class OcoConditionalOrderService {
 		validateExecutablePreview(preview, startedAt);
 		submissionGateway.requireSubmissionAvailable(preview.accountSeq());
 		submissionGateway.requireInstrumentAllowed(preview.symbol(), preview.currency());
+		submissionGateway.requireOpenOrderCapacity(
+				preview.accountSeq(), preview.symbol(), BrokerOpenOrderCapacityOperation.CREATE);
 		Revalidation revalidation = revalidateConditions(preview);
 		if (revalidation.requiresHighValueConfirmation()
 				&& !preview.requiresHighValueConfirmation()) {

@@ -21,6 +21,7 @@ import org.junit.jupiter.api.Test;
 
 import com.jusika.backend.brokersafety.BrokerMutationBlockedException;
 import com.jusika.backend.brokersafety.BrokerOrderRiskSnapshot;
+import com.jusika.backend.brokersafety.BrokerOpenOrderCapacityOperation;
 import com.jusika.backend.buyingpower.BuyingPowerResponse;
 import com.jusika.backend.commission.CommissionsResponse;
 import com.jusika.backend.commission.CommissionsResponse.CommissionItem;
@@ -143,6 +144,26 @@ class OrderExecutionServiceTests {
 		assertThat(submissionGateway.callCount).isZero();
 		assertThat(submissionGateway.lastInstrumentSymbol).isEqualTo("005930");
 		assertThat(submissionGateway.lastInstrumentCurrency).isEqualTo("KRW");
+		assertThat(priceClient.callCount).isZero();
+	}
+
+	/** 활성 주문 개수 차단이 금융 재조회와 내부 실행 상태 변경보다 먼저 적용되는지 검사합니다. */
+	@Test
+	@DisplayName("LIVE 활성 주문 개수 차단은 금융 재조회와 미리보기 소비 전에 적용된다")
+	void LIVE_활성_주문_개수_차단은_금융_재조회와_미리보기_소비_전에_적용된다() {
+		OrderPreviewResponse preview = 승인된_미리보기를_저장한다(OrderSide.BUY, "KRW", "KR");
+		submissionGateway.openOrderCapacityFailure = new BrokerMutationBlockedException(
+				"테스트 LIVE 활성 주문 개수 차단");
+
+		assertThatThrownBy(() -> service.executeApprovedPreview(preview.previewId()))
+				.isInstanceOf(BrokerMutationBlockedException.class)
+				.hasMessage("테스트 LIVE 활성 주문 개수 차단");
+		assertThat(previewStore.findById(preview.previewId()).orElseThrow().status())
+				.isEqualTo(OrderPreviewStatus.APPROVED);
+		assertThat(executionStore.findByPreviewId(preview.previewId())).isEmpty();
+		assertThat(submissionGateway.lastCapacityOperation)
+				.isEqualTo(BrokerOpenOrderCapacityOperation.CREATE);
+		assertThat(submissionGateway.callCount).isZero();
 		assertThat(priceClient.callCount).isZero();
 	}
 
@@ -668,6 +689,8 @@ class OrderExecutionServiceTests {
 		private RuntimeException instrumentFailure;
 		private String lastInstrumentSymbol;
 		private String lastInstrumentCurrency;
+		private RuntimeException openOrderCapacityFailure;
+		private BrokerOpenOrderCapacityOperation lastCapacityOperation;
 		private RuntimeException limitFailure;
 		private BrokerOrderRiskSnapshot lastRiskSnapshot;
 		private RuntimeException dailyLimitFailure;
@@ -688,6 +711,18 @@ class OrderExecutionServiceTests {
 			lastInstrumentCurrency = currency;
 			if (instrumentFailure != null) {
 				throw instrumentFailure;
+			}
+		}
+
+		/** 활성 주문 개수 검사 유형을 기록하고 설정한 LIVE 개수 차단을 재현합니다. */
+		@Override
+		public void requireOpenOrderCapacity(
+				long accountSeq,
+				String symbol,
+				BrokerOpenOrderCapacityOperation operation) {
+			lastCapacityOperation = operation;
+			if (openOrderCapacityFailure != null) {
+				throw openOrderCapacityFailure;
 			}
 		}
 

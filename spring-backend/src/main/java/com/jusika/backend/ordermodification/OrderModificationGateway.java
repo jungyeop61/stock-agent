@@ -1,6 +1,7 @@
 package com.jusika.backend.ordermodification;
 
 import com.jusika.backend.brokersafety.BrokerOrderRiskSnapshot;
+import com.jusika.backend.brokersafety.BrokerOpenOrderCapacityOperation;
 import com.jusika.backend.order.OrderModificationSubmissionRequest;
 import com.jusika.backend.order.OrderOperationResponse;
 
@@ -24,6 +25,14 @@ interface OrderModificationGateway {
 	/** 정정 실행 상태를 만들기 전에 원주문의 시장별 LIVE 종목 허용 목록을 검사합니다. */
 	default void requireInstrumentAllowed(String symbol, String currency) {
 		// MOCK 정정은 실제 주문을 바꾸지 않으므로 LIVE 종목 목록을 적용하지 않습니다.
+	}
+
+	/** 정정 상태를 만들기 전에 현재 활성 주문 수가 운영 상한 이내인지 검사합니다. */
+	default void requireOpenOrderCapacity(
+			long accountSeq,
+			String symbol,
+			BrokerOpenOrderCapacityOperation operation) {
+		// MOCK 정정은 실제 활성 주문을 늘리지 않으므로 LIVE 개수 한도를 적용하지 않습니다.
 	}
 
 	/** 실행 기록 생성 전에 정정 후 주문값이 LIVE 1회 한도 이내인지 확인합니다. */

@@ -37,6 +37,9 @@ class BrokerSafetyPropertiesTests {
 			assertThat(properties.liveDailyOrderLimits().maxKrwOrderAmount()).isZero();
 			assertThat(properties.liveDailyOrderLimits().maxUsdOrderAmount()).isZero();
 			assertThat(properties.liveDailyOrderLimits().isConfigured()).isFalse();
+			assertThat(properties.liveOpenOrderLimits().maxOpenOrdersPerAccount()).isZero();
+			assertThat(properties.liveOpenOrderLimits().maxOpenOrdersPerInstrument()).isZero();
+			assertThat(properties.liveOpenOrderLimits().isConfigured()).isFalse();
 		});
 	}
 
@@ -138,6 +141,25 @@ class BrokerSafetyPropertiesTests {
 					assertThat(limits.maxQuantity()).isEqualByComparingTo("200");
 					assertThat(limits.maxKrwOrderAmount()).isEqualByComparingTo("9000000");
 					assertThat(limits.maxUsdOrderAmount()).isEqualByComparingTo("7000");
+					assertThat(limits.isConfigured()).isTrue();
+				});
+	}
+
+	/** 계좌 전체와 동일 종목의 활성 주문 개수 상한을 정확히 바인딩하는지 검사합니다. */
+	@Test
+	@DisplayName("LIVE 계좌와 종목별 활성 주문 개수 한도를 바인딩한다")
+	void LIVE_계좌와_종목별_활성_주문_개수_한도를_바인딩한다() {
+		contextRunner
+				.withPropertyValues(
+						"jusika.broker.live-open-order-limits.max-open-orders-per-account=20",
+						"jusika.broker.live-open-order-limits.max-open-orders-per-instrument=5")
+				.run(context -> {
+					BrokerLiveOpenOrderLimitProperties limits = context
+							.getBean(BrokerSafetyProperties.class)
+							.liveOpenOrderLimits();
+
+					assertThat(limits.maxOpenOrdersPerAccount()).isEqualTo(20);
+					assertThat(limits.maxOpenOrdersPerInstrument()).isEqualTo(5);
 					assertThat(limits.isConfigured()).isTrue();
 				});
 	}

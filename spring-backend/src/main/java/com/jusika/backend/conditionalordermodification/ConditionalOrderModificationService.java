@@ -12,6 +12,7 @@ import java.util.UUID;
 import org.springframework.stereotype.Service;
 
 import com.jusika.backend.brokersafety.BrokerOrderRiskSnapshot;
+import com.jusika.backend.brokersafety.BrokerOpenOrderCapacityOperation;
 import com.jusika.backend.buyingpower.BuyingPowerResponse;
 import com.jusika.backend.commission.CommissionsResponse;
 import com.jusika.backend.commission.CommissionsResponse.CommissionItem;
@@ -151,6 +152,9 @@ public class ConditionalOrderModificationService {
 		validateExecutablePreview(preview, startedAt);
 		modificationGateway.requireModificationAvailable(preview.accountSeq());
 		modificationGateway.requireInstrumentAllowed(preview.symbol(), preview.currency());
+		modificationGateway.requireOpenOrderCapacity(
+				preview.accountSeq(), preview.symbol(),
+				BrokerOpenOrderCapacityOperation.REPLACE_OR_RECOVER);
 
 		ConditionalOrderDetailResponse current = conditionalOrderClient.getConditionalOrder(
 				preview.accountSeq(), preview.originalConditionalOrderId());

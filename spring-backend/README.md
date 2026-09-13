@@ -112,7 +112,7 @@ event=internal_api_audit occurredAt=<요청-시각> requestId=<요청-UUID> meth
 
 ## 실제 주문 연결 전역 안전장치
 
-실제 매수·매도·취소·정정 어댑터를 연결하기 전에 다음 전역 설정, 계좌·종목 허용 목록, 1회 주문 한도와 일일 누적 한도를 중앙 정책에서 함께 검사합니다.
+실제 매수·매도·취소·정정 어댑터를 연결하기 전에 다음 전역 설정, 계좌·종목 허용 목록, 1회·일일 누적 주문 한도와 활성 주문 개수 한도를 중앙 정책에서 함께 검사합니다.
 
 - `JUSIKA_BROKER_MODE`: 기본값은 `mock`이며 `live`가 아니면 실제 주문을 차단합니다.
 - `JUSIKA_LIVE_TRADING_ENABLED`: 기본값은 `false`이며 사용자의 명시적 허락 전에는 활성화하지 않습니다.
@@ -125,6 +125,8 @@ event=internal_api_audit occurredAt=<요청-시각> requestId=<요청-UUID> meth
 - `JUSIKA_LIVE_MAX_DAILY_ORDER_QUANTITY`: 계좌별 한국시간 하루 최대 누적 주식 수량이며 기본값 `0`은 미설정 차단 상태입니다.
 - `JUSIKA_LIVE_MAX_DAILY_KRW_ORDER_AMOUNT`: 계좌별 한국시간 하루 최대 누적 원화 주문금액이며 기본값 `0`은 미설정 차단 상태입니다.
 - `JUSIKA_LIVE_MAX_DAILY_USD_ORDER_AMOUNT`: 계좌별 한국시간 하루 최대 누적 달러 주문금액이며 기본값 `0`은 미설정 차단 상태입니다.
+- `JUSIKA_LIVE_MAX_OPEN_ORDERS_PER_ACCOUNT`: 한 계좌의 진행 중 일반·조건 주문 합계 상한이며 기본값 `0`은 미설정 차단 상태입니다.
+- `JUSIKA_LIVE_MAX_OPEN_ORDERS_PER_INSTRUMENT`: 한 계좌의 동일 종목 진행 중 일반·조건 주문 합계 상한이며 기본값 `0`은 미설정 차단 상태입니다.
 
 실제 주문 어댑터 준비 상태는 주문 변경 기능별 설정으로 분리되어 있으며 모든 기본값은 `false`입니다.
 기능별 설정 하나를 바꿔도 다른 기능의 준비 상태에는 영향을 주지 않으며, 전역 세 설정과 해당 기능 설정이 모두 열려야 중앙 안전 정책을 통과합니다.
@@ -196,6 +198,19 @@ event=internal_api_audit occurredAt=<요청-시각> requestId=<요청-UUID> meth
 - 취소는 신규 주문 위험을 만들지 않으므로 일일 누적 한도 대상에서도 제외합니다.
 - 실제 누적 수량·금액, 계좌 식별값과 예약 해시는 외부 안전 상태 응답에 포함하지 않습니다.
 
+활성 주문 개수 한도는 다음 규칙을 적용합니다.
+
+- 계좌 전체 상한과 동일 종목 상한 중 하나라도 `0`이면 모든 LIVE 생성·정정·복구를 차단합니다.
+- 토스증권의 `OPEN` 일반 주문 전체와 `OPEN` 조건 주문의 모든 페이지를 읽기 전용으로 조회해 합산합니다.
+- 일반 주문과 조건 주문을 따로 세지 않고 같은 계좌·종목의 활성 위험으로 함께 계산합니다.
+- 신규 일반·금액·SINGLE·OCO·OTO 주문은 현재 합계에 한 건을 더한 예상값을 검사합니다.
+- 일반·조건 주문 정정과 동일 요청 안전 복구는 기존 주문을 대체하거나 결과를 회수하므로 현재 합계를 그대로 검사합니다.
+- 승인 미리보기 소비와 실행 기록 생성 전에 한 번 검사하고, 실제 토스 변경 클라이언트 호출 직전에 최신 목록으로 다시 검사합니다.
+- 목록 조회 실패, 계좌 불일치, 비정상 페이지 커서나 지나치게 많은 페이지는 한도를 확인할 수 없는 상태로 보고 차단합니다.
+- 취소는 활성 주문 수를 줄이므로 이번 개수 한도 대상에서 제외합니다.
+- MOCK 실행은 실제 활성 주문을 만들지 않으므로 개수 한도의 영향을 받지 않습니다.
+- 안전 상태 응답에는 설정 여부만 포함하고 실제 상한, 현재 주문 수, 계좌와 종목은 공개하지 않습니다.
+
 현재 상태는 계좌번호, 토큰이나 주문 식별값 없이 조회할 수 있습니다.
 
 ```bash
@@ -215,6 +230,7 @@ curl http://localhost:8080/api/broker/safety
   "liveInstrumentAllowlistConfigured": false,
   "liveOrderLimitsConfigured": false,
   "liveDailyOrderLimitsConfigured": false,
+  "liveOpenOrderLimitsConfigured": false,
   "liveMutationAvailable": false,
   "blockReason": "MOCK_MODE",
   "mutationCapabilities": [
@@ -258,16 +274,18 @@ curl http://localhost:8080/api/broker/safety
 }
 ```
 
-`blockReason`은 `MOCK_MODE`, `LIVE_FEATURE_DISABLED`, `KILL_SWITCH_ACTIVE`, `LIVE_ADAPTER_NOT_CONNECTED`, `LIVE_ACCOUNT_ALLOWLIST_EMPTY`, `LIVE_INSTRUMENT_ALLOWLIST_EMPTY`, `LIVE_ORDER_LIMITS_NOT_CONFIGURED`, `LIVE_DAILY_ORDER_LIMITS_NOT_CONFIGURED` 중 현재 가장 우선적인 차단 사유를 반환합니다. 모든 전역 설정, 아홉 기능별 준비 상태, 계좌·종목 허용 목록, 세 1회 주문 한도와 세 일일 누적 한도가 열렸다면 `NONE`을 반환합니다.
+`blockReason`은 `MOCK_MODE`, `LIVE_FEATURE_DISABLED`, `KILL_SWITCH_ACTIVE`, `LIVE_ADAPTER_NOT_CONNECTED`, `LIVE_ACCOUNT_ALLOWLIST_EMPTY`, `LIVE_INSTRUMENT_ALLOWLIST_EMPTY`, `LIVE_ORDER_LIMITS_NOT_CONFIGURED`, `LIVE_DAILY_ORDER_LIMITS_NOT_CONFIGURED`, `LIVE_OPEN_ORDER_LIMITS_NOT_CONFIGURED` 중 현재 가장 우선적인 차단 사유를 반환합니다. 모든 전역 설정, 아홉 기능별 준비 상태, 계좌·종목 허용 목록, 세 1회 주문 한도, 세 일일 누적 한도와 두 활성 주문 개수 한도가 열렸다면 `NONE`을 반환합니다.
 `liveAdapterConnected`는 모든 기능이 연결됐을 때만 `true`가 되는 전역 값이며, `mutationCapabilities`에서 기능별 준비 상태를 확인할 수 있습니다.
 `liveAccountAllowlistConfigured`는 허용 계좌가 하나 이상 설정됐는지만 나타내며 실제 계좌 정보는 반환하지 않습니다.
 `liveInstrumentAllowlistConfigured`는 허용한 시장별 종목이 하나 이상 설정됐는지만 나타내며 실제 종목과 개수는 반환하지 않습니다.
 `liveOrderLimitsConfigured`는 수량과 원화·달러 금액 상한이 모두 양수로 설정됐는지만 나타내며 실제 한도는 반환하지 않습니다.
 `liveDailyOrderLimitsConfigured`는 일일 누적 수량과 원화·달러 금액 상한이 모두 양수로 설정됐는지만 나타내며 실제 한도와 누적값은 반환하지 않습니다.
+`liveOpenOrderLimitsConfigured`는 계좌 전체와 동일 종목 활성 주문 개수 상한이 모두 양수로 설정됐는지만 나타내며 실제 상한과 현재 주문 수는 반환하지 않습니다.
 V15는 일일 위험 예약과 동시 요청 직렬화를 위한 테이블만 추가하며 실제 토스 주문 결과나 민감한 주문 식별값 원문을 저장하지 않습니다.
+활성 주문 개수 한도는 토스의 최신 읽기 전용 목록을 사용하므로 데이터베이스 마이그레이션을 추가하지 않습니다.
 
 ```bash
-./mvnw -Dtest=BrokerMutationSafetyPolicyTests,BrokerSafetyControllerTests,BrokerLiveDailyOrderRiskServiceTests test
+./mvnw -Dtest=BrokerMutationSafetyPolicyTests,BrokerSafetyControllerTests,BrokerLiveDailyOrderRiskServiceTests,BrokerLiveOpenOrderCapacityServiceTests test
 ```
 
 ### 일반 수량 주문 LIVE 제출 경계 골격

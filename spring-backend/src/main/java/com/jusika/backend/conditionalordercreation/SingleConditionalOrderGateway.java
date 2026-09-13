@@ -1,6 +1,7 @@
 package com.jusika.backend.conditionalordercreation;
 
 import com.jusika.backend.brokersafety.BrokerOrderRiskSnapshot;
+import com.jusika.backend.brokersafety.BrokerOpenOrderCapacityOperation;
 import com.jusika.backend.conditionalorder.ConditionalOrderCreationResponse;
 import com.jusika.backend.conditionalorder.SingleConditionalOrderSubmissionRequest;
 
@@ -27,6 +28,14 @@ interface SingleConditionalOrderGateway {
 	/** 실행 상태를 만들기 전에 SINGLE의 시장별 LIVE 종목 허용 목록을 검사합니다. */
 	default void requireInstrumentAllowed(String symbol, String currency) {
 		// MOCK 생성은 실제 주문을 만들지 않으므로 LIVE 종목 목록을 적용하지 않습니다.
+	}
+
+	/** 실행 상태를 만들기 전에 SINGLE을 더할 활성 주문 여유를 검사합니다. */
+	default void requireOpenOrderCapacity(
+			long accountSeq,
+			String symbol,
+			BrokerOpenOrderCapacityOperation operation) {
+		// MOCK 생성은 실제 활성 주문을 늘리지 않으므로 LIVE 개수 한도를 적용하지 않습니다.
 	}
 
 	/** 실행 기록 생성 전에 SINGLE 주문값이 LIVE 1회 한도 이내인지 확인합니다. */
