@@ -36,6 +36,19 @@ interface ConditionalOrderModificationGateway {
 		// MOCK 정정은 실제 활성 주문을 늘리지 않으므로 LIVE 개수 한도를 적용하지 않습니다.
 	}
 
+	/** 실행 상태를 만들기 전에 같은 논리 조건 정정의 LIVE 1분 빈도를 검사합니다. */
+	default void requireOrderRateAvailable(
+			long accountSeq,
+			String symbol,
+			String reservationKey) {
+		// MOCK 정정은 실제 조건 주문을 바꾸지 않으므로 LIVE 빈도 한도를 적용하지 않습니다.
+	}
+
+	/** 실제 증권사 호출 직전에 조건 정정의 LIVE 빈도를 멱등하게 예약합니다. */
+	default void reserveOrderRate(long accountSeq, String symbol, String reservationKey) {
+		// MOCK 정정은 실제 조건 주문을 바꾸지 않으므로 LIVE 빈도를 예약하지 않습니다.
+	}
+
 	/** 실행 기록 생성 전에 정정 후 최대 조건 주문값이 LIVE 1회 한도 이내인지 확인합니다. */
 	default void requireOrderWithinLimits(BrokerOrderRiskSnapshot riskSnapshot) {
 		// MOCK 정정은 실제 주문 조건을 만들지 않으므로 LIVE 한도를 적용하지 않습니다.

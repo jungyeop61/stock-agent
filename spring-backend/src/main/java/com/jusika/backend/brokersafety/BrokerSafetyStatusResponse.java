@@ -15,6 +15,7 @@ import java.util.List;
  * @param liveOrderLimitsConfigured 실제 주문 수량과 두 통화 금액 상한이 모두 설정됐는지 여부
  * @param liveDailyOrderLimitsConfigured 실제 일일 누적 수량과 두 통화 금액 상한이 모두 설정됐는지 여부
  * @param liveOpenOrderLimitsConfigured 실제 계좌·종목 활성 주문 개수 상한이 모두 설정됐는지 여부
+ * @param liveOrderRateLimitsConfigured 실제 계좌·종목 1분 주문 빈도 상한이 모두 설정됐는지 여부
  * @param liveMutationAvailable 현재 실제 주문 변경이 가능한지 여부
  * @param blockReason 실제 주문 변경을 차단하는 우선 사유 또는 모든 검사 통과 상태
  * @param mutationCapabilities 주문 변경 기능별 실제 어댑터 연결 상태
@@ -30,6 +31,7 @@ public record BrokerSafetyStatusResponse(
 		boolean liveOrderLimitsConfigured,
 		boolean liveDailyOrderLimitsConfigured,
 		boolean liveOpenOrderLimitsConfigured,
+		boolean liveOrderRateLimitsConfigured,
 		boolean liveMutationAvailable,
 		BrokerSafetyBlockReason blockReason,
 		List<BrokerMutationCapabilityStatus> mutationCapabilities) {

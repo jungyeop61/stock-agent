@@ -100,6 +100,7 @@ public class OrderExecutionService {
 		submissionGateway.requireInstrumentAllowed(preview.symbol(), preview.currency());
 		submissionGateway.requireOpenOrderCapacity(
 				preview.accountSeq(), preview.symbol(), BrokerOpenOrderCapacityOperation.CREATE);
+		submissionGateway.requireOrderRateAvailable(preview.accountSeq(), preview.symbol());
 		BrokerOrderRiskSnapshot riskSnapshot = revalidateAccountConditions(preview);
 		submissionGateway.requireOrderWithinLimits(riskSnapshot);
 		submissionGateway.requireDailyOrderWithinLimits(preview.accountSeq(), riskSnapshot);

@@ -144,7 +144,7 @@ curl --get http://localhost:8080/api/broker/mutation-audits \
 
 ## 실제 주문 연결 전역 안전장치
 
-실제 매수·매도·취소·정정 어댑터를 연결하기 전에 다음 전역 설정, 계좌·종목 허용 목록, 1회·일일 누적 주문 한도와 활성 주문 개수 한도를 중앙 정책에서 함께 검사합니다.
+실제 매수·매도·취소·정정 어댑터를 연결하기 전에 다음 전역 설정, 계좌·종목 허용 목록, 1회·일일 누적 주문 한도, 활성 주문 개수와 1분 주문 빈도 한도를 중앙 정책에서 함께 검사합니다.
 
 - `JUSIKA_BROKER_MODE`: 기본값은 `mock`이며 `live`가 아니면 실제 주문을 차단합니다.
 - `JUSIKA_LIVE_TRADING_ENABLED`: 기본값은 `false`이며 사용자의 명시적 허락 전에는 활성화하지 않습니다.
@@ -159,6 +159,8 @@ curl --get http://localhost:8080/api/broker/mutation-audits \
 - `JUSIKA_LIVE_MAX_DAILY_USD_ORDER_AMOUNT`: 계좌별 한국시간 하루 최대 누적 달러 주문금액이며 기본값 `0`은 미설정 차단 상태입니다.
 - `JUSIKA_LIVE_MAX_OPEN_ORDERS_PER_ACCOUNT`: 한 계좌의 진행 중 일반·조건 주문 합계 상한이며 기본값 `0`은 미설정 차단 상태입니다.
 - `JUSIKA_LIVE_MAX_OPEN_ORDERS_PER_INSTRUMENT`: 한 계좌의 동일 종목 진행 중 일반·조건 주문 합계 상한이며 기본값 `0`은 미설정 차단 상태입니다.
+- `JUSIKA_LIVE_MAX_MUTATIONS_PER_ACCOUNT_PER_MINUTE`: 한 계좌의 1분 신규 주문·정정·복구 합계 상한이며 기본값 `0`은 미설정 차단 상태입니다.
+- `JUSIKA_LIVE_MAX_MUTATIONS_PER_INSTRUMENT_PER_MINUTE`: 한 계좌·종목의 1분 신규 주문·정정·복구 합계 상한이며 기본값 `0`은 미설정 차단 상태입니다.
 
 실제 주문 어댑터 준비 상태는 주문 변경 기능별 설정으로 분리되어 있으며 모든 기본값은 `false`입니다.
 기능별 설정 하나를 바꿔도 다른 기능의 준비 상태에는 영향을 주지 않으며, 전역 세 설정과 해당 기능 설정이 모두 열려야 중앙 안전 정책을 통과합니다.
@@ -243,6 +245,20 @@ curl --get http://localhost:8080/api/broker/mutation-audits \
 - MOCK 실행은 실제 활성 주문을 만들지 않으므로 개수 한도의 영향을 받지 않습니다.
 - 안전 상태 응답에는 설정 여부만 포함하고 실제 상한, 현재 주문 수, 계좌와 종목은 공개하지 않습니다.
 
+1분 주문 빈도 한도는 다음 규칙을 적용합니다.
+
+- 계좌 전체 상한과 동일 종목 상한 중 하나라도 `0`이면 모든 LIVE 생성·정정·복구를 차단합니다.
+- 서버 시각의 UTC 1분 구간마다 계좌 전체 예약 수와 같은 계좌·종목 예약 수를 각각 셉니다.
+- 승인 미리보기 소비와 실행 기록 생성 전에 현재 예약 수에 한 건을 더할 수 있는지 읽기 전용으로 검사합니다.
+- 실제 토스 변경 호출 직전에는 V17의 단일 잠금 행 아래에서 다시 검사하고 원자적으로 한 건을 예약합니다.
+- 수량·금액 주문과 조건 주문 생성은 `clientOrderId`, 일반·조건 주문 정정은 원주문 식별값에서 만든 SHA-256 해시만 저장합니다.
+- 종목 코드도 원문 대신 정규화한 값의 SHA-256 해시만 저장합니다.
+- 같은 주문의 안전 복구나 동일 요청은 기존 계좌·종목 예약과 일치할 때만 추가 집계 없이 통과합니다.
+- 확정 거절이나 결과 불명도 실제 요청을 보낸 시도로 유지하므로 같은 분에 다시 몰아 보내지 않습니다.
+- 취소는 위험을 줄이는 기능이므로 1분 주문 빈도 제한 대상에서 제외하며 기존 LIVE 안전정책은 그대로 적용합니다.
+- MOCK 실행은 실제 증권사 요청을 보내지 않으므로 빈도 제한의 영향을 받지 않습니다.
+- 안전 상태 응답에는 설정 여부만 포함하고 실제 한도·현재 횟수·계좌·종목·예약 해시는 공개하지 않습니다.
+
 현재 상태는 계좌번호, 토큰이나 주문 식별값 없이 조회할 수 있습니다.
 
 ```bash
@@ -263,6 +279,7 @@ curl http://localhost:8080/api/broker/safety
   "liveOrderLimitsConfigured": false,
   "liveDailyOrderLimitsConfigured": false,
   "liveOpenOrderLimitsConfigured": false,
+  "liveOrderRateLimitsConfigured": false,
   "liveMutationAvailable": false,
   "blockReason": "MOCK_MODE",
   "mutationCapabilities": [
@@ -306,19 +323,21 @@ curl http://localhost:8080/api/broker/safety
 }
 ```
 
-`blockReason`은 `MOCK_MODE`, `LIVE_FEATURE_DISABLED`, `KILL_SWITCH_ACTIVE`, `LIVE_ADAPTER_NOT_CONNECTED`, `LIVE_ACCOUNT_ALLOWLIST_EMPTY`, `LIVE_INSTRUMENT_ALLOWLIST_EMPTY`, `LIVE_ORDER_LIMITS_NOT_CONFIGURED`, `LIVE_DAILY_ORDER_LIMITS_NOT_CONFIGURED`, `LIVE_OPEN_ORDER_LIMITS_NOT_CONFIGURED` 중 현재 가장 우선적인 차단 사유를 반환합니다. 모든 전역 설정, 아홉 기능별 준비 상태, 계좌·종목 허용 목록, 세 1회 주문 한도, 세 일일 누적 한도와 두 활성 주문 개수 한도가 열렸다면 `NONE`을 반환합니다.
+`blockReason`은 `MOCK_MODE`, `LIVE_FEATURE_DISABLED`, `KILL_SWITCH_ACTIVE`, `LIVE_ADAPTER_NOT_CONNECTED`, `LIVE_ACCOUNT_ALLOWLIST_EMPTY`, `LIVE_INSTRUMENT_ALLOWLIST_EMPTY`, `LIVE_ORDER_LIMITS_NOT_CONFIGURED`, `LIVE_DAILY_ORDER_LIMITS_NOT_CONFIGURED`, `LIVE_OPEN_ORDER_LIMITS_NOT_CONFIGURED`, `LIVE_ORDER_RATE_LIMITS_NOT_CONFIGURED` 중 현재 가장 우선적인 차단 사유를 반환합니다. 모든 전역 설정, 아홉 기능별 준비 상태, 계좌·종목 허용 목록, 세 1회 주문 한도, 세 일일 누적 한도, 두 활성 주문 개수 한도와 두 1분 주문 빈도 한도가 열렸다면 `NONE`을 반환합니다.
 `liveAdapterConnected`는 모든 기능이 연결됐을 때만 `true`가 되는 전역 값이며, `mutationCapabilities`에서 기능별 준비 상태를 확인할 수 있습니다.
 `liveAccountAllowlistConfigured`는 허용 계좌가 하나 이상 설정됐는지만 나타내며 실제 계좌 정보는 반환하지 않습니다.
 `liveInstrumentAllowlistConfigured`는 허용한 시장별 종목이 하나 이상 설정됐는지만 나타내며 실제 종목과 개수는 반환하지 않습니다.
 `liveOrderLimitsConfigured`는 수량과 원화·달러 금액 상한이 모두 양수로 설정됐는지만 나타내며 실제 한도는 반환하지 않습니다.
 `liveDailyOrderLimitsConfigured`는 일일 누적 수량과 원화·달러 금액 상한이 모두 양수로 설정됐는지만 나타내며 실제 한도와 누적값은 반환하지 않습니다.
 `liveOpenOrderLimitsConfigured`는 계좌 전체와 동일 종목 활성 주문 개수 상한이 모두 양수로 설정됐는지만 나타내며 실제 상한과 현재 주문 수는 반환하지 않습니다.
+`liveOrderRateLimitsConfigured`는 계좌 전체와 동일 종목의 1분 주문 빈도 상한이 모두 양수로 설정됐는지만 나타내며 실제 상한과 현재 횟수는 반환하지 않습니다.
 V15는 일일 위험 예약과 동시 요청 직렬화를 위한 테이블만 추가하며 실제 토스 주문 결과나 민감한 주문 식별값 원문을 저장하지 않습니다.
 V16은 LIVE 안전 관문과 토스 변경 요청 결과의 비식별 감사 사건만 추가하며 금융값과 주문 식별값은 저장하지 않습니다.
+V17은 LIVE 주문 빈도 예약과 동시 요청 직렬화를 위한 테이블을 추가하며 예약 식별값과 종목은 SHA-256 해시로만 저장합니다.
 활성 주문 개수 한도는 토스의 최신 읽기 전용 목록을 사용하므로 데이터베이스 마이그레이션을 추가하지 않습니다.
 
 ```bash
-./mvnw -Dtest=BrokerMutationSafetyPolicyTests,BrokerSafetyControllerTests,BrokerLiveDailyOrderRiskServiceTests,BrokerLiveOpenOrderCapacityServiceTests test
+./mvnw -Dtest=BrokerMutationSafetyPolicyTests,BrokerSafetyControllerTests,BrokerLiveDailyOrderRiskServiceTests,BrokerLiveOpenOrderCapacityServiceTests,BrokerLiveOrderRateLimitServiceTests test
 ```
 
 ### 일반 수량 주문 LIVE 제출 경계 골격

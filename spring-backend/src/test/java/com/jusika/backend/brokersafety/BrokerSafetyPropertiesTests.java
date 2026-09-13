@@ -40,7 +40,29 @@ class BrokerSafetyPropertiesTests {
 			assertThat(properties.liveOpenOrderLimits().maxOpenOrdersPerAccount()).isZero();
 			assertThat(properties.liveOpenOrderLimits().maxOpenOrdersPerInstrument()).isZero();
 			assertThat(properties.liveOpenOrderLimits().isConfigured()).isFalse();
+			assertThat(properties.liveOrderRateLimits().maxMutationsPerAccountPerMinute()).isZero();
+			assertThat(properties.liveOrderRateLimits().maxMutationsPerInstrumentPerMinute()).isZero();
+			assertThat(properties.liveOrderRateLimits().isConfigured()).isFalse();
 		});
+	}
+
+	/** 계좌 전체와 동일 종목의 1분 LIVE 주문 변경 상한을 정확히 바인딩하는지 검사합니다. */
+	@Test
+	@DisplayName("LIVE 계좌와 종목별 1분 주문 빈도 한도를 바인딩한다")
+	void LIVE_계좌와_종목별_1분_주문_빈도_한도를_바인딩한다() {
+		contextRunner
+				.withPropertyValues(
+						"jusika.broker.live-order-rate-limits.max-mutations-per-account-per-minute=6",
+						"jusika.broker.live-order-rate-limits.max-mutations-per-instrument-per-minute=2")
+				.run(context -> {
+					BrokerLiveOrderRateLimitProperties limits = context
+							.getBean(BrokerSafetyProperties.class)
+							.liveOrderRateLimits();
+
+					assertThat(limits.maxMutationsPerAccountPerMinute()).isEqualTo(6);
+					assertThat(limits.maxMutationsPerInstrumentPerMinute()).isEqualTo(2);
+					assertThat(limits.isConfigured()).isTrue();
+				});
 	}
 
 	/** 서로 다른 설정값이 해당 기능에만 정확히 연결되는지 검사합니다. */

@@ -79,6 +79,9 @@ public class OrderRecoveryService {
 		submissionGateway.requireOpenOrderCapacity(
 				preview.accountSeq(), request.symbol(),
 				BrokerOpenOrderCapacityOperation.REPLACE_OR_RECOVER);
+		submissionGateway.requireOrderRateAvailable(
+				preview.accountSeq(), request.symbol(),
+				"QUANTITY_ORDER:" + request.clientOrderId());
 		submissionGateway.requireOrderWithinLimits(request.riskSnapshot());
 		submissionGateway.requireDailyOrderWithinLimits(
 				preview.accountSeq(),

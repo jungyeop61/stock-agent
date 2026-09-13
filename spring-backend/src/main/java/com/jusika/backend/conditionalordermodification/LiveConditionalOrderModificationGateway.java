@@ -66,6 +66,19 @@ class LiveConditionalOrderModificationGateway implements ConditionalOrderModific
 		safetyPolicy.requireLiveOpenOrderCapacity(accountSeq, symbol, operation);
 	}
 
+	/** 내부 실행 상태 생성 전에 같은 원조건 주문 정정의 1분 빈도를 검사합니다. */
+	@Override
+	public void requireOrderRateAvailable(
+			long accountSeq, String symbol, String reservationKey) {
+		safetyPolicy.requireLiveOrderRateAvailable(accountSeq, symbol, reservationKey);
+	}
+
+	/** 토스 호출 직전에 조건 주문 정정 빈도를 멱등하게 예약합니다. */
+	@Override
+	public void reserveOrderRate(long accountSeq, String symbol, String reservationKey) {
+		safetyPolicy.reserveLiveOrderRate(accountSeq, symbol, reservationKey);
+	}
+
 	/** 새 전체 조건 중 큰 주문금액과 수량이 LIVE 1회 한도를 넘지 않는지 검사합니다. */
 	@Override
 	public void requireOrderWithinLimits(BrokerOrderRiskSnapshot riskSnapshot) {
@@ -109,6 +122,9 @@ class LiveConditionalOrderModificationGateway implements ConditionalOrderModific
 		requireOpenOrderCapacity(
 				accountSeq, request.symbol(), BrokerOpenOrderCapacityOperation.REPLACE_OR_RECOVER);
 		requireOrderWithinLimits(request.riskSnapshot());
+		reserveOrderRate(
+				accountSeq, request.symbol(),
+				"CONDITIONAL_ORDER_MODIFICATION:" + originalConditionalOrderId);
 		reserveDailyOrderRisk(
 				accountSeq, "CONDITIONAL_ORDER_MODIFICATION:" + originalConditionalOrderId,
 				request.riskSnapshot());

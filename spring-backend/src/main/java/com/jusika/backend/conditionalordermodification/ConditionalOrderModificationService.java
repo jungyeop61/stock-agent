@@ -155,6 +155,9 @@ public class ConditionalOrderModificationService {
 		modificationGateway.requireOpenOrderCapacity(
 				preview.accountSeq(), preview.symbol(),
 				BrokerOpenOrderCapacityOperation.REPLACE_OR_RECOVER);
+		modificationGateway.requireOrderRateAvailable(
+				preview.accountSeq(), preview.symbol(),
+				"CONDITIONAL_ORDER_MODIFICATION:" + preview.originalConditionalOrderId());
 
 		ConditionalOrderDetailResponse current = conditionalOrderClient.getConditionalOrder(
 				preview.accountSeq(), preview.originalConditionalOrderId());

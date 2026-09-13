@@ -20,6 +20,7 @@ public class BrokerMutationSafetyPolicy {
 	private final BrokerSafetyProperties properties;
 	private final BrokerLiveDailyOrderRiskService dailyOrderRiskService;
 	private final BrokerLiveOpenOrderCapacityService openOrderCapacityService;
+	private final BrokerLiveOrderRateLimitService orderRateLimitService;
 	private final BrokerMutationAuditService mutationAuditService;
 
 	/**
@@ -31,6 +32,7 @@ public class BrokerMutationSafetyPolicy {
 		this.properties = properties;
 		this.dailyOrderRiskService = null;
 		this.openOrderCapacityService = null;
+		this.orderRateLimitService = null;
 		this.mutationAuditService = null;
 	}
 
@@ -40,10 +42,12 @@ public class BrokerMutationSafetyPolicy {
 			BrokerSafetyProperties properties,
 			ObjectProvider<BrokerLiveDailyOrderRiskService> dailyOrderRiskServiceProvider,
 			ObjectProvider<BrokerLiveOpenOrderCapacityService> openOrderCapacityServiceProvider,
+			ObjectProvider<BrokerLiveOrderRateLimitService> orderRateLimitServiceProvider,
 			ObjectProvider<BrokerMutationAuditService> mutationAuditServiceProvider) {
 		this.properties = properties;
 		this.dailyOrderRiskService = dailyOrderRiskServiceProvider.getIfAvailable();
 		this.openOrderCapacityService = openOrderCapacityServiceProvider.getIfAvailable();
+		this.orderRateLimitService = orderRateLimitServiceProvider.getIfAvailable();
 		this.mutationAuditService = mutationAuditServiceProvider.getIfAvailable();
 	}
 
@@ -61,19 +65,22 @@ public class BrokerMutationSafetyPolicy {
 		boolean orderLimitsConfigured = properties.liveOrderLimits().isConfigured();
 		boolean dailyOrderLimitsConfigured = properties.liveDailyOrderLimits().isConfigured();
 		boolean openOrderLimitsConfigured = properties.liveOpenOrderLimits().isConfigured();
+		boolean orderRateLimitsConfigured = properties.liveOrderRateLimits().isConfigured();
 		BrokerSafetyBlockReason blockReason = determineBlockReason(
 				allAdaptersConnected,
 				accountAllowlistConfigured,
 				instrumentAllowlistConfigured,
 				orderLimitsConfigured,
 				dailyOrderLimitsConfigured,
-				openOrderLimitsConfigured);
+				openOrderLimitsConfigured,
+				orderRateLimitsConfigured);
 		boolean safetyGateOpen = blockReason == BrokerSafetyBlockReason.LIVE_ADAPTER_NOT_CONNECTED
 				|| blockReason == BrokerSafetyBlockReason.LIVE_ACCOUNT_ALLOWLIST_EMPTY
 				|| blockReason == BrokerSafetyBlockReason.LIVE_INSTRUMENT_ALLOWLIST_EMPTY
 				|| blockReason == BrokerSafetyBlockReason.LIVE_ORDER_LIMITS_NOT_CONFIGURED
 				|| blockReason == BrokerSafetyBlockReason.LIVE_DAILY_ORDER_LIMITS_NOT_CONFIGURED
 				|| blockReason == BrokerSafetyBlockReason.LIVE_OPEN_ORDER_LIMITS_NOT_CONFIGURED
+				|| blockReason == BrokerSafetyBlockReason.LIVE_ORDER_RATE_LIMITS_NOT_CONFIGURED
 				|| blockReason == BrokerSafetyBlockReason.NONE;
 		boolean mutationAvailable = blockReason == BrokerSafetyBlockReason.NONE;
 		return new BrokerSafetyStatusResponse(
@@ -87,6 +94,7 @@ public class BrokerMutationSafetyPolicy {
 				orderLimitsConfigured,
 				dailyOrderLimitsConfigured,
 				openOrderLimitsConfigured,
+				orderRateLimitsConfigured,
 				mutationAvailable,
 				blockReason,
 				mutationCapabilities);
@@ -212,6 +220,27 @@ public class BrokerMutationSafetyPolicy {
 		requireOpenOrderCapacityService().requireCapacity(accountSeq, symbol, operation);
 	}
 
+	/** 내부 실행 상태를 만들기 전에 계좌·종목의 현재 1분 주문 빈도를 검사합니다. */
+	public void requireLiveOrderRateAvailable(long accountSeq, String symbol) {
+		requireOrderRateLimitService().requireCanReserve(accountSeq, symbol);
+	}
+
+	/** 같은 논리 요청의 기존 예약을 인식하면서 현재 1분 주문 빈도를 검사합니다. */
+	public void requireLiveOrderRateAvailable(
+			long accountSeq,
+			String symbol,
+			String reservationKey) {
+		requireOrderRateLimitService().requireCanReserve(accountSeq, symbol, reservationKey);
+	}
+
+	/** 실제 토스 호출 직전에 계좌·종목의 1분 주문 빈도를 멱등하게 예약합니다. */
+	public void reserveLiveOrderRate(
+			long accountSeq,
+			String symbol,
+			String reservationKey) {
+		requireOrderRateLimitService().reserve(accountSeq, symbol, reservationKey);
+	}
+
 	/**
 	 * 실행 직전 계산한 주문 수량과 주문금액이 승인된 LIVE 1회 상한 이내인지 검사합니다.
 	 * 오류에는 실제 수량, 금액과 설정 상한을 포함하지 않습니다.
@@ -296,6 +325,14 @@ public class BrokerMutationSafetyPolicy {
 		return openOrderCapacityService;
 	}
 
+	/** 스프링이 연결한 LIVE 주문 빈도 관리자가 없으면 안전하게 실행을 중단합니다. */
+	private BrokerLiveOrderRateLimitService requireOrderRateLimitService() {
+		if (orderRateLimitService == null) {
+			throw new IllegalStateException("LIVE 주문 빈도 안전 관리자가 연결되어 있지 않습니다.");
+		}
+		return orderRateLimitService;
+	}
+
 	/** 연결된 감사 저장소가 있을 때만 민감정보 없는 LIVE 변경 사건을 저장합니다. */
 	private void recordMutationAudit(
 			BrokerMutationCapability capability,
@@ -329,6 +366,7 @@ public class BrokerMutationSafetyPolicy {
 	 * @param orderLimitsConfigured 수량과 통화별 실제 주문 상한이 설정됐는지 여부
 	 * @param dailyOrderLimitsConfigured 일일 누적 수량과 통화별 상한이 설정됐는지 여부
 	 * @param openOrderLimitsConfigured 계좌·종목 활성 주문 개수 상한이 설정됐는지 여부
+	 * @param orderRateLimitsConfigured 계좌·종목 1분 주문 빈도 상한이 설정됐는지 여부
 	 * @return 실제 주문이 막힌 이유 또는 모든 검사가 통과한 NONE
 	 */
 	private BrokerSafetyBlockReason determineBlockReason(
@@ -337,7 +375,8 @@ public class BrokerMutationSafetyPolicy {
 			boolean instrumentAllowlistConfigured,
 			boolean orderLimitsConfigured,
 			boolean dailyOrderLimitsConfigured,
-			boolean openOrderLimitsConfigured) {
+			boolean openOrderLimitsConfigured,
+			boolean orderRateLimitsConfigured) {
 		if (properties.mode() != BrokerExecutionMode.LIVE) {
 			return BrokerSafetyBlockReason.MOCK_MODE;
 		}
@@ -362,8 +401,11 @@ public class BrokerMutationSafetyPolicy {
 		if (!dailyOrderLimitsConfigured) {
 			return BrokerSafetyBlockReason.LIVE_DAILY_ORDER_LIMITS_NOT_CONFIGURED;
 		}
-		return openOrderLimitsConfigured
+		if (!openOrderLimitsConfigured) {
+			return BrokerSafetyBlockReason.LIVE_OPEN_ORDER_LIMITS_NOT_CONFIGURED;
+		}
+		return orderRateLimitsConfigured
 				? BrokerSafetyBlockReason.NONE
-				: BrokerSafetyBlockReason.LIVE_OPEN_ORDER_LIMITS_NOT_CONFIGURED;
+				: BrokerSafetyBlockReason.LIVE_ORDER_RATE_LIMITS_NOT_CONFIGURED;
 	}
 }

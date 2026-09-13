@@ -20,6 +20,7 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
  * @param liveOrderLimits 실제 주문 한 건에 적용할 수량과 통화별 금액 상한
  * @param liveDailyOrderLimits 실제 주문의 하루 누적 수량과 통화별 금액 상한
  * @param liveOpenOrderLimits 계좌 전체와 동일 종목의 활성 주문 개수 상한
+ * @param liveOrderRateLimits 계좌 전체와 동일 종목의 1분 주문 생성·정정 상한
  */
 @ConfigurationProperties(prefix = "jusika.broker")
 public record BrokerSafetyProperties(
@@ -31,7 +32,24 @@ public record BrokerSafetyProperties(
 		@DefaultValue Set<String> allowedInstruments,
 		@DefaultValue BrokerLiveOrderLimitProperties liveOrderLimits,
 		@DefaultValue BrokerLiveDailyOrderLimitProperties liveDailyOrderLimits,
-		@DefaultValue BrokerLiveOpenOrderLimitProperties liveOpenOrderLimits) {
+		@DefaultValue BrokerLiveOpenOrderLimitProperties liveOpenOrderLimits,
+		@DefaultValue BrokerLiveOrderRateLimitProperties liveOrderRateLimits) {
+
+	/** 기존 전체 안전 설정 호출 형식을 유지하되 주문 빈도 한도는 닫힌 상태로 만듭니다. */
+	public BrokerSafetyProperties(
+			BrokerExecutionMode mode,
+			boolean liveEnabled,
+			boolean killSwitchActive,
+			BrokerLiveAdapterProperties liveAdapters,
+			Set<Long> allowedAccountSeqs,
+			Set<String> allowedInstruments,
+			BrokerLiveOrderLimitProperties liveOrderLimits,
+			BrokerLiveDailyOrderLimitProperties liveDailyOrderLimits,
+			BrokerLiveOpenOrderLimitProperties liveOpenOrderLimits) {
+		this(mode, liveEnabled, killSwitchActive, liveAdapters, allowedAccountSeqs,
+				allowedInstruments, liveOrderLimits, liveDailyOrderLimits,
+				liveOpenOrderLimits, BrokerLiveOrderRateLimitProperties.allDisabled());
+	}
 
 	/** 기존 호출부에서도 모든 기능이 닫힌 안전 설정을 만들 수 있게 합니다. */
 	public BrokerSafetyProperties(
@@ -161,6 +179,9 @@ public record BrokerSafetyProperties(
 		}
 		if (liveOpenOrderLimits == null) {
 			throw new IllegalArgumentException("실제 활성 주문 개수 한도 설정이 필요합니다.");
+		}
+		if (liveOrderRateLimits == null) {
+			throw new IllegalArgumentException("실제 주문 빈도 한도 설정이 필요합니다.");
 		}
 		if (allowedAccountSeqs.stream().anyMatch(accountSeq -> accountSeq == null || accountSeq <= 0)) {
 			throw new IllegalArgumentException("계좌 허용 목록에는 1 이상의 식별값만 사용할 수 있습니다.");

@@ -296,5 +296,12 @@ class LiveConditionalOrderModificationGatewayTests {
 				long accountSeq, String reservationKey, BrokerOrderRiskSnapshot riskSnapshot) {
 			// 일일 누적 저장은 전용 통합 테스트에서 검사합니다.
 		}
+
+		/** 기존 클라이언트 위임 검사에서는 1분 주문 빈도 예약을 기록하지 않습니다. */
+		@Override
+		public void reserveLiveOrderRate(
+				long accountSeq, String symbol, String reservationKey) {
+			// 주문 빈도 저장은 전용 통합 테스트에서 검사합니다.
+		}
 	}
 }

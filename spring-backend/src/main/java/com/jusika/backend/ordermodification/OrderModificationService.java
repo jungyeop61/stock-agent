@@ -111,6 +111,9 @@ public class OrderModificationService {
 		modificationGateway.requireOpenOrderCapacity(
 				preview.accountSeq(), preview.symbol(),
 				BrokerOpenOrderCapacityOperation.REPLACE_OR_RECOVER);
+		modificationGateway.requireOrderRateAvailable(
+				preview.accountSeq(), preview.symbol(),
+				"NORMAL_ORDER_MODIFICATION:" + preview.originalOrderId());
 
 		OrderDetailResponse current = historyClient.getOrder(
 				preview.accountSeq(), preview.originalOrderId());

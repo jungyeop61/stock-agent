@@ -115,6 +115,7 @@ public class AmountOrderExecutionService {
 		submissionGateway.requireInstrumentAllowed(preview.symbol(), preview.currency());
 		submissionGateway.requireOpenOrderCapacity(
 				preview.accountSeq(), preview.symbol(), BrokerOpenOrderCapacityOperation.CREATE);
+		submissionGateway.requireOrderRateAvailable(preview.accountSeq(), preview.symbol());
 		revalidateLatestConditions(preview, startedAt);
 		String brokerMode = requireMockMode();
 

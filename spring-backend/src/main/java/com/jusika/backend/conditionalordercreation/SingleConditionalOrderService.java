@@ -172,6 +172,7 @@ public class SingleConditionalOrderService {
 		submissionGateway.requireInstrumentAllowed(preview.symbol(), preview.currency());
 		submissionGateway.requireOpenOrderCapacity(
 				preview.accountSeq(), preview.symbol(), BrokerOpenOrderCapacityOperation.CREATE);
+		submissionGateway.requireOrderRateAvailable(preview.accountSeq(), preview.symbol());
 		Calculation calculation = revalidateAccountConditions(preview);
 		if (calculation.requiresHighValueConfirmation()
 				&& !preview.requiresHighValueConfirmation()) {

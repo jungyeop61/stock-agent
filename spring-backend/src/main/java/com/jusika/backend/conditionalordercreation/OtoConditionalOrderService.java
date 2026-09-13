@@ -171,6 +171,7 @@ public class OtoConditionalOrderService {
 		submissionGateway.requireInstrumentAllowed(preview.symbol(), preview.currency());
 		submissionGateway.requireOpenOrderCapacity(
 				preview.accountSeq(), preview.symbol(), BrokerOpenOrderCapacityOperation.CREATE);
+		submissionGateway.requireOrderRateAvailable(preview.accountSeq(), preview.symbol());
 		Revalidation revalidation = revalidateConditions(preview);
 		if (revalidation.requiresHighValueConfirmation()
 				&& !preview.requiresHighValueConfirmation()) {

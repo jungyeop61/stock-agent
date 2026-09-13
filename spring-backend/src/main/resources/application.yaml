@@ -53,6 +53,9 @@ jusika:
     live-open-order-limits:
       max-open-orders-per-account: ${JUSIKA_LIVE_MAX_OPEN_ORDERS_PER_ACCOUNT:0}
       max-open-orders-per-instrument: ${JUSIKA_LIVE_MAX_OPEN_ORDERS_PER_INSTRUMENT:0}
+    live-order-rate-limits:
+      max-mutations-per-account-per-minute: ${JUSIKA_LIVE_MAX_MUTATIONS_PER_ACCOUNT_PER_MINUTE:0}
+      max-mutations-per-instrument-per-minute: ${JUSIKA_LIVE_MAX_MUTATIONS_PER_INSTRUMENT_PER_MINUTE:0}
     live-adapters:
       quantity-order-submission: ${JUSIKA_LIVE_QUANTITY_ORDER_SUBMISSION_CONNECTED:false}
       amount-order-submission: ${JUSIKA_LIVE_AMOUNT_ORDER_SUBMISSION_CONNECTED:false}

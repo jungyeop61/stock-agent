@@ -67,6 +67,25 @@ class LiveAmountOrderSubmissionGateway implements AmountOrderSubmissionGateway {
 		safetyPolicy.requireLiveOpenOrderCapacity(accountSeq, symbol, operation);
 	}
 
+	/** 내부 실행 상태 생성 전에 계좌·종목의 금액 주문 1분 빈도를 검사합니다. */
+	@Override
+	public void requireOrderRateAvailable(long accountSeq, String symbol) {
+		safetyPolicy.requireLiveOrderRateAvailable(accountSeq, symbol);
+	}
+
+	/** 안전 복구 전에는 최초 금액 주문의 기존 빈도 예약을 인식해 검사합니다. */
+	@Override
+	public void requireOrderRateAvailable(
+			long accountSeq, String symbol, String reservationKey) {
+		safetyPolicy.requireLiveOrderRateAvailable(accountSeq, symbol, reservationKey);
+	}
+
+	/** 토스 호출 직전에 금액 주문의 계좌·종목 빈도를 멱등하게 예약합니다. */
+	@Override
+	public void reserveOrderRate(long accountSeq, String symbol, String reservationKey) {
+		safetyPolicy.reserveLiveOrderRate(accountSeq, symbol, reservationKey);
+	}
+
 	/** 최종 계산한 달러 주문금액이 LIVE 1회 한도를 넘지 않는지 검사합니다. */
 	@Override
 	public void requireOrderWithinLimits(BrokerOrderRiskSnapshot riskSnapshot) {
@@ -116,6 +135,7 @@ class LiveAmountOrderSubmissionGateway implements AmountOrderSubmissionGateway {
 		requireInstrumentAllowed(request.symbol(), "USD");
 		requireOpenOrderCapacity(accountSeq, request.symbol(), BrokerOpenOrderCapacityOperation.CREATE);
 		requireOrderWithinLimits(request.riskSnapshot());
+		reserveOrderRate(accountSeq, request.symbol(), "AMOUNT_ORDER:" + request.clientOrderId());
 		reserveDailyOrderRisk(
 				accountSeq, "AMOUNT_ORDER:" + request.clientOrderId(), request.riskSnapshot());
 		return createAmountOrder(accountSeq, request);
@@ -138,6 +158,7 @@ class LiveAmountOrderSubmissionGateway implements AmountOrderSubmissionGateway {
 		requireOpenOrderCapacity(
 				accountSeq, request.symbol(), BrokerOpenOrderCapacityOperation.REPLACE_OR_RECOVER);
 		requireOrderWithinLimits(request.riskSnapshot());
+		reserveOrderRate(accountSeq, request.symbol(), "AMOUNT_ORDER:" + request.clientOrderId());
 		reserveDailyOrderRisk(
 				accountSeq, "AMOUNT_ORDER:" + request.clientOrderId(), request.riskSnapshot());
 		return createAmountOrder(accountSeq, request);
