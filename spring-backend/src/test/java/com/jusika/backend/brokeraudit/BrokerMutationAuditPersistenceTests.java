@@ -43,6 +43,7 @@ class BrokerMutationAuditPersistenceTests {
 	@AfterEach
 	void 요청_문맥을_정리한다() {
 		RequestContextHolder.resetRequestAttributes();
+		repository.deleteAll();
 	}
 
 	/** 기본 MOCK 차단 결과가 계좌나 주문 정보 없이 정책 감사 사건으로 남는지 검사합니다. */
@@ -119,6 +120,24 @@ class BrokerMutationAuditPersistenceTests {
 		assertThat(second.events())
 				.extracting(BrokerMutationAuditEventResponse::outcome)
 				.containsExactly(BrokerMutationAuditOutcome.STARTED);
+	}
+
+	/** 토스 요청의 UNKNOWN 사건만 자동 안전정지 근거로 판단하는지 검사합니다. */
+	@Test
+	@DisplayName("토스 요청 결과 불명 사건을 자동 안전정지 근거로 조회한다")
+	void 토스_요청_결과_불명_사건을_자동_안전정지_근거로_조회한다() {
+		auditService.record(
+				BrokerMutationCapability.QUANTITY_ORDER_SUBMISSION,
+				BrokerMutationAuditStage.BROKER_REQUEST,
+				BrokerMutationAuditOutcome.REJECTED);
+		assertThat(auditService.hasUnknownBrokerRequest()).isFalse();
+
+		auditService.record(
+				BrokerMutationCapability.QUANTITY_ORDER_SUBMISSION,
+				BrokerMutationAuditStage.BROKER_REQUEST,
+				BrokerMutationAuditOutcome.UNKNOWN);
+
+		assertThat(auditService.hasUnknownBrokerRequest()).isTrue();
 	}
 
 	/** 잘못된 커서와 과도한 조회 개수를 데이터베이스 접근 전에 거절하는지 검사합니다. */

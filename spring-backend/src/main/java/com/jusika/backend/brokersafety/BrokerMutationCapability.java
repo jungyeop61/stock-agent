@@ -12,5 +12,11 @@ public enum BrokerMutationCapability {
 	OCO_CONDITIONAL_ORDER_CREATION,
 	OTO_CONDITIONAL_ORDER_CREATION,
 	CONDITIONAL_ORDER_CANCELLATION,
-	CONDITIONAL_ORDER_MODIFICATION
+	CONDITIONAL_ORDER_MODIFICATION;
+
+	/** 결과 불명 사고 뒤 추가 위험을 만들 수 있어 자동 안전정지 대상인지 반환합니다. */
+	public boolean increasesOrderExposure() {
+		return this != NORMAL_ORDER_CANCELLATION
+				&& this != CONDITIONAL_ORDER_CANCELLATION;
+	}
 }

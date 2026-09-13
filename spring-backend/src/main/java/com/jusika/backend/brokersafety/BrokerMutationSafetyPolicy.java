@@ -36,7 +36,7 @@ public class BrokerMutationSafetyPolicy {
 		this.mutationAuditService = null;
 	}
 
-	/** 애플리케이션에서는 일일 누적 위험과 활성 주문 개수 관리자까지 함께 연결합니다. */
+	/** 애플리케이션에서는 누적 위험·활성 주문·빈도·감사 관리자를 함께 연결합니다. */
 	@Autowired
 	public BrokerMutationSafetyPolicy(
 			BrokerSafetyProperties properties,
@@ -44,11 +44,26 @@ public class BrokerMutationSafetyPolicy {
 			ObjectProvider<BrokerLiveOpenOrderCapacityService> openOrderCapacityServiceProvider,
 			ObjectProvider<BrokerLiveOrderRateLimitService> orderRateLimitServiceProvider,
 			ObjectProvider<BrokerMutationAuditService> mutationAuditServiceProvider) {
+		this(
+				properties,
+				dailyOrderRiskServiceProvider.getIfAvailable(),
+				openOrderCapacityServiceProvider.getIfAvailable(),
+				orderRateLimitServiceProvider.getIfAvailable(),
+				mutationAuditServiceProvider.getIfAvailable());
+	}
+
+	/** 테스트와 명시적 조립에서 안전 보조 서비스를 직접 연결합니다. */
+	BrokerMutationSafetyPolicy(
+			BrokerSafetyProperties properties,
+			BrokerLiveDailyOrderRiskService dailyOrderRiskService,
+			BrokerLiveOpenOrderCapacityService openOrderCapacityService,
+			BrokerLiveOrderRateLimitService orderRateLimitService,
+			BrokerMutationAuditService mutationAuditService) {
 		this.properties = properties;
-		this.dailyOrderRiskService = dailyOrderRiskServiceProvider.getIfAvailable();
-		this.openOrderCapacityService = openOrderCapacityServiceProvider.getIfAvailable();
-		this.orderRateLimitService = orderRateLimitServiceProvider.getIfAvailable();
-		this.mutationAuditService = mutationAuditServiceProvider.getIfAvailable();
+		this.dailyOrderRiskService = dailyOrderRiskService;
+		this.openOrderCapacityService = openOrderCapacityService;
+		this.orderRateLimitService = orderRateLimitService;
+		this.mutationAuditService = mutationAuditService;
 	}
 
 	/**
@@ -66,6 +81,7 @@ public class BrokerMutationSafetyPolicy {
 		boolean dailyOrderLimitsConfigured = properties.liveDailyOrderLimits().isConfigured();
 		boolean openOrderLimitsConfigured = properties.liveOpenOrderLimits().isConfigured();
 		boolean orderRateLimitsConfigured = properties.liveOrderRateLimits().isConfigured();
+		boolean unknownIncidentHaltActive = isUnknownIncidentHaltActive();
 		BrokerSafetyBlockReason blockReason = determineBlockReason(
 				allAdaptersConnected,
 				accountAllowlistConfigured,
@@ -73,7 +89,8 @@ public class BrokerMutationSafetyPolicy {
 				orderLimitsConfigured,
 				dailyOrderLimitsConfigured,
 				openOrderLimitsConfigured,
-				orderRateLimitsConfigured);
+				orderRateLimitsConfigured,
+				unknownIncidentHaltActive);
 		boolean safetyGateOpen = blockReason == BrokerSafetyBlockReason.LIVE_ADAPTER_NOT_CONNECTED
 				|| blockReason == BrokerSafetyBlockReason.LIVE_ACCOUNT_ALLOWLIST_EMPTY
 				|| blockReason == BrokerSafetyBlockReason.LIVE_INSTRUMENT_ALLOWLIST_EMPTY
@@ -95,6 +112,7 @@ public class BrokerMutationSafetyPolicy {
 				dailyOrderLimitsConfigured,
 				openOrderLimitsConfigured,
 				orderRateLimitsConfigured,
+				unknownIncidentHaltActive,
 				mutationAvailable,
 				blockReason,
 				mutationCapabilities);
@@ -122,6 +140,10 @@ public class BrokerMutationSafetyPolicy {
 			}
 			if (!isLiveAdapterConnected(capability)) {
 				throw new BrokerMutationBlockedException("실제 주문 어댑터가 연결되어 있지 않습니다.");
+			}
+			if (capability.increasesOrderExposure() && isUnknownIncidentHaltActive()) {
+				throw new BrokerMutationBlockedException(
+						"결과를 확인하지 못한 LIVE 주문 사고가 있어 신규 주문과 정정을 차단합니다.");
 			}
 			recordMutationAudit(
 					capability,
@@ -343,6 +365,11 @@ public class BrokerMutationSafetyPolicy {
 		}
 	}
 
+	/** 저장된 결과 불명 토스 요청이 있으면 신규 위험 자동 정지가 활성화된 것으로 판단합니다. */
+	private boolean isUnknownIncidentHaltActive() {
+		return mutationAuditService != null && mutationAuditService.hasUnknownBrokerRequest();
+	}
+
 	/** 지정한 주문 변경 기능의 실제 어댑터 연결 상태를 설정에서 확인합니다. */
 	private boolean isLiveAdapterConnected(BrokerMutationCapability capability) {
 		return properties.liveAdapters().isConnected(capability);
@@ -367,6 +394,7 @@ public class BrokerMutationSafetyPolicy {
 	 * @param dailyOrderLimitsConfigured 일일 누적 수량과 통화별 상한이 설정됐는지 여부
 	 * @param openOrderLimitsConfigured 계좌·종목 활성 주문 개수 상한이 설정됐는지 여부
 	 * @param orderRateLimitsConfigured 계좌·종목 1분 주문 빈도 상한이 설정됐는지 여부
+	 * @param unknownIncidentHaltActive 결과 불명 토스 요청으로 신규 위험이 자동 정지됐는지 여부
 	 * @return 실제 주문이 막힌 이유 또는 모든 검사가 통과한 NONE
 	 */
 	private BrokerSafetyBlockReason determineBlockReason(
@@ -376,7 +404,8 @@ public class BrokerMutationSafetyPolicy {
 			boolean orderLimitsConfigured,
 			boolean dailyOrderLimitsConfigured,
 			boolean openOrderLimitsConfigured,
-			boolean orderRateLimitsConfigured) {
+			boolean orderRateLimitsConfigured,
+			boolean unknownIncidentHaltActive) {
 		if (properties.mode() != BrokerExecutionMode.LIVE) {
 			return BrokerSafetyBlockReason.MOCK_MODE;
 		}
@@ -404,8 +433,11 @@ public class BrokerMutationSafetyPolicy {
 		if (!openOrderLimitsConfigured) {
 			return BrokerSafetyBlockReason.LIVE_OPEN_ORDER_LIMITS_NOT_CONFIGURED;
 		}
-		return orderRateLimitsConfigured
-				? BrokerSafetyBlockReason.NONE
-				: BrokerSafetyBlockReason.LIVE_ORDER_RATE_LIMITS_NOT_CONFIGURED;
+		if (!orderRateLimitsConfigured) {
+			return BrokerSafetyBlockReason.LIVE_ORDER_RATE_LIMITS_NOT_CONFIGURED;
+		}
+		return unknownIncidentHaltActive
+				? BrokerSafetyBlockReason.LIVE_UNKNOWN_INCIDENT_HALT_ACTIVE
+				: BrokerSafetyBlockReason.NONE;
 	}
 }

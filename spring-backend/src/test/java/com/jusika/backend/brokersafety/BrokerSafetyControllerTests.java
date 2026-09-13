@@ -38,6 +38,7 @@ class BrokerSafetyControllerTests {
 				.andExpect(jsonPath("$.liveDailyOrderLimitsConfigured").value(false))
 				.andExpect(jsonPath("$.liveOpenOrderLimitsConfigured").value(false))
 				.andExpect(jsonPath("$.liveOrderRateLimitsConfigured").value(false))
+				.andExpect(jsonPath("$.liveUnknownIncidentHaltActive").value(false))
 				.andExpect(jsonPath("$.liveMutationAvailable").value(false))
 				.andExpect(jsonPath("$.blockReason").value("MOCK_MODE"))
 				.andExpect(jsonPath("$.mutationCapabilities.length()").value(9))

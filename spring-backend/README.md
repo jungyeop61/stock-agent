@@ -114,6 +114,7 @@ event=internal_api_audit occurredAt=<요청-시각> requestId=<요청-UUID> meth
 
 LIVE 게이트웨이가 중앙 실행 모드·기능 플래그·긴급 차단 스위치·기능별 연결 상태를 검사한 결과와 실제 토스 변경 요청의 처리 결과를 V16 데이터베이스에 추가 전용 사건으로 저장합니다.
 기본 설정에서는 실제 호출이 차단되므로 `SAFETY_GATE`의 `BLOCKED` 사건만 남으며 토스 주문은 변경되지 않습니다.
+토스 요청의 `UNKNOWN` 사건은 V18 인덱스로 빠르게 확인하며, 하나라도 존재하면 별도의 자동 해제 없이 신규 주문·정정·복구를 정지합니다.
 
 감사 사건에는 다음 값만 저장합니다.
 
@@ -259,6 +260,15 @@ curl --get http://localhost:8080/api/broker/mutation-audits \
 - MOCK 실행은 실제 증권사 요청을 보내지 않으므로 빈도 제한의 영향을 받지 않습니다.
 - 안전 상태 응답에는 설정 여부만 포함하고 실제 한도·현재 횟수·계좌·종목·예약 해시는 공개하지 않습니다.
 
+결과 불명 사고 자동 안전정지는 다음 규칙을 적용합니다.
+
+- `BROKER_REQUEST` 단계의 `UNKNOWN` 감사 사건이 하나라도 저장되면 자동 안전정지가 활성화됩니다.
+- 일반·금액·조건 주문 생성, 일반·조건 주문 정정과 결과 불명 주문 복구를 차단합니다.
+- 일반·조건 주문 취소는 추가 위험을 만들지 않으므로 자동 안전정지 중에도 기존 안전정책을 통과하면 실행할 수 있습니다.
+- 확정 거절인 `REJECTED`와 중앙 안전 관문의 `BLOCKED`는 결과가 불명한 사고가 아니므로 자동 정지를 만들지 않습니다.
+- 이번 단계에는 자동 또는 HTTP 해제 기능이 없습니다. 주문 상태를 사람이 확인하기 전 임의로 다시 열리지 않습니다.
+- 안전 상태 응답은 정지 여부만 반환하며 계좌·종목·주문 식별값과 오류 원문을 공개하지 않습니다.
+
 현재 상태는 계좌번호, 토큰이나 주문 식별값 없이 조회할 수 있습니다.
 
 ```bash
@@ -280,6 +290,7 @@ curl http://localhost:8080/api/broker/safety
   "liveDailyOrderLimitsConfigured": false,
   "liveOpenOrderLimitsConfigured": false,
   "liveOrderRateLimitsConfigured": false,
+  "liveUnknownIncidentHaltActive": false,
   "liveMutationAvailable": false,
   "blockReason": "MOCK_MODE",
   "mutationCapabilities": [
@@ -323,7 +334,7 @@ curl http://localhost:8080/api/broker/safety
 }
 ```
 
-`blockReason`은 `MOCK_MODE`, `LIVE_FEATURE_DISABLED`, `KILL_SWITCH_ACTIVE`, `LIVE_ADAPTER_NOT_CONNECTED`, `LIVE_ACCOUNT_ALLOWLIST_EMPTY`, `LIVE_INSTRUMENT_ALLOWLIST_EMPTY`, `LIVE_ORDER_LIMITS_NOT_CONFIGURED`, `LIVE_DAILY_ORDER_LIMITS_NOT_CONFIGURED`, `LIVE_OPEN_ORDER_LIMITS_NOT_CONFIGURED`, `LIVE_ORDER_RATE_LIMITS_NOT_CONFIGURED` 중 현재 가장 우선적인 차단 사유를 반환합니다. 모든 전역 설정, 아홉 기능별 준비 상태, 계좌·종목 허용 목록, 세 1회 주문 한도, 세 일일 누적 한도, 두 활성 주문 개수 한도와 두 1분 주문 빈도 한도가 열렸다면 `NONE`을 반환합니다.
+`blockReason`은 `MOCK_MODE`, `LIVE_FEATURE_DISABLED`, `KILL_SWITCH_ACTIVE`, `LIVE_ADAPTER_NOT_CONNECTED`, `LIVE_ACCOUNT_ALLOWLIST_EMPTY`, `LIVE_INSTRUMENT_ALLOWLIST_EMPTY`, `LIVE_ORDER_LIMITS_NOT_CONFIGURED`, `LIVE_DAILY_ORDER_LIMITS_NOT_CONFIGURED`, `LIVE_OPEN_ORDER_LIMITS_NOT_CONFIGURED`, `LIVE_ORDER_RATE_LIMITS_NOT_CONFIGURED`, `LIVE_UNKNOWN_INCIDENT_HALT_ACTIVE` 중 현재 가장 우선적인 차단 사유를 반환합니다. 모든 전역 설정, 아홉 기능별 준비 상태, 계좌·종목 허용 목록, 세 1회 주문 한도, 세 일일 누적 한도, 두 활성 주문 개수 한도와 두 1분 주문 빈도 한도가 열리고 결과 불명 사고가 없다면 `NONE`을 반환합니다.
 `liveAdapterConnected`는 모든 기능이 연결됐을 때만 `true`가 되는 전역 값이며, `mutationCapabilities`에서 기능별 준비 상태를 확인할 수 있습니다.
 `liveAccountAllowlistConfigured`는 허용 계좌가 하나 이상 설정됐는지만 나타내며 실제 계좌 정보는 반환하지 않습니다.
 `liveInstrumentAllowlistConfigured`는 허용한 시장별 종목이 하나 이상 설정됐는지만 나타내며 실제 종목과 개수는 반환하지 않습니다.
@@ -331,13 +342,15 @@ curl http://localhost:8080/api/broker/safety
 `liveDailyOrderLimitsConfigured`는 일일 누적 수량과 원화·달러 금액 상한이 모두 양수로 설정됐는지만 나타내며 실제 한도와 누적값은 반환하지 않습니다.
 `liveOpenOrderLimitsConfigured`는 계좌 전체와 동일 종목 활성 주문 개수 상한이 모두 양수로 설정됐는지만 나타내며 실제 상한과 현재 주문 수는 반환하지 않습니다.
 `liveOrderRateLimitsConfigured`는 계좌 전체와 동일 종목의 1분 주문 빈도 상한이 모두 양수로 설정됐는지만 나타내며 실제 상한과 현재 횟수는 반환하지 않습니다.
+`liveUnknownIncidentHaltActive`는 토스 요청 결과 불명으로 신규 위험 자동 정지가 활성화됐는지만 나타내며 사고 주문 정보는 반환하지 않습니다.
 V15는 일일 위험 예약과 동시 요청 직렬화를 위한 테이블만 추가하며 실제 토스 주문 결과나 민감한 주문 식별값 원문을 저장하지 않습니다.
 V16은 LIVE 안전 관문과 토스 변경 요청 결과의 비식별 감사 사건만 추가하며 금융값과 주문 식별값은 저장하지 않습니다.
 V17은 LIVE 주문 빈도 예약과 동시 요청 직렬화를 위한 테이블을 추가하며 예약 식별값과 종목은 SHA-256 해시로만 저장합니다.
+V18은 결과 불명 사고 여부를 빠르게 확인하는 감사 사건 복합 인덱스만 추가하며 새로운 민감정보를 저장하지 않습니다.
 활성 주문 개수 한도는 토스의 최신 읽기 전용 목록을 사용하므로 데이터베이스 마이그레이션을 추가하지 않습니다.
 
 ```bash
-./mvnw -Dtest=BrokerMutationSafetyPolicyTests,BrokerSafetyControllerTests,BrokerLiveDailyOrderRiskServiceTests,BrokerLiveOpenOrderCapacityServiceTests,BrokerLiveOrderRateLimitServiceTests test
+./mvnw -Dtest=BrokerMutationSafetyPolicyTests,BrokerSafetyControllerTests,BrokerUnknownIncidentHaltIntegrationTests,BrokerLiveDailyOrderRiskServiceTests,BrokerLiveOpenOrderCapacityServiceTests,BrokerLiveOrderRateLimitServiceTests,BrokerMutationAuditPersistenceTests test
 ```
 
 ### 일반 수량 주문 LIVE 제출 경계 골격

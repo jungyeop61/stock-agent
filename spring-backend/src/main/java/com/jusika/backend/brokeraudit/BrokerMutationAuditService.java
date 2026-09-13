@@ -55,6 +55,14 @@ public class BrokerMutationAuditService {
 				OffsetDateTime.now(clock)));
 	}
 
+	/** 과거 LIVE 토스 변경 요청 중 아직 해제할 수 없는 결과 불명 사건이 있는지 확인합니다. */
+	@Transactional(readOnly = true)
+	public boolean hasUnknownBrokerRequest() {
+		return repository.existsByStageAndOutcome(
+				BrokerMutationAuditStage.BROKER_REQUEST,
+				BrokerMutationAuditOutcome.UNKNOWN);
+	}
+
 	/**
 	 * 최신 감사 사건을 식별값 역순의 커서 페이지로 반환합니다.
 	 *

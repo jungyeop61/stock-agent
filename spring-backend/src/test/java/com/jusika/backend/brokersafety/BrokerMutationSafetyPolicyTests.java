@@ -11,6 +11,10 @@ import java.util.Set;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import com.jusika.backend.brokeraudit.BrokerMutationAuditOutcome;
+import com.jusika.backend.brokeraudit.BrokerMutationAuditService;
+import com.jusika.backend.brokeraudit.BrokerMutationAuditStage;
+
 /**
  * 네트워크 호출 없이 LIVE 기능 플래그와 긴급 차단 스위치 조합을 검사합니다.
  */
@@ -161,8 +165,44 @@ class BrokerMutationSafetyPolicyTests {
 		assertThat(status.liveDailyOrderLimitsConfigured()).isTrue();
 		assertThat(status.liveOpenOrderLimitsConfigured()).isTrue();
 		assertThat(status.liveOrderRateLimitsConfigured()).isTrue();
+		assertThat(status.liveUnknownIncidentHaltActive()).isFalse();
 		assertThat(status.liveMutationAvailable()).isTrue();
 		assertThat(status.blockReason()).isEqualTo(BrokerSafetyBlockReason.NONE);
+	}
+
+	/** 결과 불명 사고 뒤 신규 위험은 차단하되 취소 경로는 열어 두는지 검사합니다. */
+	@Test
+	@DisplayName("LIVE 결과 불명 사고는 신규 주문과 정정만 자동 정지한다")
+	void LIVE_결과_불명_사고는_신규_주문과_정정만_자동_정지한다() {
+		결과불명_감사서비스 auditService = new 결과불명_감사서비스();
+		BrokerMutationSafetyPolicy policy = new BrokerMutationSafetyPolicy(
+				모든_안전장치가_열린_설정을_만든다(),
+				null,
+				null,
+				null,
+				auditService);
+
+		BrokerSafetyStatusResponse status = policy.getStatus();
+
+		assertThat(status.liveUnknownIncidentHaltActive()).isTrue();
+		assertThat(status.liveMutationAvailable()).isFalse();
+		assertThat(status.blockReason())
+				.isEqualTo(BrokerSafetyBlockReason.LIVE_UNKNOWN_INCIDENT_HALT_ACTIVE);
+		assertThatThrownBy(() -> policy.requireLiveMutationAvailable(
+				BrokerMutationCapability.QUANTITY_ORDER_SUBMISSION))
+				.isInstanceOf(BrokerMutationBlockedException.class)
+				.hasMessage("결과를 확인하지 못한 LIVE 주문 사고가 있어 신규 주문과 정정을 차단합니다.");
+		assertThatThrownBy(() -> policy.requireLiveMutationAvailable(
+				BrokerMutationCapability.NORMAL_ORDER_MODIFICATION))
+				.isInstanceOf(BrokerMutationBlockedException.class);
+		assertThatCode(() -> policy.requireLiveMutationAvailable(
+				BrokerMutationCapability.NORMAL_ORDER_CANCELLATION))
+				.doesNotThrowAnyException();
+		assertThatCode(() -> policy.requireLiveMutationAvailable(
+				BrokerMutationCapability.CONDITIONAL_ORDER_CANCELLATION))
+				.doesNotThrowAnyException();
+		assertThat(auditService.blockedCount).isEqualTo(2);
+		assertThat(auditService.allowedCount).isEqualTo(2);
 	}
 
 	/** 기존 안전 설정을 모두 열어도 1분 주문 빈도 상한이 0이면 LIVE가 열리지 않는지 검사합니다. */
@@ -424,7 +464,12 @@ class BrokerMutationSafetyPolicyTests {
 
 	/** 수량과 원화·달러 금액 상한 검사용 중앙 정책을 만듭니다. */
 	private BrokerMutationSafetyPolicy 한도_검사용_정책을_만든다() {
-		return new BrokerMutationSafetyPolicy(new BrokerSafetyProperties(
+		return new BrokerMutationSafetyPolicy(모든_안전장치가_열린_설정을_만든다());
+	}
+
+	/** 모든 설정과 어댑터가 준비된 테스트용 안전 설정을 반환합니다. */
+	private BrokerSafetyProperties 모든_안전장치가_열린_설정을_만든다() {
+		return new BrokerSafetyProperties(
 				BrokerExecutionMode.LIVE,
 				true,
 				false,
@@ -434,7 +479,7 @@ class BrokerMutationSafetyPolicyTests {
 				설정된_주문_한도를_만든다(),
 				설정된_일일_주문_한도를_만든다(),
 				설정된_활성_주문_한도를_만든다(),
-				설정된_주문_빈도_한도를_만든다()));
+				설정된_주문_빈도_한도를_만든다());
 	}
 
 	/** 아홉 주문 변경 기능을 모두 준비된 상태로 만드는 테스트 설정을 반환합니다. */
@@ -476,5 +521,37 @@ class BrokerMutationSafetyPolicyTests {
 			boolean killSwitchActive) {
 		return new BrokerMutationSafetyPolicy(
 				new BrokerSafetyProperties(mode, liveEnabled, killSwitchActive));
+	}
+
+	/** 저장된 결과 불명 사고와 정책 감사 결과를 메모리에서 재현합니다. */
+	private static final class 결과불명_감사서비스 extends BrokerMutationAuditService {
+
+		private int blockedCount;
+		private int allowedCount;
+
+		/** 실제 저장소 없이 결과 불명 상태를 제공하도록 부모 의존성을 비워 둡니다. */
+		private 결과불명_감사서비스() {
+			super(null, null, null);
+		}
+
+		/** 과거 결과 불명 토스 요청이 존재하는 상태를 반환합니다. */
+		@Override
+		public boolean hasUnknownBrokerRequest() {
+			return true;
+		}
+
+		/** 안전 관문의 허용·차단 횟수만 메모리에 기록합니다. */
+		@Override
+		public void record(
+				BrokerMutationCapability capability,
+				BrokerMutationAuditStage stage,
+				BrokerMutationAuditOutcome outcome) {
+			if (outcome == BrokerMutationAuditOutcome.BLOCKED) {
+				blockedCount++;
+			}
+			if (outcome == BrokerMutationAuditOutcome.ALLOWED) {
+				allowedCount++;
+			}
+		}
 	}
 }

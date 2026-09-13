@@ -8,7 +8,7 @@ import java.util.List;
  * @param mode 현재 요청한 증권사 실행 모드
  * @param liveEnabled 실제 주문 기능 플래그 상태
  * @param killSwitchActive 긴급 차단 스위치 상태
- * @param liveSafetyGateOpen 실제 주문 안전 설정 세 가지가 모두 통과했는지 여부
+ * @param liveSafetyGateOpen 기본 실행 모드·기능 플래그·긴급 차단 검사가 통과했는지 여부
  * @param liveAdapterConnected 실제 주문 변경 어댑터가 연결되어 있는지 여부
  * @param liveAccountAllowlistConfigured 실제 주문을 허용한 계좌가 하나 이상 있는지 여부
  * @param liveInstrumentAllowlistConfigured 실제 주문을 허용한 시장별 종목이 하나 이상 있는지 여부
@@ -16,6 +16,7 @@ import java.util.List;
  * @param liveDailyOrderLimitsConfigured 실제 일일 누적 수량과 두 통화 금액 상한이 모두 설정됐는지 여부
  * @param liveOpenOrderLimitsConfigured 실제 계좌·종목 활성 주문 개수 상한이 모두 설정됐는지 여부
  * @param liveOrderRateLimitsConfigured 실제 계좌·종목 1분 주문 빈도 상한이 모두 설정됐는지 여부
+ * @param liveUnknownIncidentHaltActive 과거 토스 요청 결과 불명으로 신규 위험 자동 정지가 활성화됐는지 여부
  * @param liveMutationAvailable 현재 실제 주문 변경이 가능한지 여부
  * @param blockReason 실제 주문 변경을 차단하는 우선 사유 또는 모든 검사 통과 상태
  * @param mutationCapabilities 주문 변경 기능별 실제 어댑터 연결 상태
@@ -32,6 +33,7 @@ public record BrokerSafetyStatusResponse(
 		boolean liveDailyOrderLimitsConfigured,
 		boolean liveOpenOrderLimitsConfigured,
 		boolean liveOrderRateLimitsConfigured,
+		boolean liveUnknownIncidentHaltActive,
 		boolean liveMutationAvailable,
 		BrokerSafetyBlockReason blockReason,
 		List<BrokerMutationCapabilityStatus> mutationCapabilities) {

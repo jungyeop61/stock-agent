@@ -5,6 +5,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -35,6 +36,12 @@ class BrokerMutationAuditControllerTests {
 	/** 각 HTTP 테스트가 독립된 감사 사건 목록을 사용하도록 기존 테스트 자료를 비웁니다. */
 	@BeforeEach
 	void 감사_사건을_비운다() {
+		repository.deleteAll();
+	}
+
+	/** 다른 통합 테스트에 결과 불명 사고 상태가 남지 않도록 감사 사건을 정리합니다. */
+	@AfterEach
+	void 감사_사건을_정리한다() {
 		repository.deleteAll();
 	}
 
