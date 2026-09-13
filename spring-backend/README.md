@@ -1999,3 +1999,35 @@ export SPRING_DATASOURCE_PASSWORD=로컬비밀번호
 ```
 
 위 설정은 이후 Spring 애플리케이션 코드를 추가할 때 사용합니다.
+
+### PostgreSQL 안전 저장소 통합 테스트
+
+일반 테스트는 빠른 H2 데이터베이스를 사용합니다. 실제 PostgreSQL의 Flyway 적용과 `FOR UPDATE` 잠금 동작은 격리된 테스트 전용 컨테이너에서 별도로 검사합니다.
+이 과정은 토스증권 API를 호출하지 않으며 실제 주문도 실행하지 않습니다.
+
+테스트 DB는 개발 DB와 다른 `jusika_integration_test` 이름과 기본 포트 `55432`를 사용하고, 데이터는 컨테이너의 임시 메모리 파일 시스템에만 저장됩니다.
+테스트 코드는 JDBC 주소의 DB 이름에 `test` 또는 `integration`이 없으면 자료 정리 쿼리를 실행하기 전에 즉시 중단합니다.
+
+```bash
+export JUSIKA_TEST_POSTGRES_PASSWORD=통합테스트에서만_사용할_비밀번호
+docker compose -f compose.postgres-test.yaml up -d
+
+cd spring-backend
+RUN_JUSIKA_POSTGRES_TEST=true \
+JUSIKA_TEST_POSTGRES_URL=jdbc:postgresql://localhost:55432/jusika_integration_test \
+JUSIKA_TEST_POSTGRES_USERNAME=jusika_test \
+JUSIKA_TEST_POSTGRES_PASSWORD="$JUSIKA_TEST_POSTGRES_PASSWORD" \
+./mvnw -Dtest=PostgresSafetyPersistenceIntegrationTests test
+
+cd ..
+docker compose -f compose.postgres-test.yaml stop
+```
+
+통합 테스트는 다음을 확인합니다.
+
+- Flyway V1부터 V19까지 PostgreSQL에 정상 적용되는지 확인
+- 일일 주문 위험 예약의 동시 요청이 행 잠금으로 직렬화되는지 확인
+- 계좌·종목별 1분 빈도 예약이 같은 논리 요청을 중복 집계하지 않는지 확인
+- 결과 불명 감사 사건의 자동 안전정지와 수동 확인 이력이 PostgreSQL에 저장되는지 확인
+
+`RUN_JUSIKA_POSTGRES_TEST=true`를 명시하지 않은 전체 테스트에서는 이 통합 테스트를 제외합니다.
