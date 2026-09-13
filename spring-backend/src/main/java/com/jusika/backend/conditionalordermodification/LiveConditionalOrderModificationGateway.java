@@ -9,6 +9,7 @@ import com.jusika.backend.brokersafety.BrokerOrderRiskSnapshot;
 import com.jusika.backend.brokersafety.BrokerOpenOrderCapacityOperation;
 import com.jusika.backend.conditionalorder.ConditionalOrderModificationResponse;
 import com.jusika.backend.conditionalorder.ConditionalOrderModificationSubmissionRequest;
+import com.jusika.backend.orderexecution.OrderSubmissionException;
 import com.jusika.backend.toss.conditionalorder.TossConditionalOrderClient;
 
 /**
@@ -111,8 +112,23 @@ class LiveConditionalOrderModificationGateway implements ConditionalOrderModific
 		reserveDailyOrderRisk(
 				accountSeq, "CONDITIONAL_ORDER_MODIFICATION:" + originalConditionalOrderId,
 				request.riskSnapshot());
-		return conditionalOrderClient.modifyConditionalOrder(
-				accountSeq, originalConditionalOrderId, request);
+		BrokerMutationCapability capability =
+				BrokerMutationCapability.CONDITIONAL_ORDER_MODIFICATION;
+		safetyPolicy.recordBrokerRequestStarted(capability);
+		try {
+			ConditionalOrderModificationResponse response =
+					conditionalOrderClient.modifyConditionalOrder(
+							accountSeq, originalConditionalOrderId, request);
+			safetyPolicy.recordBrokerRequestSucceeded(capability);
+			return response;
+		} catch (OrderSubmissionException exception) {
+			safetyPolicy.recordBrokerRequestFailed(
+					capability, exception.isSubmissionStateUnknown());
+			throw exception;
+		} catch (RuntimeException exception) {
+			safetyPolicy.recordBrokerRequestFailed(capability, true);
+			throw exception;
+		}
 	}
 
 	/**

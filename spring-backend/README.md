@@ -110,6 +110,38 @@ event=internal_api_audit occurredAt=<요청-시각> requestId=<요청-UUID> meth
 ./mvnw -Dtest=InternalApiKeyAuthenticationServiceTests,InternalApiAuthorizationInterceptorTests,InternalApiAuthorizationIntegrationTests test
 ```
 
+### LIVE 주문 변경 감사 사건
+
+LIVE 게이트웨이가 중앙 실행 모드·기능 플래그·긴급 차단 스위치·기능별 연결 상태를 검사한 결과와 실제 토스 변경 요청의 처리 결과를 V16 데이터베이스에 추가 전용 사건으로 저장합니다.
+기본 설정에서는 실제 호출이 차단되므로 `SAFETY_GATE`의 `BLOCKED` 사건만 남으며 토스 주문은 변경되지 않습니다.
+
+감사 사건에는 다음 값만 저장합니다.
+
+- 서버가 검증해 배정한 선택 요청 UUID
+- 아홉 주문 변경 기능 중 하나인 `capability`
+- `SAFETY_GATE` 또는 `BROKER_REQUEST` 처리 단계
+- `ALLOWED`, `BLOCKED`, `STARTED`, `SUCCEEDED`, `REJECTED`, `UNKNOWN` 결과
+- 서버 기록 시각
+
+실제 계좌 식별값·계좌번호·종목·수량·금액·토큰·멱등성 식별값·토스 주문 식별값과 오류 원문은 저장하거나 응답하지 않습니다.
+토스 호출 전에 `STARTED` 사건 저장에 실패하면 실제 요청을 보내지 않고 중단합니다.
+토스가 확정 거절을 반환하면 `REJECTED`, 접수 여부를 판단할 수 없으면 `UNKNOWN`으로 구분하며 `UNKNOWN`은 자동 재시도를 허용한다는 뜻이 아닙니다.
+
+읽기 권한으로 최신 사건부터 조회합니다.
+
+```bash
+curl --get http://localhost:8080/api/broker/mutation-audits \
+  -H "X-Jusika-Api-Key: $JUSIKA_INTERNAL_READ_API_KEY" \
+  --data-urlencode "limit=50"
+```
+
+`hasNext`가 `true`이면 `nextBeforeEventId`를 다음 요청의 `beforeEventId`로 그대로 전달합니다.
+한 번에 1개 이상 100개 이하만 조회할 수 있습니다.
+
+```bash
+./mvnw -Dtest=BrokerMutationAuditPersistenceTests,BrokerMutationAuditControllerTests,LiveOrderSubmissionGatewayTests test
+```
+
 ## 실제 주문 연결 전역 안전장치
 
 실제 매수·매도·취소·정정 어댑터를 연결하기 전에 다음 전역 설정, 계좌·종목 허용 목록, 1회·일일 누적 주문 한도와 활성 주문 개수 한도를 중앙 정책에서 함께 검사합니다.
@@ -282,6 +314,7 @@ curl http://localhost:8080/api/broker/safety
 `liveDailyOrderLimitsConfigured`는 일일 누적 수량과 원화·달러 금액 상한이 모두 양수로 설정됐는지만 나타내며 실제 한도와 누적값은 반환하지 않습니다.
 `liveOpenOrderLimitsConfigured`는 계좌 전체와 동일 종목 활성 주문 개수 상한이 모두 양수로 설정됐는지만 나타내며 실제 상한과 현재 주문 수는 반환하지 않습니다.
 V15는 일일 위험 예약과 동시 요청 직렬화를 위한 테이블만 추가하며 실제 토스 주문 결과나 민감한 주문 식별값 원문을 저장하지 않습니다.
+V16은 LIVE 안전 관문과 토스 변경 요청 결과의 비식별 감사 사건만 추가하며 금융값과 주문 식별값은 저장하지 않습니다.
 활성 주문 개수 한도는 토스의 최신 읽기 전용 목록을 사용하므로 데이터베이스 마이그레이션을 추가하지 않습니다.
 
 ```bash

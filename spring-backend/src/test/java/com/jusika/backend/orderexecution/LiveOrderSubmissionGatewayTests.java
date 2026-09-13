@@ -106,6 +106,9 @@ class LiveOrderSubmissionGatewayTests {
 		assertThat(safetyPolicy.instrumentCheckCallCount).isEqualTo(2);
 		assertThat(safetyPolicy.dailyReservationCallCount).isEqualTo(2);
 		assertThat(safetyPolicy.lastReservationKey).startsWith("QUANTITY_ORDER:");
+		assertThat(safetyPolicy.brokerRequestStartedCount).isEqualTo(2);
+		assertThat(safetyPolicy.brokerRequestSucceededCount).isEqualTo(2);
+		assertThat(safetyPolicy.brokerRequestFailedCount).isZero();
 	}
 
 	/** 토스 결과 불명 오류가 자동 재시도를 막는 제출 결과 불명 상태로 변환되는지 검사합니다. */
@@ -114,13 +117,16 @@ class LiveOrderSubmissionGatewayTests {
 	void 토스_수량_주문_결과_불명_상태를_보존한다() {
 		RecordingTossOrderClient orderClient = new RecordingTossOrderClient();
 		orderClient.failure = new TossOrderException("테스트 결과 불명", null, true);
+		AllowingSafetyPolicy safetyPolicy = new AllowingSafetyPolicy();
 		LiveOrderSubmissionGateway gateway = new LiveOrderSubmissionGateway(
-				new AllowingSafetyPolicy(), orderClient);
+				safetyPolicy, orderClient);
 
 		assertThatThrownBy(() -> gateway.submitQuantityOrder(1L, 가짜_주문을_만든다()))
 				.isInstanceOfSatisfying(OrderSubmissionException.class,
 						exception -> assertThat(exception.isSubmissionStateUnknown()).isTrue())
 				.hasMessage("토스증권 수량 주문 제출에 실패했습니다.");
+		assertThat(safetyPolicy.brokerRequestFailedCount).isEqualTo(1);
+		assertThat(safetyPolicy.lastBrokerRequestStateUnknown).isTrue();
 	}
 
 	/** 토스 확정 거절 오류가 결과 불명으로 확대되지 않고 그대로 변환되는지 검사합니다. */
@@ -129,13 +135,16 @@ class LiveOrderSubmissionGatewayTests {
 	void 토스_수량_주문_확정_거절_상태를_보존한다() {
 		RecordingTossOrderClient orderClient = new RecordingTossOrderClient();
 		orderClient.failure = new TossOrderException("테스트 확정 거절", 400, false);
+		AllowingSafetyPolicy safetyPolicy = new AllowingSafetyPolicy();
 		LiveOrderSubmissionGateway gateway = new LiveOrderSubmissionGateway(
-				new AllowingSafetyPolicy(), orderClient);
+				safetyPolicy, orderClient);
 
 		assertThatThrownBy(() -> gateway.submitQuantityOrder(1L, 가짜_주문을_만든다()))
 				.isInstanceOfSatisfying(OrderSubmissionException.class,
 						exception -> assertThat(exception.isSubmissionStateUnknown()).isFalse())
 				.hasMessage("토스증권 수량 주문 제출에 실패했습니다.");
+		assertThat(safetyPolicy.brokerRequestFailedCount).isEqualTo(1);
+		assertThat(safetyPolicy.lastBrokerRequestStateUnknown).isFalse();
 	}
 
 	/** MOCK 모드에서는 기존 모의 제출 경계만 선택되는지 검사합니다. */
@@ -247,6 +256,10 @@ class LiveOrderSubmissionGatewayTests {
 	private static final class AllowingSafetyPolicy extends BrokerMutationSafetyPolicy {
 		private int dailyReservationCallCount;
 		private int instrumentCheckCallCount;
+		private int brokerRequestStartedCount;
+		private int brokerRequestSucceededCount;
+		private int brokerRequestFailedCount;
+		private boolean lastBrokerRequestStateUnknown;
 		private String lastReservationKey;
 
 		/** 실제 설정을 열지 않고 테스트 전용 정책 객체를 초기화합니다. */
@@ -299,6 +312,30 @@ class LiveOrderSubmissionGatewayTests {
 				long accountSeq, String reservationKey, BrokerOrderRiskSnapshot riskSnapshot) {
 			dailyReservationCallCount++;
 			lastReservationKey = reservationKey;
+		}
+
+		/** 테스트용 토스 호출 시작 감사 사건의 기록 횟수를 셉니다. */
+		@Override
+		public void recordBrokerRequestStarted(BrokerMutationCapability capability) {
+			assertThat(capability).isEqualTo(BrokerMutationCapability.QUANTITY_ORDER_SUBMISSION);
+			brokerRequestStartedCount++;
+		}
+
+		/** 테스트용 토스 호출 성공 감사 사건의 기록 횟수를 셉니다. */
+		@Override
+		public void recordBrokerRequestSucceeded(BrokerMutationCapability capability) {
+			assertThat(capability).isEqualTo(BrokerMutationCapability.QUANTITY_ORDER_SUBMISSION);
+			brokerRequestSucceededCount++;
+		}
+
+		/** 테스트용 토스 호출 실패 감사 사건과 결과 불명 여부를 기록합니다. */
+		@Override
+		public void recordBrokerRequestFailed(
+				BrokerMutationCapability capability,
+				boolean stateUnknown) {
+			assertThat(capability).isEqualTo(BrokerMutationCapability.QUANTITY_ORDER_SUBMISSION);
+			brokerRequestFailedCount++;
+			lastBrokerRequestStateUnknown = stateUnknown;
 		}
 	}
 }

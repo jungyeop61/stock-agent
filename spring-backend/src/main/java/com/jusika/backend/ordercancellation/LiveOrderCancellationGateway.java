@@ -62,12 +62,22 @@ class LiveOrderCancellationGateway implements OrderCancellationGateway {
 	@Override
 	public OrderOperationResponse cancelOrder(long accountSeq, String orderId) {
 		requireCancellationAvailable(accountSeq);
+		BrokerMutationCapability capability =
+				BrokerMutationCapability.NORMAL_ORDER_CANCELLATION;
+		safetyPolicy.recordBrokerRequestStarted(capability);
 		try {
-			return orderClient.cancelOrder(accountSeq, orderId);
+			OrderOperationResponse response = orderClient.cancelOrder(accountSeq, orderId);
+			safetyPolicy.recordBrokerRequestSucceeded(capability);
+			return response;
 		} catch (TossOrderException exception) {
+			safetyPolicy.recordBrokerRequestFailed(
+					capability, exception.isSubmissionStateUnknown());
 			throw new OrderSubmissionException(
 					"토스증권 일반 주문 취소에 실패했습니다.",
 					exception.isSubmissionStateUnknown());
+		} catch (RuntimeException exception) {
+			safetyPolicy.recordBrokerRequestFailed(capability, true);
+			throw exception;
 		}
 	}
 

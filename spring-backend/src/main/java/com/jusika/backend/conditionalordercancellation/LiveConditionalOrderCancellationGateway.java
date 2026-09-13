@@ -5,6 +5,7 @@ import org.springframework.stereotype.Component;
 
 import com.jusika.backend.brokersafety.BrokerMutationSafetyPolicy;
 import com.jusika.backend.brokersafety.BrokerMutationCapability;
+import com.jusika.backend.orderexecution.OrderSubmissionException;
 import com.jusika.backend.toss.conditionalorder.TossConditionalOrderClient;
 
 /**
@@ -58,7 +59,20 @@ class LiveConditionalOrderCancellationGateway implements ConditionalOrderCancell
 	@Override
 	public void cancelConditionalOrder(long accountSeq, String conditionalOrderId) {
 		requireCancellationAvailable(accountSeq);
-		conditionalOrderClient.cancelConditionalOrder(accountSeq, conditionalOrderId);
+		BrokerMutationCapability capability =
+				BrokerMutationCapability.CONDITIONAL_ORDER_CANCELLATION;
+		safetyPolicy.recordBrokerRequestStarted(capability);
+		try {
+			conditionalOrderClient.cancelConditionalOrder(accountSeq, conditionalOrderId);
+			safetyPolicy.recordBrokerRequestSucceeded(capability);
+		} catch (OrderSubmissionException exception) {
+			safetyPolicy.recordBrokerRequestFailed(
+					capability, exception.isSubmissionStateUnknown());
+			throw exception;
+		} catch (RuntimeException exception) {
+			safetyPolicy.recordBrokerRequestFailed(capability, true);
+			throw exception;
+		}
 	}
 
 	/**

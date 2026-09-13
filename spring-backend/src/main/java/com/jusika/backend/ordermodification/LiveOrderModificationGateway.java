@@ -112,12 +112,23 @@ class LiveOrderModificationGateway implements OrderModificationGateway {
 		reserveDailyOrderRisk(
 				accountSeq, "NORMAL_ORDER_MODIFICATION:" + originalOrderId,
 				request.riskSnapshot());
+		BrokerMutationCapability capability =
+				BrokerMutationCapability.NORMAL_ORDER_MODIFICATION;
+		safetyPolicy.recordBrokerRequestStarted(capability);
 		try {
-			return orderClient.modifyOrder(accountSeq, originalOrderId, request);
+			OrderOperationResponse response = orderClient.modifyOrder(
+					accountSeq, originalOrderId, request);
+			safetyPolicy.recordBrokerRequestSucceeded(capability);
+			return response;
 		} catch (TossOrderException exception) {
+			safetyPolicy.recordBrokerRequestFailed(
+					capability, exception.isSubmissionStateUnknown());
 			throw new OrderSubmissionException(
 					"토스증권 일반 주문 정정에 실패했습니다.",
 					exception.isSubmissionStateUnknown());
+		} catch (RuntimeException exception) {
+			safetyPolicy.recordBrokerRequestFailed(capability, true);
+			throw exception;
 		}
 	}
 

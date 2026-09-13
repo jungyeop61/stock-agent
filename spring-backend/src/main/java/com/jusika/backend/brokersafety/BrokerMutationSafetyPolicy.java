@@ -7,6 +7,10 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import com.jusika.backend.brokeraudit.BrokerMutationAuditOutcome;
+import com.jusika.backend.brokeraudit.BrokerMutationAuditService;
+import com.jusika.backend.brokeraudit.BrokerMutationAuditStage;
+
 /**
  * 실제 증권사 주문 변경 전에 LIVE 기능 플래그와 긴급 차단 스위치를 중앙에서 검사합니다.
  */
@@ -16,6 +20,7 @@ public class BrokerMutationSafetyPolicy {
 	private final BrokerSafetyProperties properties;
 	private final BrokerLiveDailyOrderRiskService dailyOrderRiskService;
 	private final BrokerLiveOpenOrderCapacityService openOrderCapacityService;
+	private final BrokerMutationAuditService mutationAuditService;
 
 	/**
 	 * 애플리케이션 설정에서 읽은 증권사 실행 안전값을 전달받습니다.
@@ -26,6 +31,7 @@ public class BrokerMutationSafetyPolicy {
 		this.properties = properties;
 		this.dailyOrderRiskService = null;
 		this.openOrderCapacityService = null;
+		this.mutationAuditService = null;
 	}
 
 	/** 애플리케이션에서는 일일 누적 위험과 활성 주문 개수 관리자까지 함께 연결합니다. */
@@ -33,10 +39,12 @@ public class BrokerMutationSafetyPolicy {
 	public BrokerMutationSafetyPolicy(
 			BrokerSafetyProperties properties,
 			ObjectProvider<BrokerLiveDailyOrderRiskService> dailyOrderRiskServiceProvider,
-			ObjectProvider<BrokerLiveOpenOrderCapacityService> openOrderCapacityServiceProvider) {
+			ObjectProvider<BrokerLiveOpenOrderCapacityService> openOrderCapacityServiceProvider,
+			ObjectProvider<BrokerMutationAuditService> mutationAuditServiceProvider) {
 		this.properties = properties;
 		this.dailyOrderRiskService = dailyOrderRiskServiceProvider.getIfAvailable();
 		this.openOrderCapacityService = openOrderCapacityServiceProvider.getIfAvailable();
+		this.mutationAuditService = mutationAuditServiceProvider.getIfAvailable();
 	}
 
 	/**
@@ -94,18 +102,63 @@ public class BrokerMutationSafetyPolicy {
 		if (capability == null) {
 			throw new IllegalArgumentException("확인할 주문 변경 기능이 필요합니다.");
 		}
-		if (properties.mode() != BrokerExecutionMode.LIVE) {
-			throw new BrokerMutationBlockedException("현재 증권사 실행 모드는 MOCK입니다.");
+		try {
+			if (properties.mode() != BrokerExecutionMode.LIVE) {
+				throw new BrokerMutationBlockedException("현재 증권사 실행 모드는 MOCK입니다.");
+			}
+			if (!properties.liveEnabled()) {
+				throw new BrokerMutationBlockedException("실제 주문 기능이 비활성화되어 있습니다.");
+			}
+			if (properties.killSwitchActive()) {
+				throw new BrokerMutationBlockedException("긴급 주문 차단 스위치가 활성화되어 있습니다.");
+			}
+			if (!isLiveAdapterConnected(capability)) {
+				throw new BrokerMutationBlockedException("실제 주문 어댑터가 연결되어 있지 않습니다.");
+			}
+			recordMutationAudit(
+					capability,
+					BrokerMutationAuditStage.SAFETY_GATE,
+					BrokerMutationAuditOutcome.ALLOWED);
+		} catch (BrokerMutationBlockedException exception) {
+			recordMutationAudit(
+					capability,
+					BrokerMutationAuditStage.SAFETY_GATE,
+					BrokerMutationAuditOutcome.BLOCKED);
+			throw exception;
 		}
-		if (!properties.liveEnabled()) {
-			throw new BrokerMutationBlockedException("실제 주문 기능이 비활성화되어 있습니다.");
-		}
-		if (properties.killSwitchActive()) {
-			throw new BrokerMutationBlockedException("긴급 주문 차단 스위치가 활성화되어 있습니다.");
-		}
-		if (!isLiveAdapterConnected(capability)) {
-			throw new BrokerMutationBlockedException("실제 주문 어댑터가 연결되어 있지 않습니다.");
-		}
+	}
+
+	/** 토스 변경 요청을 보내기 직전 민감정보 없는 시작 사건을 기록합니다. */
+	public void recordBrokerRequestStarted(BrokerMutationCapability capability) {
+		recordMutationAudit(
+				capability,
+				BrokerMutationAuditStage.BROKER_REQUEST,
+				BrokerMutationAuditOutcome.STARTED);
+	}
+
+	/** 토스 변경 요청이 확정 성공한 사실을 민감정보 없이 기록합니다. */
+	public void recordBrokerRequestSucceeded(BrokerMutationCapability capability) {
+		recordMutationAudit(
+				capability,
+				BrokerMutationAuditStage.BROKER_REQUEST,
+				BrokerMutationAuditOutcome.SUCCEEDED);
+	}
+
+	/**
+	 * 토스 변경 요청의 확정 거절 또는 결과 불명 상태를 민감정보 없이 기록합니다.
+	 *
+	 * @param capability 호출한 주문 변경 기능
+	 * @param stateUnknown 증권사 접수 여부를 확정할 수 없으면 true
+	 */
+	public void recordBrokerRequestFailed(
+			BrokerMutationCapability capability,
+			boolean stateUnknown) {
+		recordMutationAudit(
+				capability,
+				BrokerMutationAuditStage.BROKER_REQUEST,
+				stateUnknown
+						? BrokerMutationAuditOutcome.UNKNOWN
+						: BrokerMutationAuditOutcome.REJECTED);
 	}
 
 	/**
@@ -241,6 +294,16 @@ public class BrokerMutationSafetyPolicy {
 			throw new IllegalStateException("LIVE 활성 주문 개수 안전 관리자가 연결되어 있지 않습니다.");
 		}
 		return openOrderCapacityService;
+	}
+
+	/** 연결된 감사 저장소가 있을 때만 민감정보 없는 LIVE 변경 사건을 저장합니다. */
+	private void recordMutationAudit(
+			BrokerMutationCapability capability,
+			BrokerMutationAuditStage stage,
+			BrokerMutationAuditOutcome outcome) {
+		if (mutationAuditService != null) {
+			mutationAuditService.record(capability, stage, outcome);
+		}
 	}
 
 	/** 지정한 주문 변경 기능의 실제 어댑터 연결 상태를 설정에서 확인합니다. */

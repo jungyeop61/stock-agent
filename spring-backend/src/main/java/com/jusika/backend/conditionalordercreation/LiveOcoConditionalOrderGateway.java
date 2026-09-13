@@ -9,6 +9,7 @@ import com.jusika.backend.brokersafety.BrokerOrderRiskSnapshot;
 import com.jusika.backend.brokersafety.BrokerOpenOrderCapacityOperation;
 import com.jusika.backend.conditionalorder.ConditionalOrderCreationResponse;
 import com.jusika.backend.conditionalorder.OcoConditionalOrderSubmissionRequest;
+import com.jusika.backend.orderexecution.OrderSubmissionException;
 import com.jusika.backend.toss.conditionalorder.TossConditionalOrderClient;
 
 /**
@@ -108,7 +109,22 @@ class LiveOcoConditionalOrderGateway implements OcoConditionalOrderGateway {
 		reserveDailyOrderRisk(
 				accountSeq, "OCO_CONDITIONAL_ORDER:" + request.clientOrderId(),
 				request.riskSnapshot());
-		return conditionalOrderClient.createOcoConditionalOrder(accountSeq, request);
+		BrokerMutationCapability capability =
+				BrokerMutationCapability.OCO_CONDITIONAL_ORDER_CREATION;
+		safetyPolicy.recordBrokerRequestStarted(capability);
+		try {
+			ConditionalOrderCreationResponse response =
+					conditionalOrderClient.createOcoConditionalOrder(accountSeq, request);
+			safetyPolicy.recordBrokerRequestSucceeded(capability);
+			return response;
+		} catch (OrderSubmissionException exception) {
+			safetyPolicy.recordBrokerRequestFailed(
+					capability, exception.isSubmissionStateUnknown());
+			throw exception;
+		} catch (RuntimeException exception) {
+			safetyPolicy.recordBrokerRequestFailed(capability, true);
+			throw exception;
+		}
 	}
 
 	/**

@@ -9,6 +9,7 @@ import com.jusika.backend.brokersafety.BrokerOrderRiskSnapshot;
 import com.jusika.backend.brokersafety.BrokerOpenOrderCapacityOperation;
 import com.jusika.backend.conditionalorder.ConditionalOrderCreationResponse;
 import com.jusika.backend.conditionalorder.SingleConditionalOrderSubmissionRequest;
+import com.jusika.backend.orderexecution.OrderSubmissionException;
 import com.jusika.backend.toss.conditionalorder.TossConditionalOrderClient;
 
 /**
@@ -108,7 +109,22 @@ class LiveSingleConditionalOrderGateway implements SingleConditionalOrderGateway
 		reserveDailyOrderRisk(
 				accountSeq, "SINGLE_CONDITIONAL_ORDER:" + request.clientOrderId(),
 				request.riskSnapshot());
-		return conditionalOrderClient.createSingleConditionalOrder(accountSeq, request);
+		BrokerMutationCapability capability =
+				BrokerMutationCapability.SINGLE_CONDITIONAL_ORDER_CREATION;
+		safetyPolicy.recordBrokerRequestStarted(capability);
+		try {
+			ConditionalOrderCreationResponse response =
+					conditionalOrderClient.createSingleConditionalOrder(accountSeq, request);
+			safetyPolicy.recordBrokerRequestSucceeded(capability);
+			return response;
+		} catch (OrderSubmissionException exception) {
+			safetyPolicy.recordBrokerRequestFailed(
+					capability, exception.isSubmissionStateUnknown());
+			throw exception;
+		} catch (RuntimeException exception) {
+			safetyPolicy.recordBrokerRequestFailed(capability, true);
+			throw exception;
+		}
 	}
 
 	/**

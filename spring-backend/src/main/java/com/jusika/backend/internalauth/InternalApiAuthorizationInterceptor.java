@@ -29,7 +29,7 @@ public class InternalApiAuthorizationInterceptor implements HandlerInterceptor {
 			InternalApiAuthorizationInterceptor.class.getName() + ".auditStartedAt";
 	private static final String AUDIT_STARTED_NANOS_ATTRIBUTE =
 			InternalApiAuthorizationInterceptor.class.getName() + ".auditStartedNanos";
-	private static final String AUDIT_REQUEST_ID_ATTRIBUTE =
+	public static final String AUDIT_REQUEST_ID_ATTRIBUTE =
 			InternalApiAuthorizationInterceptor.class.getName() + ".auditRequestId";
 	private static final String AUDIT_ROUTE_ATTRIBUTE =
 			InternalApiAuthorizationInterceptor.class.getName() + ".auditRoute";

@@ -157,12 +157,22 @@ class LiveAmountOrderSubmissionGateway implements AmountOrderSubmissionGateway {
 	private OrderCreationResponse createAmountOrder(
 			long accountSeq,
 			AmountOrderSubmissionRequest request) {
+		BrokerMutationCapability capability =
+				BrokerMutationCapability.AMOUNT_ORDER_SUBMISSION;
+		safetyPolicy.recordBrokerRequestStarted(capability);
 		try {
-			return orderClient.createAmountOrder(accountSeq, request);
+			OrderCreationResponse response = orderClient.createAmountOrder(accountSeq, request);
+			safetyPolicy.recordBrokerRequestSucceeded(capability);
+			return response;
 		} catch (TossOrderException exception) {
+			safetyPolicy.recordBrokerRequestFailed(
+					capability, exception.isSubmissionStateUnknown());
 			throw new OrderSubmissionException(
 					"토스증권 금액 주문 제출에 실패했습니다.",
 					exception.isSubmissionStateUnknown());
+		} catch (RuntimeException exception) {
+			safetyPolicy.recordBrokerRequestFailed(capability, true);
+			throw exception;
 		}
 	}
 }
