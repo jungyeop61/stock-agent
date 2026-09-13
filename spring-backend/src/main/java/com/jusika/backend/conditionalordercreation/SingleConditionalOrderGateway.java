@@ -6,7 +6,7 @@ import com.jusika.backend.conditionalorder.ConditionalOrderCreationResponse;
 import com.jusika.backend.conditionalorder.SingleConditionalOrderSubmissionRequest;
 
 /**
- * 승인된 단일 조건 주문을 모의 처리하거나 향후 실제 증권사로 전달하는 경계입니다.
+ * 승인된 단일 조건 주문을 현재 설정된 모의 또는 실제 증권사 경계로 전달합니다.
  */
 interface SingleConditionalOrderGateway {
 
@@ -82,7 +82,7 @@ interface SingleConditionalOrderGateway {
 	/**
 	 * 현재 실행 경계가 모의인지 실제인지 구분할 이름을 반환합니다.
 	 *
-	 * @return 현재 단계에서는 MOCK
+	 * @return 현재 설정에 따른 MOCK 또는 LIVE
 	 */
 	String mode();
 }

@@ -45,7 +45,7 @@ import com.jusika.backend.toss.orderinfo.TossCommissionsClient;
 import com.jusika.backend.toss.orderinfo.TossSellableQuantityClient;
 
 /**
- * 실제 증권사를 호출하지 않고 단일 조건 주문의 계산·승인·최종 검증·모의 실행을 검사합니다.
+ * 실제 증권사를 호출하지 않고 단일 조건 주문의 계산·승인·최종 검증·안전 실행을 검사합니다.
  */
 class SingleConditionalOrderServiceTests {
 
@@ -212,6 +212,43 @@ class SingleConditionalOrderServiceTests {
 		assertThat(gateway.callCount).isZero();
 	}
 
+	/** LIVE 경계도 최종 재검증과 실행권 확보 뒤 같은 SINGLE 요청을 받는지 검사합니다. */
+	@Test
+	@DisplayName("승인된 SINGLE 조건 주문을 LIVE 안전 경계로 전달한다")
+	void 승인된_SINGLE_조건_주문을_LIVE_안전_경계로_전달한다() {
+		SingleConditionalOrderPreviewResponse preview = service.createPreview(
+				국내_지정가_매수_요청을_만든다());
+		service.approvePreview(preview.previewId());
+		gateway.mode = "LIVE";
+
+		SingleConditionalOrderExecutionResponse result =
+				service.executeApprovedPreview(preview.previewId());
+
+		assertThat(result.status()).isEqualTo(OrderExecutionStatus.ACCEPTED);
+		assertThat(result.brokerMode()).isEqualTo("LIVE");
+		assertThat(gateway.callCount).isOne();
+		assertThat(previewStore.findById(preview.previewId()).orElseThrow().status())
+				.isEqualTo(OrderPreviewStatus.CONSUMED);
+	}
+
+	/** 지원하지 않는 실행 모드는 금융정보 재조회와 실행권 생성 전에 차단하는지 검사합니다. */
+	@Test
+	@DisplayName("지원하지 않는 SINGLE 조건 주문 실행 경계 모드를 차단한다")
+	void 지원하지_않는_SINGLE_조건_주문_실행_경계_모드를_차단한다() {
+		SingleConditionalOrderPreviewResponse preview = service.createPreview(
+				국내_지정가_매수_요청을_만든다());
+		service.approvePreview(preview.previewId());
+		gateway.mode = "INVALID";
+		int previewPriceCalls = priceClient.callCount;
+
+		assertThatThrownBy(() -> service.executeApprovedPreview(preview.previewId()))
+				.isInstanceOf(OrderExecutionSubmissionException.class)
+				.hasMessage("SINGLE 조건 주문 실행 경계의 모드가 올바르지 않습니다.");
+		assertThat(priceClient.callCount).isEqualTo(previewPriceCalls);
+		assertThat(gateway.callCount).isZero();
+		assertThat(executionStore.values).isEmpty();
+	}
+
 	/** 시장가 상승으로 새로 고액 주문이 되면 승인 내용을 재확인하게 하는지 검사합니다. */
 	@Test
 	@DisplayName("시장가 상승으로 1억원 이상이 되면 실행을 차단한다")
@@ -254,6 +291,26 @@ class SingleConditionalOrderServiceTests {
 		assertThat(stored.status()).isEqualTo(OrderExecutionStatus.UNKNOWN);
 		assertThat(stored.failureType()).isEqualTo(OrderExecutionFailureType.SUBMISSION_UNKNOWN);
 		assertThat(gateway.callCount).isEqualTo(1);
+	}
+
+	/** 실행권 확보 뒤 토스 호출 전 안전정책이 차단되면 결과 불명으로 저장하지 않는지 검사합니다. */
+	@Test
+	@DisplayName("토스 호출 전 SINGLE LIVE 안전 차단을 내부 차단 상태로 저장한다")
+	void 토스_호출_전_SINGLE_LIVE_안전_차단을_내부_차단_상태로_저장한다() {
+		SingleConditionalOrderPreviewResponse preview = service.createPreview(
+				국내_지정가_매수_요청을_만든다());
+		service.approvePreview(preview.previewId());
+		gateway.mode = "LIVE";
+		gateway.failure = new BrokerMutationBlockedException("테스트 호출 직전 SINGLE 차단");
+
+		assertThatThrownBy(() -> service.executeApprovedPreview(preview.previewId()))
+				.isInstanceOf(BrokerMutationBlockedException.class)
+				.hasMessage("테스트 호출 직전 SINGLE 차단");
+		SingleConditionalOrderExecutionResponse stored =
+				executionStore.values.values().iterator().next();
+		assertThat(stored.status()).isEqualTo(OrderExecutionStatus.REJECTED);
+		assertThat(stored.failureType()).isEqualTo(OrderExecutionFailureType.INTERNAL_STATE);
+		assertThat(stored.completedAt()).isEqualTo(NOW);
 	}
 
 	/** 국내 지정가 매수 미리보기에 필요한 정상 조회 응답을 준비합니다. */
@@ -446,6 +503,17 @@ class SingleConditionalOrderServiceTests {
 					OrderExecutionFailureType.INTERNAL_STATE, null, null, at);
 		}
 
+		/** 제출 중 토스 호출 전 안전정책 차단을 내부 오류 거절로 바꿉니다. */
+		@Override
+		public boolean markSubmissionBlocked(String id, OffsetDateTime at) {
+			SingleConditionalOrderExecutionResponse value = values.get(id);
+			if (value == null || value.status() != OrderExecutionStatus.SUBMITTING) {
+				return false;
+			}
+			return 변경한다(id, OrderExecutionStatus.REJECTED,
+					OrderExecutionFailureType.INTERNAL_STATE, null, null, at);
+		}
+
 		/** 실행을 조건 주문 식별값과 함께 접수 상태로 변경합니다. */
 		@Override
 		public boolean markAccepted(String id, String conditionalOrderId, OffsetDateTime at) {
@@ -505,6 +573,8 @@ class SingleConditionalOrderServiceTests {
 	private static final class RecordingGateway implements SingleConditionalOrderGateway {
 		private int callCount;
 		private boolean unknown;
+		private String mode = "MOCK";
+		private RuntimeException failure;
 		private RuntimeException availabilityFailure;
 
 		/** 준비한 LIVE 안전 차단을 재현하거나 MOCK 조건 주문 사용 가능 상태를 유지합니다. */
@@ -521,6 +591,9 @@ class SingleConditionalOrderServiceTests {
 				long accountSeq,
 				SingleConditionalOrderSubmissionRequest request) {
 			callCount++;
+			if (failure != null) {
+				throw failure;
+			}
 			if (unknown) {
 				throw new OrderSubmissionException("테스트 결과 불명", true);
 			}
@@ -528,10 +601,10 @@ class SingleConditionalOrderServiceTests {
 					"mock-conditional-id", request.clientOrderId());
 		}
 
-		/** 테스트 모의 모드 이름을 반환합니다. */
+		/** 테스트에 준비한 MOCK 또는 LIVE 실행 경계 모드를 반환합니다. */
 		@Override
 		public String mode() {
-			return "MOCK";
+			return mode;
 		}
 	}
 }

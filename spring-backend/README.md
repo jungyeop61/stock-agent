@@ -1679,14 +1679,15 @@ curl -X POST http://localhost:8080/api/conditional-orders/single/previews/미리
 curl -X POST http://localhost:8080/api/conditional-orders/single/previews/미리보기-식별값/execute
 ```
 
-현재 실행 결과의 `brokerMode`는 항상 `MOCK`입니다.
-토스증권 공식 조건 주문 생성 주소를 호출하는 내부 클라이언트는 구현했지만 실행 서비스와 연결하지 않았습니다.
+기본 실행 결과의 `brokerMode`는 `MOCK`입니다.
+`LIVE` 모드에서는 같은 SINGLE 실행 서비스가 토스증권 공식 조건 주문 생성 클라이언트 경계를 사용하지만 `SINGLE_CONDITIONAL_ORDER_CREATION` 준비 상태가 `false`라 실제 호출 전에 차단됩니다.
 따라서 위 승인·실행 주소와 자동 테스트는 실제 조건 주문을 만들지 않습니다.
 
 같은 미리보기는 데이터베이스 잠금과 고유 제약으로 한 번만 실행할 수 있습니다.
+토스 호출 직전 빈도나 일일 누적 한도 예약이 차단되면 접수 여부가 명확하므로 `UNKNOWN`이 아니라 `REJECTED/INTERNAL_STATE`로 저장합니다.
 실행 때마다 36자 이내의 `clientOrderId`를 만들어 중복 생성 방지 기반을 갖추며, 결과가 `UNKNOWN`이면 자동으로 다시 생성하지 않습니다.
 
-저장된 모의 실행 결과를 조회합니다.
+저장된 안전 실행 결과를 조회합니다.
 
 ```bash
 curl http://localhost:8080/api/conditional-orders/single/executions/실행-식별값

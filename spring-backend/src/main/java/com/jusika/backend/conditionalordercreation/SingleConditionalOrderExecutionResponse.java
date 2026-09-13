@@ -6,7 +6,7 @@ import com.jusika.backend.orderexecution.OrderExecutionFailureType;
 import com.jusika.backend.orderexecution.OrderExecutionStatus;
 
 /**
- * 승인된 단일 조건 주문의 모의 또는 향후 실제 실행 상태를 표현합니다.
+ * 승인된 단일 조건 주문의 모의 또는 실제 실행 상태를 표현합니다.
  *
  * @param executionId 우리 서버가 만든 실행 식별값
  * @param previewId 실행에 사용한 미리보기 식별값
