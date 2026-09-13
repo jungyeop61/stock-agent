@@ -40,7 +40,7 @@ import com.jusika.backend.toss.orderinfo.TossCommissionsClient;
 import com.jusika.backend.toss.orderinfo.TossSellableQuantityClient;
 
 /**
- * 실제 토스증권 주문 없이 승인된 미리보기의 최종 재검증과 모의 실행 상태를 검사합니다.
+ * 실제 토스증권 주문 없이 승인된 미리보기의 최종 재검증과 현재 경계 실행 상태를 검사합니다.
  */
 class OrderExecutionServiceTests {
 
@@ -105,6 +105,38 @@ class OrderExecutionServiceTests {
 		assertThat(buyingPowerClient.callCount).isOne();
 		assertThat(sellableQuantityClient.callCount).isZero();
 		assertThat(commissionsClient.callCount).isOne();
+	}
+
+	/** LIVE 경계도 최종 재검증과 실행권 확보 뒤 같은 수량 주문 요청을 받는지 검사합니다. */
+	@Test
+	@DisplayName("승인된 수량 주문을 LIVE 안전 경계로 전달한다")
+	void 승인된_수량_주문을_LIVE_안전_경계로_전달한다() {
+		OrderPreviewResponse preview = 승인된_미리보기를_저장한다(OrderSide.BUY, "KRW", "KR");
+		국내_최종_조회값을_준비한다();
+		submissionGateway.mode = "LIVE";
+
+		OrderExecutionResponse response = service.executeApprovedPreview(preview.previewId());
+
+		assertThat(response.status()).isEqualTo(OrderExecutionStatus.ACCEPTED);
+		assertThat(response.brokerMode()).isEqualTo("LIVE");
+		assertThat(submissionGateway.callCount).isOne();
+		assertThat(previewStore.findById(preview.previewId()).orElseThrow().status())
+				.isEqualTo(OrderPreviewStatus.CONSUMED);
+	}
+
+	/** 지원하지 않는 실행 모드는 금융정보 재조회와 실행권 생성 전에 차단하는지 검사합니다. */
+	@Test
+	@DisplayName("지원하지 않는 수량 주문 실행 경계 모드를 차단한다")
+	void 지원하지_않는_수량_주문_실행_경계_모드를_차단한다() {
+		OrderPreviewResponse preview = 승인된_미리보기를_저장한다(OrderSide.BUY, "KRW", "KR");
+		submissionGateway.mode = "INVALID";
+
+		assertThatThrownBy(() -> service.executeApprovedPreview(preview.previewId()))
+				.isInstanceOf(OrderExecutionSubmissionException.class)
+				.hasMessage("주문 실행 경계의 모드가 올바르지 않습니다.");
+		assertThat(priceClient.callCount).isZero();
+		assertThat(submissionGateway.callCount).isZero();
+		assertThat(executionStore.findByPreviewId(preview.previewId())).isEmpty();
 	}
 
 	/**
@@ -337,6 +369,26 @@ class OrderExecutionServiceTests {
 		assertThat(stored.completedAt()).isNull();
 	}
 
+	/** 실행권 확보 뒤 토스 호출 전 안전정책이 차단하면 결과 불명으로 저장하지 않는지 검사합니다. */
+	@Test
+	@DisplayName("토스 호출 전 수량 주문 LIVE 안전 차단을 내부 차단 상태로 저장한다")
+	void 토스_호출_전_수량_주문_LIVE_안전_차단을_내부_차단_상태로_저장한다() {
+		OrderPreviewResponse preview = 승인된_미리보기를_저장한다(OrderSide.BUY, "KRW", "KR");
+		국내_최종_조회값을_준비한다();
+		submissionGateway.mode = "LIVE";
+		submissionGateway.failure = new BrokerMutationBlockedException("테스트 호출 직전 차단");
+
+		assertThatThrownBy(() -> service.executeApprovedPreview(preview.previewId()))
+				.isInstanceOf(BrokerMutationBlockedException.class)
+				.hasMessage("테스트 호출 직전 차단");
+		OrderExecutionResponse stored = executionStore
+				.findByPreviewId(preview.previewId()).orElseThrow();
+		assertThat(stored.status()).isEqualTo(OrderExecutionStatus.REJECTED);
+		assertThat(stored.failureType()).isEqualTo(OrderExecutionFailureType.INTERNAL_STATE);
+		assertThat(stored.completedAt())
+				.isEqualTo(OffsetDateTime.ofInstant(FIXED_INSTANT, ZoneOffset.UTC));
+	}
+
 	/**
 	 * 승인 시각과 무관하게 미리보기 유효시간이 지났으면 재검증 전에 차단하는지 검사합니다.
 	 */
@@ -526,6 +578,14 @@ class OrderExecutionServiceTests {
 					null, OrderExecutionFailureType.INTERNAL_STATE, null, failedAt);
 		}
 
+		/** 제출 중 토스 호출 전 안전정책 차단을 내부 오류 거절로 바꿉니다. */
+		@Override
+		public boolean markSubmissionBlocked(String executionId, OffsetDateTime failedAt) {
+			return 상태를_바꾼다(
+					executionId, OrderExecutionStatus.SUBMITTING, OrderExecutionStatus.REJECTED,
+					null, OrderExecutionFailureType.INTERNAL_STATE, null, failedAt);
+		}
+
 		/** 제출 중인 실행을 모의 접수 상태로 변경합니다. */
 		@Override
 		public boolean markAccepted(
@@ -703,7 +763,8 @@ class OrderExecutionServiceTests {
 
 		private int callCount;
 		private QuantityOrderSubmissionRequest lastRequest;
-		private OrderSubmissionException failure;
+		private RuntimeException failure;
+		private String mode = "MOCK";
 		private RuntimeException availabilityFailure;
 		private RuntimeException instrumentFailure;
 		private String lastInstrumentSymbol;
@@ -797,10 +858,10 @@ class OrderExecutionServiceTests {
 			return submitQuantityOrder(accountSeq, request);
 		}
 
-		/** 테스트 제출 경계가 모의 모드임을 반환합니다. */
+		/** 테스트 제출 경계에 준비한 MOCK 또는 LIVE 모드를 반환합니다. */
 		@Override
 		public String mode() {
-			return "MOCK";
+			return mode;
 		}
 	}
 }

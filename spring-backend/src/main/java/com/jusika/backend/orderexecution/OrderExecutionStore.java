@@ -36,6 +36,15 @@ public interface OrderExecutionStore {
 	boolean markPreparationFailed(String executionId, OffsetDateTime failedAt);
 
 	/**
+	 * 토스 호출 전 안전정책에 차단된 제출 중 실행을 내부 차단 상태로 종료합니다.
+	 *
+	 * @param executionId 변경할 실행 식별값
+	 * @param failedAt 안전정책 차단을 확인한 시각
+	 * @return 이번 호출이 상태를 변경했으면 true
+	 */
+	boolean markSubmissionBlocked(String executionId, OffsetDateTime failedAt);
+
+	/**
 	 * 제출 중 실행을 증권사 접수 상태로 변경합니다.
 	 *
 	 * @param executionId 변경할 실행 식별값

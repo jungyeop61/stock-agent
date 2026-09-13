@@ -38,7 +38,7 @@ public class OrderExecutionController {
 	 * 이 함수는 토스증권을 호출하거나 주문 상태를 변경하지 않습니다.
 	 *
 	 * @param executionId 우리 서버가 만든 주문 실행 식별값
-	 * @return 저장된 모의 또는 향후 실제 주문 실행 기록
+	 * @return 저장된 현재 증권사 경계의 주문 실행 기록
 	 */
 	@GetMapping("/{executionId}")
 	@RequiresInternalApiAuthority(InternalApiAuthority.READ)

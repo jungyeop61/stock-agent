@@ -166,7 +166,7 @@ class LiveOrderSubmissionGateway implements OrderSubmissionGateway {
 	}
 
 	/**
-	 * 이 구현이 향후 실제 증권사 제출을 담당할 LIVE 경계임을 반환합니다.
+	 * 이 구현이 실제 증권사 제출을 담당하는 LIVE 경계임을 반환합니다.
 	 *
 	 * @return 실제 주문 경계를 뜻하는 LIVE
 	 */

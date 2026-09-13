@@ -8,8 +8,9 @@ import java.util.UUID;
 
 import org.springframework.stereotype.Service;
 
-import com.jusika.backend.brokersafety.BrokerOrderRiskSnapshot;
+import com.jusika.backend.brokersafety.BrokerMutationBlockedException;
 import com.jusika.backend.brokersafety.BrokerOpenOrderCapacityOperation;
+import com.jusika.backend.brokersafety.BrokerOrderRiskSnapshot;
 import com.jusika.backend.buyingpower.BuyingPowerResponse;
 import com.jusika.backend.commission.CommissionsResponse;
 import com.jusika.backend.commission.CommissionsResponse.CommissionItem;
@@ -97,6 +98,7 @@ public class OrderExecutionService {
 		OffsetDateTime startedAt = OffsetDateTime.now(clock);
 		validateExecutableState(preview, startedAt);
 		submissionGateway.requireSubmissionAvailable(preview.accountSeq());
+		String brokerMode = requireExecutionMode();
 		submissionGateway.requireInstrumentAllowed(preview.symbol(), preview.currency());
 		submissionGateway.requireOpenOrderCapacity(
 				preview.accountSeq(), preview.symbol(), BrokerOpenOrderCapacityOperation.CREATE);
@@ -111,7 +113,7 @@ public class OrderExecutionService {
 				executionId,
 				preview.previewId(),
 				clientOrderId,
-				submissionGateway.mode(),
+				brokerMode,
 				OrderExecutionStatus.PREPARED,
 				null,
 				null,
@@ -182,6 +184,9 @@ public class OrderExecutionService {
 				throw new OrderExecutionSubmissionException("주문 접수 결과를 데이터베이스에 기록하지 못했습니다.");
 			}
 			return findExecution(executionId);
+		} catch (BrokerMutationBlockedException exception) {
+			executionStore.markSubmissionBlocked(executionId, OffsetDateTime.now(clock));
+			throw exception;
 		} catch (OrderSubmissionException exception) {
 			OffsetDateTime failedAt = OffsetDateTime.now(clock);
 			if (exception.isSubmissionStateUnknown()) {
@@ -199,6 +204,20 @@ public class OrderExecutionService {
 			throw new OrderExecutionSubmissionException(
 					"주문 접수 여부를 확인할 수 없습니다. 자동으로 다시 주문하지 마세요.");
 		}
+	}
+
+	/**
+	 * 현재 수량 주문 실행 경계가 저장 가능한 MOCK 또는 LIVE 모드인지 확인합니다.
+	 *
+	 * @return 실행 기록에 저장할 검증된 증권사 모드 이름
+	 */
+	private String requireExecutionMode() {
+		String mode = submissionGateway.mode();
+		if (!("MOCK".equals(mode) || "LIVE".equals(mode))) {
+			throw new OrderExecutionSubmissionException(
+					"주문 실행 경계의 모드가 올바르지 않습니다.");
+		}
+		return mode;
 	}
 
 	/**
