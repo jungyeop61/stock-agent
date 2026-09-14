@@ -3,7 +3,7 @@ from decimal import Decimal
 import pytest
 
 from jusika_agent.interpreters import RuleBasedCommandInterpreter
-from jusika_agent.models import Intent, OrderType
+from jusika_agent.models import Currency, Intent, OrderType
 
 
 @pytest.mark.parametrize(
@@ -12,6 +12,7 @@ from jusika_agent.models import Intent, OrderType
         ("삼성전자 지금 얼마야", Intent.PRICE_QUERY),
         ("내 보유 주식 알려줘", Intent.HOLDINGS_QUERY),
         ("삼성전자 5주 사줘", Intent.BUY),
+        ("애플 200달러어치 매수해줘", Intent.AMOUNT_BUY),
         ("삼성전자 2주 팔아", Intent.SELL),
         ("미체결 주문 알려줘", Intent.ORDER_LIST),
         ("조건 주문 목록 알려줘", Intent.CONDITIONAL_ORDER_LIST),
@@ -42,6 +43,34 @@ async def test_rule_interpreter_understands_spoken_quantity() -> None:
 
     assert parsed.intent is Intent.BUY
     assert parsed.quantity == Decimal("5")
+
+
+async def test_rule_interpreter_extracts_usd_amount_order() -> None:
+    parsed = await RuleBasedCommandInterpreter().interpret("애플 200달러어치 매수해줘")
+
+    assert parsed.intent is Intent.AMOUNT_BUY
+    assert parsed.stock_name == "애플"
+    assert parsed.order_amount == Decimal("200")
+    assert parsed.amount_currency is Currency.USD
+    assert parsed.quantity is None
+    assert parsed.price is None
+    assert parsed.order_type is OrderType.MARKET
+
+
+async def test_rule_interpreter_extracts_won_amount_for_explicit_rejection() -> None:
+    parsed = await RuleBasedCommandInterpreter().interpret("삼성전자 10만 원어치 사줘")
+
+    assert parsed.intent is Intent.AMOUNT_BUY
+    assert parsed.order_amount == Decimal("100000")
+    assert parsed.amount_currency is Currency.KRW
+
+
+async def test_rule_interpreter_preserves_unsupported_amount_sell() -> None:
+    parsed = await RuleBasedCommandInterpreter().interpret("애플 200달러어치 팔아")
+
+    assert parsed.intent is Intent.SELL
+    assert parsed.order_amount == Decimal("200")
+    assert parsed.amount_currency is Currency.USD
 
 
 async def test_order_verb_wins_over_holdings_context() -> None:

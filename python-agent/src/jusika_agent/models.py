@@ -16,6 +16,7 @@ class Intent(StrEnum):
     HOLDINGS_QUERY = "HOLDINGS_QUERY"
     BUY = "BUY"
     SELL = "SELL"
+    AMOUNT_BUY = "AMOUNT_BUY"
     ORDER_LIST = "ORDER_LIST"
     ORDER_CANCEL = "ORDER_CANCEL"
     ORDER_MODIFY = "ORDER_MODIFY"
@@ -42,6 +43,11 @@ class OrderSide(StrEnum):
     SELL = "SELL"
 
 
+class Currency(StrEnum):
+    KRW = "KRW"
+    USD = "USD"
+
+
 class ConditionalOrderType(StrEnum):
     SINGLE = "SINGLE"
     OCO = "OCO"
@@ -65,6 +71,8 @@ class ParsedIntent(BaseModel):
     stock_name: str | None = None
     symbol: str | None = None
     quantity: Decimal | None = Field(default=None, gt=0)
+    order_amount: Decimal | None = Field(default=None, gt=0)
+    amount_currency: Currency | None = None
     price: Decimal | None = Field(default=None, gt=0)
     trigger_price: Decimal | None = Field(default=None, gt=0)
     order_type: OrderType = OrderType.MARKET
@@ -207,6 +215,42 @@ class OrderExecutionResponse(SpringModel):
     submitted_at: datetime | None
     recovery_attempted_at: datetime | None
     completed_at: datetime | None
+
+
+class AmountOrderPreviewRequest(SpringModel):
+    account_seq: int
+    symbol: str
+    order_amount: Decimal
+
+
+class AmountOrderPreviewResponse(SpringModel):
+    preview_id: str
+    created_at: datetime
+    expires_at: datetime
+    account_seq: int
+    symbol: str
+    side: OrderSide
+    order_type: OrderType
+    order_amount: Decimal
+    currency: str
+    market_country: str
+    reference_price: Decimal
+    estimated_quantity: Decimal
+    commission_rate: Decimal
+    estimated_commission: Decimal
+    estimated_total_cost: Decimal
+    exchange_rate: Decimal
+    exchange_rate_valid_from: datetime
+    exchange_rate_valid_until: datetime
+    estimated_order_amount_krw: Decimal
+    requires_high_value_confirmation: bool
+    order_ready: bool
+    status: str
+    approved_at: datetime | None
+
+
+class AmountOrderExecutionResponse(OrderExecutionResponse):
+    pass
 
 
 class OrderExecutionDetail(SpringModel):

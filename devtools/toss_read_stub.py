@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from datetime import UTC, date, datetime, timedelta
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
@@ -121,6 +122,33 @@ class TossReadStubHandler(BaseHTTPRequestHandler):
             )
             return
 
+        if parsed.path == "/api/v1/exchange-rate":
+            now = datetime.now(UTC)
+            self._write_json(
+                HTTPStatus.OK,
+                {
+                    "result": {
+                        "baseCurrency": "USD",
+                        "quoteCurrency": "KRW",
+                        "rate": "1380.5",
+                        "midRate": "1375",
+                        "basisPoint": "40",
+                        "rateChangeType": "UP",
+                        "validFrom": (now - timedelta(minutes=5)).isoformat(),
+                        "validUntil": (now + timedelta(minutes=5)).isoformat(),
+                    }
+                },
+            )
+            return
+
+        if parsed.path == "/api/v1/market-calendar/US":
+            requested_date = query.get("date", [date.today().isoformat()])[0]
+            self._write_json(
+                HTTPStatus.OK,
+                {"result": self._us_market_calendar(requested_date)},
+            )
+            return
+
         if parsed.path == "/api/v1/sellable-quantity":
             if not self._has_account_header():
                 return
@@ -200,6 +228,43 @@ class TossReadStubHandler(BaseHTTPRequestHandler):
                 "tax": None,
                 "filledAt": None,
                 "settlementDate": None,
+            },
+        }
+
+    @staticmethod
+    def _us_market_calendar(requested_date: str) -> dict[str, object]:
+        market_date = date.fromisoformat(requested_date)
+        previous_date = market_date - timedelta(days=1)
+        next_date = market_date + timedelta(days=1)
+
+        def regular_session(day: date) -> dict[str, str]:
+            next_day = day + timedelta(days=1)
+            return {
+                "startTime": f"{day.isoformat()}T22:30:00+09:00",
+                "endTime": f"{next_day.isoformat()}T05:00:00+09:00",
+            }
+
+        return {
+            "today": {
+                "date": market_date.isoformat(),
+                "dayMarket": None,
+                "preMarket": None,
+                "regularMarket": regular_session(market_date),
+                "afterMarket": None,
+            },
+            "previousBusinessDay": {
+                "date": previous_date.isoformat(),
+                "dayMarket": None,
+                "preMarket": None,
+                "regularMarket": regular_session(previous_date),
+                "afterMarket": None,
+            },
+            "nextBusinessDay": {
+                "date": next_date.isoformat(),
+                "dayMarket": None,
+                "preMarket": None,
+                "regularMarket": regular_session(next_date),
+                "afterMarket": None,
             },
         }
 

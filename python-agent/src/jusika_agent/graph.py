@@ -11,6 +11,9 @@ from jusika_agent.interpreters import CommandInterpreter, IntentInterpretationEr
 from jusika_agent.models import (
     AccountResponse,
     AgentStatus,
+    AmountOrderExecutionResponse,
+    AmountOrderPreviewRequest,
+    AmountOrderPreviewResponse,
     ConditionalOrderCancellationExecutionResponse,
     ConditionalOrderCancellationPreviewRequest,
     ConditionalOrderCancellationPreviewResponse,
@@ -21,6 +24,7 @@ from jusika_agent.models import (
     ConditionalOrderModificationPreviewResponse,
     ConditionalOrderMutationCondition,
     ConditionalOrderType,
+    Currency,
     DualConditionalOrderPreviewRequest,
     HoldingsResponse,
     Intent,
@@ -46,6 +50,7 @@ from jusika_agent.models import (
     StockPriceResponse,
 )
 from jusika_agent.speech import (
+    format_amount_preview_message,
     format_cancellation_preview_message,
     format_conditional_cancellation_preview_message,
     format_conditional_modification_preview_message,
@@ -70,6 +75,13 @@ class SpringGateway(Protocol):
     async def create_order_preview(self, request: OrderPreviewRequest) -> OrderPreviewResponse: ...
     async def approve_order_preview(self, preview_id: str) -> OrderPreviewResponse: ...
     async def execute_order_preview(self, preview_id: str) -> OrderExecutionResponse: ...
+    async def create_amount_order_preview(
+        self, request: AmountOrderPreviewRequest
+    ) -> AmountOrderPreviewResponse: ...
+    async def approve_amount_order_preview(self, preview_id: str) -> AmountOrderPreviewResponse: ...
+    async def execute_amount_order_preview(
+        self, preview_id: str
+    ) -> AmountOrderExecutionResponse: ...
     async def list_open_orders(self, account_seq: int) -> OrderListResponse: ...
     async def get_order(self, account_seq: int, order_id: str) -> OrderDetailResponse: ...
     async def create_order_cancellation_preview(
@@ -164,6 +176,7 @@ class AgentInputError(ValueError):
 
 PreviewResponse = (
     OrderPreviewResponse
+    | AmountOrderPreviewResponse
     | OrderCancellationPreviewResponse
     | OrderModificationPreviewResponse
     | SingleConditionalOrderPreviewResponse
@@ -174,6 +187,7 @@ PreviewResponse = (
 )
 ExecutionResponse = (
     OrderExecutionResponse
+    | AmountOrderExecutionResponse
     | OrderCancellationExecutionResponse
     | OrderModificationExecutionResponse
     | SingleConditionalOrderExecutionResponse
@@ -284,8 +298,44 @@ class AgentGraphNodes:
     async def _create_preview(
         self, *, parsed: ParsedIntent, source_text: str, account_seq: int
     ) -> tuple[PreviewResponse, str, str | None]:
+        if parsed.intent is Intent.AMOUNT_BUY:
+            instrument = self._instrument(parsed, source_text)
+            if parsed.quantity is not None:
+                raise AgentInputError(
+                    "수량과 금액을 동시에 입력할 수 없습니다. 둘 중 하나만 말씀해주세요."
+                )
+            if parsed.order_amount is None or parsed.amount_currency is None:
+                raise AgentInputError(
+                    "매수할 달러 금액을 다시 말씀해주세요. 예를 들면 애플 200달러어치입니다."
+                )
+            if parsed.amount_currency is not Currency.USD:
+                raise AgentInputError(
+                    "금액 주문은 현재 미국 주식을 달러 금액으로 매수할 때만 지원합니다. "
+                    "예를 들면 애플 200달러어치 사줘입니다."
+                )
+            if instrument.symbol.isdigit():
+                raise AgentInputError("금액 주문은 현재 미국 주식 매수만 지원합니다.")
+            amount_preview = await self._spring.create_amount_order_preview(
+                AmountOrderPreviewRequest(
+                    account_seq=account_seq,
+                    symbol=instrument.symbol,
+                    order_amount=parsed.order_amount,
+                )
+            )
+            return (
+                amount_preview,
+                format_amount_preview_message(instrument.display_name, amount_preview),
+                instrument.display_name,
+            )
+
         if parsed.intent in {Intent.BUY, Intent.SELL}:
             instrument = self._instrument(parsed, source_text)
+            if parsed.order_amount is not None:
+                if parsed.intent is Intent.SELL:
+                    raise AgentInputError(
+                        "금액 매도는 현재 지원하지 않습니다. 매도 수량을 말씀해주세요."
+                    )
+                raise AgentInputError("금액 매수는 미국 주식의 달러 금액 시장가 주문만 지원합니다.")
             if parsed.quantity is None:
                 raise AgentInputError("주문 수량을 다시 말씀해주세요. 예를 들면 다섯 주입니다.")
             if parsed.order_type is OrderType.LIMIT and parsed.price is None:
@@ -509,7 +559,11 @@ class AgentGraphNodes:
 
         if execution.status == "ACCEPTED":
             action = self._action_label(pending_action)
-            if pending_action in {Intent.BUY.value, Intent.SELL.value}:
+            if pending_action in {
+                Intent.BUY.value,
+                Intent.SELL.value,
+                Intent.AMOUNT_BUY.value,
+            }:
                 message = (
                     "모의 주문을 접수했습니다."
                     if execution.broker_mode == "MOCK"
@@ -538,6 +592,9 @@ class AgentGraphNodes:
         }
 
     async def _execute_preview(self, pending_action: str, preview_id: str) -> ExecutionResponse:
+        if pending_action == Intent.AMOUNT_BUY.value:
+            await self._spring.approve_amount_order_preview(preview_id)
+            return await self._spring.execute_amount_order_preview(preview_id)
         if pending_action in {Intent.BUY.value, Intent.SELL.value}:
             await self._spring.approve_order_preview(preview_id)
             return await self._spring.execute_order_preview(preview_id)
@@ -586,6 +643,7 @@ class AgentGraphNodes:
         return {
             Intent.BUY.value: "매수",
             Intent.SELL.value: "매도",
+            Intent.AMOUNT_BUY.value: "달러 금액 매수",
             Intent.ORDER_CANCEL.value: "주문 취소",
             Intent.ORDER_MODIFY.value: "주문 정정",
             Intent.SINGLE_CONDITIONAL_ORDER.value: "조건 주문 생성",
@@ -708,6 +766,7 @@ def _route_intent(
     if intent in {
         Intent.BUY,
         Intent.SELL,
+        Intent.AMOUNT_BUY,
         Intent.ORDER_CANCEL,
         Intent.ORDER_MODIFY,
         Intent.SINGLE_CONDITIONAL_ORDER,

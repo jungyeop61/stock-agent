@@ -48,6 +48,70 @@ async def test_buy_waits_for_explicit_confirmation_then_executes_once() -> None:
     assert fake.executed_preview_ids == ["preview-1"]
 
 
+async def test_usd_amount_buy_waits_for_confirmation_then_executes_once() -> None:
+    fake = FakeSpringGateway()
+    service = create_service(fake)
+
+    preview = await service.process_message(session_id="amount-buy", text="애플 200달러어치 사줘")
+
+    assert preview.status is AgentStatus.WAITING_CONFIRMATION
+    assert preview.preview_id == "amount-preview-1"
+    assert "이백 달러" in preview.message
+    request = fake.amount_preview_requests[0]
+    assert request.symbol == "AAPL"
+    assert str(request.order_amount) == "200"
+    assert fake.executed_amount_preview_ids == []
+
+    execution = await service.process_message(session_id="amount-buy", text="승인")
+
+    assert execution.status is AgentStatus.COMPLETED
+    assert execution.message == "모의 주문을 접수했습니다."
+    assert fake.approved_amount_preview_ids == ["amount-preview-1"]
+    assert fake.executed_amount_preview_ids == ["amount-preview-1"]
+
+    duplicate = await service.process_message(session_id="amount-buy", text="승인")
+
+    assert duplicate.status is AgentStatus.NEEDS_INPUT
+    assert fake.executed_amount_preview_ids == ["amount-preview-1"]
+
+
+async def test_krw_amount_buy_is_rejected_before_preview() -> None:
+    fake = FakeSpringGateway()
+    service = create_service(fake)
+
+    response = await service.process_message(
+        session_id="krw-amount-buy", text="삼성전자 10만 원어치 사줘"
+    )
+
+    assert response.status is AgentStatus.NEEDS_INPUT
+    assert "미국 주식을 달러 금액으로" in response.message
+    assert fake.amount_preview_requests == []
+
+
+async def test_quantity_and_amount_cannot_be_mixed() -> None:
+    fake = FakeSpringGateway()
+    service = create_service(fake)
+
+    response = await service.process_message(
+        session_id="mixed-amount-buy", text="애플 2주 200달러어치 사줘"
+    )
+
+    assert response.status is AgentStatus.NEEDS_INPUT
+    assert "수량과 금액을 동시에" in response.message
+    assert fake.amount_preview_requests == []
+
+
+async def test_amount_sell_is_rejected_before_preview() -> None:
+    fake = FakeSpringGateway()
+    service = create_service(fake)
+
+    response = await service.process_message(session_id="amount-sell", text="애플 200달러어치 팔아")
+
+    assert response.status is AgentStatus.NEEDS_INPUT
+    assert "금액 매도는 현재 지원하지 않습니다" in response.message
+    assert fake.preview_requests == []
+
+
 async def test_cancel_does_not_approve_or_execute() -> None:
     fake = FakeSpringGateway()
     service = create_service(fake)

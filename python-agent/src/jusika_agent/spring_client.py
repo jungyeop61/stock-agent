@@ -10,6 +10,9 @@ from pydantic import BaseModel, TypeAdapter, ValidationError
 
 from jusika_agent.models import (
     AccountResponse,
+    AmountOrderExecutionResponse,
+    AmountOrderPreviewRequest,
+    AmountOrderPreviewResponse,
     ConditionalOrderCancellationExecutionResponse,
     ConditionalOrderCancellationPreviewRequest,
     ConditionalOrderCancellationPreviewResponse,
@@ -128,6 +131,33 @@ class SpringBackendClient:
             authority="order",
         )
         return self._validate(OrderExecutionResponse, data, "주문 실행")
+
+    async def create_amount_order_preview(
+        self, request: AmountOrderPreviewRequest
+    ) -> AmountOrderPreviewResponse:
+        data = await self._request_json(
+            "POST",
+            "/api/orders/amount/preview",
+            authority="order",
+            content=request.model_dump_json(by_alias=True),
+        )
+        return self._validate(AmountOrderPreviewResponse, data, "금액 주문 미리보기")
+
+    async def approve_amount_order_preview(self, preview_id: str) -> AmountOrderPreviewResponse:
+        data = await self._request_json(
+            "POST",
+            f"/api/orders/amount/previews/{quote(preview_id, safe='')}/approve",
+            authority="order",
+        )
+        return self._validate(AmountOrderPreviewResponse, data, "금액 주문 승인")
+
+    async def execute_amount_order_preview(self, preview_id: str) -> AmountOrderExecutionResponse:
+        data = await self._request_json(
+            "POST",
+            f"/api/orders/amount/previews/{quote(preview_id, safe='')}/execute",
+            authority="order",
+        )
+        return self._validate(AmountOrderExecutionResponse, data, "금액 주문 실행")
 
     async def list_open_orders(self, account_seq: int) -> OrderListResponse:
         data = await self._request_json(

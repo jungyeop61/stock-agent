@@ -6,6 +6,7 @@ import httpx
 import pytest
 
 from jusika_agent.models import (
+    AmountOrderPreviewRequest,
     ConditionalOrderCancellationPreviewRequest,
     ConditionalOrderModificationPreviewRequest,
     ConditionalOrderMutationCondition,
@@ -138,6 +139,9 @@ async def test_new_mutation_clients_use_separate_spring_endpoints_and_order_key(
             second=second,
         )
         calls = [
+            client.create_amount_order_preview(
+                AmountOrderPreviewRequest(account_seq=1, symbol="AAPL", order_amount=200)
+            ),
             client.create_order_cancellation_preview(
                 OrderCancellationPreviewRequest(account_seq=1, order_id="order-123")
             ),
@@ -193,6 +197,7 @@ async def test_new_mutation_clients_use_separate_spring_endpoints_and_order_key(
         await client.aclose()
 
     assert [request.url.path for request in captured] == [
+        "/api/orders/amount/preview",
         "/api/orders/cancellations/preview",
         "/api/orders/modifications/preview",
         "/api/conditional-orders/single/preview",
@@ -202,8 +207,13 @@ async def test_new_mutation_clients_use_separate_spring_endpoints_and_order_key(
         "/api/conditional-orders/modifications/preview",
     ]
     assert all(request.headers["X-Jusika-Api-Key"] == "order-secret" for request in captured)
-    assert json.loads(captured[0].content) == {"accountSeq": 1, "orderId": "order-123"}
-    assert json.loads(captured[2].content)["triggerPrice"] == "80000"
+    assert json.loads(captured[0].content) == {
+        "accountSeq": 1,
+        "symbol": "AAPL",
+        "orderAmount": "200",
+    }
+    assert json.loads(captured[1].content) == {"accountSeq": 1, "orderId": "order-123"}
+    assert json.loads(captured[3].content)["triggerPrice"] == "80000"
 
 
 async def test_open_order_queries_use_read_key_and_open_filter() -> None:

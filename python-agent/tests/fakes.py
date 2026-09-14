@@ -5,6 +5,9 @@ from decimal import Decimal
 
 from jusika_agent.models import (
     AccountResponse,
+    AmountOrderExecutionResponse,
+    AmountOrderPreviewRequest,
+    AmountOrderPreviewResponse,
     ConditionalOrderCancellationExecutionResponse,
     ConditionalOrderCancellationPreviewRequest,
     ConditionalOrderCancellationPreviewResponse,
@@ -50,6 +53,10 @@ class FakeSpringGateway:
         self.approved_preview_ids: list[str] = []
         self.executed_preview_ids: list[str] = []
         self.last_preview: OrderPreviewResponse | None = None
+        self.amount_preview_requests: list[AmountOrderPreviewRequest] = []
+        self.approved_amount_preview_ids: list[str] = []
+        self.executed_amount_preview_ids: list[str] = []
+        self.last_amount_preview: AmountOrderPreviewResponse | None = None
         self.cancellation_preview_requests: list[OrderCancellationPreviewRequest] = []
         self.modification_preview_requests: list[OrderModificationPreviewRequest] = []
         self.single_conditional_preview_requests: list[SingleConditionalOrderPreviewRequest] = []
@@ -154,6 +161,64 @@ class FakeSpringGateway:
             broker_mode="MOCK",
             status="ACCEPTED",
             broker_order_id="mock-client-order-1",
+            failure_type=None,
+            created_at=now,
+            updated_at=now,
+            submitted_at=now,
+            recovery_attempted_at=None,
+            completed_at=now,
+        )
+
+    async def create_amount_order_preview(
+        self, request: AmountOrderPreviewRequest
+    ) -> AmountOrderPreviewResponse:
+        self.amount_preview_requests.append(request)
+        now = datetime(2026, 9, 14, 7, 0, tzinfo=UTC)
+        commission = Decimal("0.10")
+        self.last_amount_preview = AmountOrderPreviewResponse(
+            preview_id="amount-preview-1",
+            created_at=now,
+            expires_at=now + timedelta(minutes=2),
+            account_seq=request.account_seq,
+            symbol=request.symbol,
+            side=OrderSide.BUY,
+            order_type=OrderType.MARKET,
+            order_amount=request.order_amount,
+            currency="USD",
+            market_country="US",
+            reference_price=Decimal("200"),
+            estimated_quantity=request.order_amount / Decimal("200"),
+            commission_rate=Decimal("0.0005"),
+            estimated_commission=commission,
+            estimated_total_cost=request.order_amount + commission,
+            exchange_rate=Decimal("1400"),
+            exchange_rate_valid_from=now - timedelta(minutes=1),
+            exchange_rate_valid_until=now + timedelta(minutes=1),
+            estimated_order_amount_krw=request.order_amount * Decimal("1400"),
+            requires_high_value_confirmation=False,
+            order_ready=True,
+            status="PENDING_APPROVAL",
+            approved_at=None,
+        )
+        return self.last_amount_preview
+
+    async def approve_amount_order_preview(self, preview_id: str) -> AmountOrderPreviewResponse:
+        self.approved_amount_preview_ids.append(preview_id)
+        preview = self.last_amount_preview
+        if preview is None:
+            raise AssertionError("amount preview must be created before approval")
+        return preview.model_copy(update={"status": "APPROVED", "approved_at": preview.created_at})
+
+    async def execute_amount_order_preview(self, preview_id: str) -> AmountOrderExecutionResponse:
+        self.executed_amount_preview_ids.append(preview_id)
+        now = datetime(2026, 9, 14, 7, 0, tzinfo=UTC)
+        return AmountOrderExecutionResponse(
+            execution_id="amount-execution-1",
+            preview_id=preview_id,
+            client_order_id="amount-client-order-1",
+            broker_mode="MOCK",
+            status="ACCEPTED",
+            broker_order_id="mock-amount-client-order-1",
             failure_type=None,
             created_at=now,
             updated_at=now,

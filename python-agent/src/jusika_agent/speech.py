@@ -3,6 +3,7 @@
 from decimal import Decimal
 
 from jusika_agent.models import (
+    AmountOrderPreviewResponse,
     ConditionalOrderCancellationPreviewResponse,
     ConditionalOrderListResponse,
     ConditionalOrderModificationPreviewResponse,
@@ -114,6 +115,21 @@ def format_preview_message(display_name: str, preview: OrderPreviewResponse) -> 
         f"{display_name} {quantity} 주를 {order_description} {side}합니다. "
         f"예상 금액은 약 {amount} {unit}입니다. 수량은 {quantity} 주입니다."
         f"{high_value_notice} 주문하시려면 승인, 그만두려면 취소라고 말씀해주세요."
+    )
+
+
+def format_amount_preview_message(display_name: str, preview: AmountOrderPreviewResponse) -> str:
+    amount = decimal_to_korean(preview.order_amount)
+    quantity = decimal_to_korean(preview.estimated_quantity)
+    total = decimal_to_korean(preview.estimated_total_cost)
+    high_value_notice = (
+        " 고액 주문이므로 특히 주의해주세요." if preview.requires_high_value_confirmation else ""
+    )
+    return (
+        f"{display_name}, 시장가로 {amount} 달러어치 매수합니다. "
+        f"현재가 기준 예상 수량은 약 {quantity} 주이고, 예상 수수료 포함 필요 금액은 "
+        f"{total} 달러입니다.{high_value_notice} "
+        "주문하시려면 승인, 그만두려면 취소라고 말씀해주세요."
     )
 
 
