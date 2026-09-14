@@ -8,7 +8,7 @@ import com.jusika.backend.orderpreview.OrderSide;
 import com.jusika.backend.orderpreview.OrderType;
 
 /**
- * 검증을 마친 OTO 조건 주문을 모의 또는 향후 실제 증권사에 제출할 때 사용하는 요청입니다.
+ * 검증을 마친 OTO 조건 주문을 모의 또는 실제 증권사 경계에 제출할 때 사용하는 요청입니다.
  *
  * @param clientOrderId 중복 생성을 막는 우리 서버의 멱등성 식별값
  * @param symbol 종목 코드

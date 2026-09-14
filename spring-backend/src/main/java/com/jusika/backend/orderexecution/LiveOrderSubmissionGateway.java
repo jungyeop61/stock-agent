@@ -13,8 +13,8 @@ import com.jusika.backend.toss.order.TossOrderClient;
 import com.jusika.backend.toss.order.TossOrderException;
 
 /**
- * 일반 수량 주문의 실제 토스 클라이언트 연결 위치이며 현재는 전역 안전정책에서 항상 차단합니다.
- * 수량 주문 어댑터 준비 상태가 false이므로 클라이언트 호출 코드까지 도달할 수 없습니다.
+ * 일반 수량 주문의 실제 토스 클라이언트 연결 위치입니다.
+ * 중앙 안전정책을 통과한 요청만 실제 클라이언트에 전달합니다.
  */
 @Component
 @ConditionalOnProperty(prefix = "jusika.broker", name = "mode", havingValue = "live")
@@ -38,7 +38,7 @@ class LiveOrderSubmissionGateway implements OrderSubmissionGateway {
 
 	/**
 	 * 주문 상태를 변경하기 전에 전역 LIVE 안전정책을 통과할 수 있는지 확인합니다.
-	 * 현재 실제 어댑터 연결 상태가 false이므로 항상 안전하게 차단됩니다.
+	 * 기본 운영 설정에서는 LIVE 기능과 어댑터 준비 상태가 비활성화되어 안전하게 차단됩니다.
 	 */
 	@Override
 	public void requireSubmissionAvailable() {
@@ -120,11 +120,11 @@ class LiveOrderSubmissionGateway implements OrderSubmissionGateway {
 
 	/**
  	 * 중앙 안전정책을 다시 확인한 뒤 검증된 수량 주문을 토스 클라이언트에 전달합니다.
-	 * 현재 준비 상태에서는 정책 검사가 항상 먼저 차단합니다.
+	 * 기본 운영 설정에서는 정책 검사가 클라이언트 호출 전에 차단합니다.
 	 *
 	 * @param accountSeq 주문에 사용할 계좌 식별값
 	 * @param request 최종 재검증을 마친 수량 기반 주문
-	 * @return 현재 단계에서는 절대 반환되지 않는 주문 생성 결과
+	 * @return 토스증권이 반환한 주문 생성 결과
 	 */
 	@Override
 	public OrderCreationResponse submitQuantityOrder(
@@ -143,11 +143,11 @@ class LiveOrderSubmissionGateway implements OrderSubmissionGateway {
 
 	/**
  	 * 중앙 안전정책을 다시 확인한 뒤 최초와 동일한 멱등성 요청으로 토스 클라이언트를 호출합니다.
-	 * 현재 준비 상태에서는 정책 검사가 항상 먼저 차단합니다.
+	 * 기본 운영 설정에서는 정책 검사가 클라이언트 호출 전에 차단합니다.
 	 *
 	 * @param accountSeq 최초 주문에 사용한 계좌 식별값
 	 * @param request 최초 제출과 완전히 동일한 수량 기반 주문
-	 * @return 현재 단계에서는 절대 반환되지 않는 주문 생성 결과
+	 * @return 토스증권이 반환한 주문 생성 결과
 	 */
 	@Override
 	public OrderCreationResponse recoverQuantityOrder(
