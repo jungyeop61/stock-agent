@@ -10,6 +10,7 @@ import java.util.UUID;
 
 import org.springframework.stereotype.Service;
 
+import com.jusika.backend.brokersafety.BrokerMutationBlockedException;
 import com.jusika.backend.brokersafety.BrokerOrderRiskSnapshot;
 import com.jusika.backend.brokersafety.BrokerOpenOrderCapacityOperation;
 import com.jusika.backend.buyingpower.BuyingPowerResponse;
@@ -168,6 +169,7 @@ public class OtoConditionalOrderService {
 		OffsetDateTime startedAt = OffsetDateTime.now(clock);
 		validateExecutablePreview(preview, startedAt);
 		submissionGateway.requireSubmissionAvailable(preview.accountSeq());
+		String brokerMode = requireExecutionMode();
 		submissionGateway.requireInstrumentAllowed(preview.symbol(), preview.currency());
 		submissionGateway.requireOpenOrderCapacity(
 				preview.accountSeq(), preview.symbol(), BrokerOpenOrderCapacityOperation.CREATE);
@@ -188,7 +190,7 @@ public class OtoConditionalOrderService {
 		OtoConditionalOrderExecutionResponse prepared =
 				new OtoConditionalOrderExecutionResponse(
 						executionId, preview.previewId(), clientOrderId, null,
-						submissionGateway.mode(), OrderExecutionStatus.PREPARED, null,
+						brokerMode, OrderExecutionStatus.PREPARED, null,
 						startedAt, startedAt, null, null);
 		if (!executionStore.claim(prepared)) {
 			throw new OrderExecutionConflictException(
@@ -272,6 +274,9 @@ public class OtoConditionalOrderService {
 						"OTO 접수 결과를 데이터베이스에 기록하지 못했습니다.");
 			}
 			return findExecution(executionId);
+		} catch (BrokerMutationBlockedException exception) {
+			executionStore.markSubmissionBlocked(executionId, OffsetDateTime.now(clock));
+			throw exception;
 		} catch (OrderSubmissionException exception) {
 			OffsetDateTime failedAt = OffsetDateTime.now(clock);
 			if (exception.isSubmissionStateUnknown()) {
@@ -288,6 +293,20 @@ public class OtoConditionalOrderService {
 			throw new OrderExecutionSubmissionException(
 					"OTO 접수 여부를 확인할 수 없습니다. 자동으로 다시 생성하지 마세요.");
 		}
+	}
+
+	/**
+	 * 현재 OTO 조건 주문 생성 경계가 저장 가능한 MOCK 또는 LIVE 모드인지 확인합니다.
+	 *
+	 * @return 실행 기록에 저장할 검증된 증권사 모드 이름
+	 */
+	private String requireExecutionMode() {
+		String mode = submissionGateway.mode();
+		if (!("MOCK".equals(mode) || "LIVE".equals(mode))) {
+			throw new OrderExecutionSubmissionException(
+					"OTO 조건 주문 실행 경계의 모드가 올바르지 않습니다.");
+		}
+		return mode;
 	}
 
 	/** 외부 조회 전에 OTO 공통 필수 입력값과 만료일을 검사합니다. */

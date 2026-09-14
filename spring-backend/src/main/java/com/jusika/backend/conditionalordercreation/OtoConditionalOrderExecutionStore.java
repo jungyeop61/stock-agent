@@ -14,6 +14,9 @@ interface OtoConditionalOrderExecutionStore {
 	/** 제출 전 내부 오류로 실행을 종료합니다. */
 	boolean markPreparationFailed(String executionId, OffsetDateTime failedAt);
 
+	/** 토스 호출 전 안전정책에 차단된 제출 중 실행을 내부 차단 상태로 종료합니다. */
+	boolean markSubmissionBlocked(String executionId, OffsetDateTime failedAt);
+
 	/** 조건 주문 식별값과 함께 접수 상태로 변경합니다. */
 	boolean markAccepted(String executionId, String conditionalOrderId, OffsetDateTime completedAt);
 

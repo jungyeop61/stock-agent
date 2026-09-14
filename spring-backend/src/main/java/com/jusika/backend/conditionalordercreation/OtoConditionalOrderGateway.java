@@ -5,7 +5,7 @@ import com.jusika.backend.brokersafety.BrokerOpenOrderCapacityOperation;
 import com.jusika.backend.conditionalorder.ConditionalOrderCreationResponse;
 import com.jusika.backend.conditionalorder.OtoConditionalOrderSubmissionRequest;
 
-/** OTO 실행 서비스와 모의 또는 향후 실제 증권사 제출 구현 사이의 경계입니다. */
+/** OTO 실행 서비스와 모의 또는 실제 증권사 제출 구현 사이의 경계입니다. */
 interface OtoConditionalOrderGateway {
 	/**
 	 * 최신 금융정보 재조회, 미리보기 소비와 실행권 확보 전에 생성 경계가 안전한지 확인합니다.
