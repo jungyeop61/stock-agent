@@ -16,6 +16,7 @@ import com.jusika.backend.account.AccountResponse;
 import com.jusika.backend.holding.HoldingsResponse;
 import com.jusika.backend.holding.HoldingsResponse.HoldingItem;
 import com.jusika.backend.sellablequantity.SellableQuantityResponse;
+import com.jusika.backend.toss.TossLiveTestRateLimiter;
 import com.jusika.backend.toss.account.TossAccountClient;
 import com.jusika.backend.toss.asset.TossHoldingsClient;
 import com.jusika.backend.toss.orderinfo.TossSellableQuantityClient;
@@ -45,6 +46,7 @@ class OrderPreviewLiveTests {
 	@Test
 	@DisplayName("실제 토스증권 계좌에서 주문 전송 없이 매도 미리보기를 만든다")
 	void 실제_토스증권_계좌에서_주문_전송_없이_매도_미리보기를_만든다() {
+		TossLiveTestRateLimiter.awaitAccountSlot();
 		List<AccountResponse> accounts = accountClient.getAccounts();
 		assertThat(accounts).isNotEmpty();
 

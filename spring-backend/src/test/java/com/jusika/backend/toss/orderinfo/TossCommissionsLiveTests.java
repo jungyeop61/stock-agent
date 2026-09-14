@@ -13,6 +13,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 
 import com.jusika.backend.account.AccountResponse;
 import com.jusika.backend.commission.CommissionsResponse;
+import com.jusika.backend.toss.TossLiveTestRateLimiter;
 import com.jusika.backend.toss.account.TossAccountClient;
 
 /**
@@ -34,6 +35,7 @@ class TossCommissionsLiveTests {
 	@Test
 	@DisplayName("실제 토스증권 계좌에서 국내와 미국 시장의 수수료를 안전하게 조회한다")
 	void 실제_토스증권_계좌에서_국내와_미국_시장의_수수료를_안전하게_조회한다() {
+		TossLiveTestRateLimiter.awaitAccountSlot();
 		List<AccountResponse> accounts = accountClient.getAccounts();
 		assertThat(accounts).isNotEmpty();
 

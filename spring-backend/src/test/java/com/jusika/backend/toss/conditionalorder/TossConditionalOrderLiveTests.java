@@ -13,6 +13,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import com.jusika.backend.account.AccountResponse;
 import com.jusika.backend.conditionalorder.ConditionalOrderListResponse;
 import com.jusika.backend.conditionalorder.ConditionalOrderListStatus;
+import com.jusika.backend.toss.TossLiveTestRateLimiter;
 import com.jusika.backend.toss.account.TossAccountClient;
 
 /**
@@ -34,6 +35,7 @@ class TossConditionalOrderLiveTests {
 	@Test
 	@DisplayName("실제 토스증권 계좌에서 조건 주문 목록을 안전하게 조회한다")
 	void 실제_토스증권_계좌에서_조건_주문_목록을_안전하게_조회한다() {
+		TossLiveTestRateLimiter.awaitAccountSlot();
 		List<AccountResponse> accounts = accountClient.getAccounts();
 		assertThat(accounts).isNotEmpty();
 

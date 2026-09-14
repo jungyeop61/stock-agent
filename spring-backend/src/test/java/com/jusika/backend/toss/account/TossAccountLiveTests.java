@@ -11,6 +11,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
 import com.jusika.backend.account.AccountResponse;
+import com.jusika.backend.toss.TossLiveTestRateLimiter;
 
 /**
  * 사용자가 명시적으로 허용했을 때만 실제 토스증권 서버에서 계좌 목록을 확인합니다.
@@ -28,6 +29,7 @@ class TossAccountLiveTests {
 	@Test
 	@DisplayName("실제 토스증권에서 계좌 목록을 안전하게 조회한다")
 	void 실제_토스증권에서_계좌_목록을_안전하게_조회한다() {
+		TossLiveTestRateLimiter.awaitAccountSlot();
 		List<AccountResponse> responses = accountClient.getAccounts();
 
 		assertThat(responses).isNotNull();

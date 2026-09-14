@@ -15,6 +15,7 @@ import com.jusika.backend.account.AccountResponse;
 import com.jusika.backend.holding.HoldingsResponse;
 import com.jusika.backend.holding.HoldingsResponse.HoldingItem;
 import com.jusika.backend.sellablequantity.SellableQuantityResponse;
+import com.jusika.backend.toss.TossLiveTestRateLimiter;
 import com.jusika.backend.toss.account.TossAccountClient;
 import com.jusika.backend.toss.asset.TossHoldingsClient;
 
@@ -40,6 +41,7 @@ class TossSellableQuantityLiveTests {
 	@Test
 	@DisplayName("실제 토스증권 계좌에서 보유 종목의 매도 가능 수량을 안전하게 조회한다")
 	void 실제_토스증권_계좌에서_보유_종목의_매도_가능_수량을_안전하게_조회한다() {
+		TossLiveTestRateLimiter.awaitAccountSlot();
 		List<AccountResponse> accounts = accountClient.getAccounts();
 		assertThat(accounts).isNotEmpty();
 

@@ -13,6 +13,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import com.jusika.backend.account.AccountResponse;
 import com.jusika.backend.orderhistory.OrderListResponse;
 import com.jusika.backend.orderhistory.OrderListStatus;
+import com.jusika.backend.toss.TossLiveTestRateLimiter;
 import com.jusika.backend.toss.account.TossAccountClient;
 
 /**
@@ -34,6 +35,7 @@ class TossOrderListLiveTests {
 	@Test
 	@DisplayName("실제 토스증권 계좌에서 진행 중 주문과 종료 주문을 안전하게 조회한다")
 	void 실제_토스증권_계좌에서_진행_중_주문과_종료_주문을_안전하게_조회한다() {
+		TossLiveTestRateLimiter.awaitAccountSlot();
 		List<AccountResponse> accounts = accountClient.getAccounts();
 		assertThat(accounts).isNotEmpty();
 
