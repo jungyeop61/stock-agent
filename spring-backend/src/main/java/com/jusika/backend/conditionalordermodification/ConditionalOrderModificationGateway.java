@@ -5,7 +5,7 @@ import com.jusika.backend.brokersafety.BrokerOpenOrderCapacityOperation;
 import com.jusika.backend.conditionalorder.ConditionalOrderModificationResponse;
 import com.jusika.backend.conditionalorder.ConditionalOrderModificationSubmissionRequest;
 
-/** 승인된 조건 주문 정정을 모의 처리하거나 향후 실제 증권사로 전달하는 경계입니다. */
+/** 승인된 조건 주문 정정을 모의 처리하거나 실제 증권사로 전달하는 경계입니다. */
 interface ConditionalOrderModificationGateway {
 
 	/**

@@ -15,6 +15,9 @@ interface ConditionalOrderModificationExecutionStore {
 	/** 제출 전 내부 오류로 실행을 종료합니다. */
 	boolean markPreparationFailed(String executionId, OffsetDateTime failedAt);
 
+	/** 토스 호출 전 안전정책에 차단된 제출 중 정정을 내부 차단 상태로 종료합니다. */
+	boolean markSubmissionBlocked(String executionId, OffsetDateTime failedAt);
+
 	/** 새 조건 주문 식별값과 정정 성공 상태를 기록합니다. */
 	boolean markAccepted(String executionId, String replacementId, OffsetDateTime completedAt);
 

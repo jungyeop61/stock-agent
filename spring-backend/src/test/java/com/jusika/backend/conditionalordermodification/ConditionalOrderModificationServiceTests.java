@@ -213,6 +213,44 @@ class ConditionalOrderModificationServiceTests {
 		assertThat(gateway.callCount).isZero();
 	}
 
+	/** LIVE 경계도 최신 원주문과 새 전체 조건 검증 뒤 같은 정정 요청을 받는지 검사합니다. */
+	@Test
+	@DisplayName("승인된 조건 주문 정정을 LIVE 안전 경계로 전달한다")
+	void 승인된_조건_주문_정정을_LIVE_안전_경계로_전달한다() {
+		conditionalOrderClient.response = 원조건_주문을_만든다(ConditionalOrderType.SINGLE);
+		ConditionalOrderModificationPreviewResponse preview = 승인된_OCO_미리보기를_저장한다();
+		gateway.mode = "LIVE";
+
+		ConditionalOrderModificationExecutionResponse result =
+				service.executeApprovedPreview(preview.previewId());
+
+		assertThat(result.status()).isEqualTo(OrderExecutionStatus.ACCEPTED);
+		assertThat(result.brokerMode()).isEqualTo("LIVE");
+		assertThat(result.replacementConditionalOrderId()).isEqualTo("replacement-id");
+		assertThat(gateway.callCount).isOne();
+		assertThat(previewStore.findById(preview.previewId()).orElseThrow().status())
+				.isEqualTo(ConditionalOrderModificationPreviewStatus.CONSUMED);
+	}
+
+	/** 지원하지 않는 실행 모드는 원주문과 금융정보 재조회 및 실행권 생성 전에 차단합니다. */
+	@Test
+	@DisplayName("지원하지 않는 조건 주문 정정 실행 경계 모드를 차단한다")
+	void 지원하지_않는_조건_주문_정정_실행_경계_모드를_차단한다() {
+		conditionalOrderClient.response = 원조건_주문을_만든다(ConditionalOrderType.SINGLE);
+		ConditionalOrderModificationPreviewResponse preview = 승인된_OCO_미리보기를_저장한다();
+		gateway.mode = "INVALID";
+		int previewOrderCalls = conditionalOrderClient.callCount;
+		int previewPriceCalls = priceClient.callCount;
+
+		assertThatThrownBy(() -> service.executeApprovedPreview(preview.previewId()))
+				.isInstanceOf(OrderExecutionSubmissionException.class)
+				.hasMessage("조건 주문 정정 실행 경계의 모드가 올바르지 않습니다.");
+		assertThat(conditionalOrderClient.callCount).isEqualTo(previewOrderCalls);
+		assertThat(priceClient.callCount).isEqualTo(previewPriceCalls);
+		assertThat(gateway.callCount).isZero();
+		assertThat(executionStore.values).isEmpty();
+	}
+
 	/** 제출 결과 불명은 UNKNOWN으로 저장하고 정정 경계를 한 번만 호출하는지 검사합니다. */
 	@Test
 	@DisplayName("조건 주문 정정 결과 불명은 UNKNOWN으로 저장하고 자동 재시도하지 않는다")
@@ -227,6 +265,26 @@ class ConditionalOrderModificationServiceTests {
 		assertThat(gateway.callCount).isEqualTo(1);
 		assertThat(executionStore.values.values().iterator().next().status())
 				.isEqualTo(OrderExecutionStatus.UNKNOWN);
+	}
+
+	/** 실행권 확보 뒤 토스 호출 전 안전정책 차단은 결과 불명으로 저장하지 않는지 검사합니다. */
+	@Test
+	@DisplayName("토스 호출 전 조건 주문 정정 LIVE 안전 차단을 내부 차단 상태로 저장한다")
+	void 토스_호출_전_조건_주문_정정_LIVE_안전_차단을_내부_차단_상태로_저장한다() {
+		conditionalOrderClient.response = 원조건_주문을_만든다(ConditionalOrderType.SINGLE);
+		ConditionalOrderModificationPreviewResponse preview = 승인된_OCO_미리보기를_저장한다();
+		gateway.mode = "LIVE";
+		gateway.failure = new BrokerMutationBlockedException("테스트 호출 직전 조건 주문 정정 차단");
+
+		assertThatThrownBy(() -> service.executeApprovedPreview(preview.previewId()))
+				.isInstanceOf(BrokerMutationBlockedException.class)
+				.hasMessage("테스트 호출 직전 조건 주문 정정 차단");
+		ConditionalOrderModificationExecutionResponse stored =
+				executionStore.values.values().iterator().next();
+		assertThat(stored.status()).isEqualTo(OrderExecutionStatus.REJECTED);
+		assertThat(stored.failureType()).isEqualTo(OrderExecutionFailureType.INTERNAL_STATE);
+		assertThat(stored.replacementConditionalOrderId()).isNull();
+		assertThat(stored.completedAt()).isEqualTo(NOW);
 	}
 
 	/** 테스트에 사용할 OCO 정정 후 전체 구성을 만듭니다. */
@@ -434,6 +492,17 @@ class ConditionalOrderModificationServiceTests {
 					OrderExecutionFailureType.INTERNAL_STATE, null, null, at);
 		}
 
+		/** 제출 중 토스 호출 전 안전정책 차단을 내부 오류 거절로 바꿉니다. */
+		@Override
+		public boolean markSubmissionBlocked(String id, OffsetDateTime at) {
+			ConditionalOrderModificationExecutionResponse value = values.get(id);
+			if (value == null || value.status() != OrderExecutionStatus.SUBMITTING) {
+				return false;
+			}
+			return 변경한다(id, OrderExecutionStatus.REJECTED,
+					OrderExecutionFailureType.INTERNAL_STATE, null, null, at);
+		}
+
 		/** 성공과 새 조건 주문 식별값을 저장합니다. */
 		@Override
 		public boolean markAccepted(String id, String replacementId, OffsetDateTime at) {
@@ -491,6 +560,8 @@ class ConditionalOrderModificationServiceTests {
 	private static final class RecordingGateway implements ConditionalOrderModificationGateway {
 		private int callCount;
 		private boolean unknown;
+		private String mode = "MOCK";
+		private RuntimeException failure;
 		private ConditionalOrderModificationSubmissionRequest request;
 		private RuntimeException availabilityFailure;
 
@@ -510,12 +581,13 @@ class ConditionalOrderModificationServiceTests {
 				ConditionalOrderModificationSubmissionRequest request) {
 			callCount++;
 			this.request = request;
+			if (failure != null) throw failure;
 			if (unknown) throw new OrderSubmissionException("결과 불명", true);
 			return new ConditionalOrderModificationResponse("replacement-id");
 		}
 
-		/** 테스트 실행 모드가 MOCK임을 반환합니다. */
+		/** 테스트에 준비한 MOCK 또는 LIVE 실행 경계 모드를 반환합니다. */
 		@Override
-		public String mode() { return "MOCK"; }
+		public String mode() { return mode; }
 	}
 }

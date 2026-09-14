@@ -11,6 +11,7 @@ import java.util.UUID;
 
 import org.springframework.stereotype.Service;
 
+import com.jusika.backend.brokersafety.BrokerMutationBlockedException;
 import com.jusika.backend.brokersafety.BrokerOrderRiskSnapshot;
 import com.jusika.backend.brokersafety.BrokerOpenOrderCapacityOperation;
 import com.jusika.backend.buyingpower.BuyingPowerResponse;
@@ -47,7 +48,7 @@ import com.jusika.backend.toss.orderinfo.TossBuyingPowerClient;
 import com.jusika.backend.toss.orderinfo.TossCommissionsClient;
 import com.jusika.backend.toss.orderinfo.TossSellableQuantityClient;
 
-/** 원조건 주문과 새 전체 구성을 승인·재검증해 중복 없는 모의 정정을 실행합니다. */
+/** 원조건 주문과 새 전체 구성을 승인·재검증해 현재 모드에서 중복 없는 정정을 실행합니다. */
 @Service
 public class ConditionalOrderModificationService {
 
@@ -144,13 +145,14 @@ public class ConditionalOrderModificationService {
 		throw new IllegalStateException("처리할 수 없는 조건 주문 정정 미리보기 상태입니다.");
 	}
 
-	/** 승인 사본과 최신 원주문을 비교하고 새 전체 조건을 재검증한 뒤 한 번만 모의 정정합니다. */
+	/** 승인 사본과 최신 원주문을 비교하고 새 전체 조건을 재검증한 뒤 현재 모드로 한 번 정정합니다. */
 	public ConditionalOrderModificationExecutionResponse executeApprovedPreview(String previewId) {
 		validateUuid(previewId, "조건 주문 정정 미리보기");
 		ConditionalOrderModificationPreviewResponse preview = findPreview(previewId);
 		OffsetDateTime startedAt = OffsetDateTime.now(clock);
 		validateExecutablePreview(preview, startedAt);
 		modificationGateway.requireModificationAvailable(preview.accountSeq());
+		String brokerMode = requireExecutionMode();
 		modificationGateway.requireInstrumentAllowed(preview.symbol(), preview.currency());
 		modificationGateway.requireOpenOrderCapacity(
 				preview.accountSeq(), preview.symbol(),
@@ -185,7 +187,7 @@ public class ConditionalOrderModificationService {
 		ConditionalOrderModificationExecutionResponse prepared =
 				new ConditionalOrderModificationExecutionResponse(
 						executionId, preview.previewId(), preview.accountSeq(),
-						preview.originalConditionalOrderId(), null, modificationGateway.mode(),
+						preview.originalConditionalOrderId(), null, brokerMode,
 						OrderExecutionStatus.PREPARED, null, startedAt, startedAt, null, null);
 		if (!executionStore.claim(prepared)) {
 			throw new OrderExecutionConflictException(
@@ -212,7 +214,7 @@ public class ConditionalOrderModificationService {
 						"조건 주문 정정 실행 기록을 찾을 수 없습니다."));
 	}
 
-	/** MOCK 정정 결과를 성공·확정 거절·결과 불명으로 나눠 저장합니다. */
+	/** 현재 경계의 정정 결과를 성공·확정 거절·결과 불명으로 나눠 저장합니다. */
 	private ConditionalOrderModificationExecutionResponse modifyAndRecord(
 			String executionId,
 			ConditionalOrderModificationPreviewResponse preview,
@@ -230,6 +232,9 @@ public class ConditionalOrderModificationService {
 						"조건 주문 정정 성공 결과를 데이터베이스에 기록하지 못했습니다.");
 			}
 			return findExecution(executionId);
+		} catch (BrokerMutationBlockedException exception) {
+			executionStore.markSubmissionBlocked(executionId, OffsetDateTime.now(clock));
+			throw exception;
 		} catch (OrderSubmissionException exception) {
 			OffsetDateTime failedAt = OffsetDateTime.now(clock);
 			if (exception.isSubmissionStateUnknown()) {
@@ -246,6 +251,20 @@ public class ConditionalOrderModificationService {
 			throw new OrderExecutionSubmissionException(
 					"조건 주문 정정 여부를 확인할 수 없습니다. 자동으로 다시 정정하지 마세요.");
 		}
+	}
+
+	/**
+	 * 현재 조건 주문 정정 경계가 저장 가능한 MOCK 또는 LIVE 모드인지 확인합니다.
+	 *
+	 * @return 실행 기록에 저장할 검증된 증권사 모드 이름
+	 */
+	private String requireExecutionMode() {
+		String mode = modificationGateway.mode();
+		if (!("MOCK".equals(mode) || "LIVE".equals(mode))) {
+			throw new OrderExecutionSubmissionException(
+					"조건 주문 정정 실행 경계의 모드가 올바르지 않습니다.");
+		}
+		return mode;
 	}
 
 	/** 외부 조회 전에 계좌·식별값·새 전체 구성의 필수값을 검사합니다. */

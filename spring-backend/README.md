@@ -573,6 +573,7 @@ V19는 결과 불명 사고 확인 요청을 직렬화하는 잠금 행과 확�
 - 정정 메서드 내부에서도 중앙 정책을 다시 확인합니다.
 - 토스 조건 주문 정정은 기존 주문을 취소하고 새 조건 주문 식별값을 발급하며, 새 식별값을 원주문과 구분해 서비스에 전달하도록 준비했습니다.
 - `CONDITIONAL_ORDER_MODIFICATION` 준비 상태는 계속 `false`이므로 기존 주문 취소와 대체 주문 생성이 시작되기 전에 차단됩니다.
+- 토스 호출 직전 안전정책이 차단한 정정은 결과 불명이 아니므로 `REJECTED/INTERNAL_STATE`로 종료합니다.
 - 최종 검증된 SINGLE·OCO·OTO 유형과 수량·주문 유형·만료일·전체 조건·고액 확인값은 변경 없이 토스 클라이언트에 전달합니다.
 - 토스 클라이언트의 확정 거절과 결과 불명 상태는 서비스가 각각 `REJECTED`와 `UNKNOWN`으로 저장할 수 있도록 유지합니다.
 - 정정 결과가 `UNKNOWN`인 경우 자동 재시도 경로는 계속 제공하지 않습니다.
@@ -1979,7 +1980,9 @@ curl -X POST http://localhost:8080/api/conditional-orders/modifications/previews
 curl -X POST http://localhost:8080/api/conditional-orders/modifications/previews/미리보기-식별값/execute
 ```
 
-기본 실행 경계는 `MOCK`입니다. `LIVE` 모드를 선택해도 원주문과 금융정보 재조회 전에 현재 안전 경계에서 차단되므로 실제 토스증권 조건 주문을 정정하지 않습니다.
+기본 실행 경계는 `MOCK`입니다.
+`LIVE` 모드에서는 같은 조건 주문 정정 서비스가 토스증권 공식 정정 클라이언트 경계를 사용하지만 `CONDITIONAL_ORDER_MODIFICATION` 준비 상태가 `false`라 기존 주문 취소와 대체 주문 생성 전에 차단됩니다.
+따라서 위 승인·실행 주소와 자동 테스트는 실제 조건 주문을 정정하지 않습니다.
 같은 계좌의 같은 원조건 주문은 여러 미리보기로도 데이터베이스 잠금과 고유 제약에 의해 한 번만 정정할 수 있습니다.
 
 토스증권 조건 주문 정정은 기존 조건 주문을 취소하고 새 조건 주문을 만드는 방식입니다.
@@ -1993,8 +1996,9 @@ curl http://localhost:8080/api/conditional-orders/modifications/executions/실�
 
 토스증권 공식 `POST /api/v1/conditional-orders/{conditionalOrderId}/modify` 요청 경계도 구현했습니다.
 정정 본문에는 종목이나 멱등성 식별값 없이 정정 후 `type`, `quantity`, `orderType`, `expireDate`, `first`와 선택 `second`, 고액 확인 여부를 전송하며 성공 응답의 새 `conditionalOrderId`를 검증합니다.
-이 실제 토스 클라이언트 메서드는 안전 실행 서비스에 연결하지 않았습니다.
+이 토스 클라이언트 메서드는 안전 실행 서비스의 LIVE 경계에 연결되어 있지만 현재 기능별 준비 상태가 `false`라 호출되지 않습니다.
 
+토스 호출 직전 빈도나 일일 누적 한도 예약이 차단되면 접수 여부가 명확하므로 `UNKNOWN`이 아니라 `REJECTED/INTERNAL_STATE`로 저장합니다.
 4xx 응답은 확정 거절로 분류합니다.
 5xx, 통신 오류, 응답 형식 오류는 기존 조건 주문의 취소와 새 조건 주문의 생성 중 어디까지 처리됐는지 알 수 없으므로 `UNKNOWN`으로 저장합니다.
 `UNKNOWN` 결과에는 자동 재시도 경로를 제공하지 않으며 조건 주문 목록과 토스증권 앱에서 사람이 확인해야 합니다.

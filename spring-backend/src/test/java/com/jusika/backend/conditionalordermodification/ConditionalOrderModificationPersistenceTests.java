@@ -20,6 +20,7 @@ import com.jusika.backend.conditionalorder.ConditionalOrderStatus;
 import com.jusika.backend.conditionalorder.ConditionalOrderType;
 import com.jusika.backend.conditionalordermodification.ConditionalOrderModificationPreviewResponse.OriginalCondition;
 import com.jusika.backend.conditionalordermodification.ConditionalOrderModificationPreviewResponse.RequestedCondition;
+import com.jusika.backend.orderexecution.OrderExecutionFailureType;
 import com.jusika.backend.orderexecution.OrderExecutionStatus;
 import com.jusika.backend.orderpreview.OrderSide;
 import com.jusika.backend.orderpreview.OrderType;
@@ -57,6 +58,34 @@ class ConditionalOrderModificationPersistenceTests {
 		assertThat(stored.status()).isEqualTo(OrderExecutionStatus.ACCEPTED);
 		assertThat(stored.replacementConditionalOrderId()).isEqualTo("replacement-id");
 		assertThat(stored.originalConditionalOrderId()).isEqualTo(originalId);
+	}
+
+	/** 토스 호출 전 정정 차단을 결과 불명이 아닌 내부 차단으로 한 번만 저장하는지 검사합니다. */
+	@Test
+	@DisplayName("조건 주문 정정 제출 직전 안전 차단 상태를 데이터베이스에 저장한다")
+	void 조건_주문_정정_제출_직전_안전_차단_상태를_데이터베이스에_저장한다() {
+		OffsetDateTime now = OffsetDateTime.of(
+				2026, 9, 7, 22, 0, 0, 0, ZoneOffset.ofHours(9));
+		String originalId = "blocked-original-" + UUID.randomUUID();
+		ConditionalOrderModificationPreviewResponse preview = 미리보기를_저장한다(originalId, now);
+		ConditionalOrderModificationExecutionResponse prepared = 실행_준비_기록을_만든다(
+				preview.previewId(), originalId, now.plusSeconds(1));
+		executionStore.claim(prepared);
+		executionStore.markSubmitting(prepared.executionId(), now.plusSeconds(2));
+
+		boolean blocked = executionStore.markSubmissionBlocked(
+				prepared.executionId(), now.plusSeconds(3));
+		boolean duplicate = executionStore.markSubmissionBlocked(
+				prepared.executionId(), now.plusSeconds(4));
+		ConditionalOrderModificationExecutionResponse stored = executionStore.findById(
+				prepared.executionId()).orElseThrow();
+
+		assertThat(blocked).isTrue();
+		assertThat(duplicate).isFalse();
+		assertThat(stored.status()).isEqualTo(OrderExecutionStatus.REJECTED);
+		assertThat(stored.failureType()).isEqualTo(OrderExecutionFailureType.INTERNAL_STATE);
+		assertThat(stored.replacementConditionalOrderId()).isNull();
+		assertThat(stored.completedAt()).isEqualTo(now.plusSeconds(3));
 	}
 
 	/** 데이터베이스 테스트에 사용할 유형 전환 정정 미리보기를 저장합니다. */

@@ -53,6 +53,15 @@ class JpaConditionalOrderModificationExecutionStore
 				failedAt, failedAt) == 1;
 	}
 
+	/** 토스 호출 전 안전정책에 차단된 제출 중 조건 주문 정정을 내부 오류 거절로 종료합니다. */
+	@Override
+	@Transactional
+	public boolean markSubmissionBlocked(String executionId, OffsetDateTime failedAt) {
+		return repository.markFailed(executionId, OrderExecutionStatus.SUBMITTING,
+				OrderExecutionStatus.REJECTED, OrderExecutionFailureType.INTERNAL_STATE,
+				failedAt, failedAt) == 1;
+	}
+
 	/** 제출 중 실행에 새 조건 주문 식별값과 접수 성공을 기록합니다. */
 	@Override
 	@Transactional

@@ -6,7 +6,7 @@ import com.jusika.backend.orderexecution.OrderExecutionFailureType;
 import com.jusika.backend.orderexecution.OrderExecutionStatus;
 
 /**
- * 조건 주문 정정의 모의 또는 향후 실제 제출 상태와 새 조건 주문 식별값입니다.
+ * 조건 주문 정정의 모의 또는 실제 제출 상태와 새 조건 주문 식별값입니다.
  *
  * @param executionId 우리 서버의 정정 실행 식별값
  * @param previewId 실행에 사용한 미리보기 식별값
