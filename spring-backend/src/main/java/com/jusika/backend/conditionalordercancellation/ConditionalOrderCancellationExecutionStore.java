@@ -15,6 +15,9 @@ interface ConditionalOrderCancellationExecutionStore {
 	/** 제출 전 내부 오류로 실행을 종료합니다. */
 	boolean markPreparationFailed(String executionId, OffsetDateTime failedAt);
 
+	/** 토스 호출 전 안전정책에 차단된 제출 중 취소를 내부 차단 상태로 종료합니다. */
+	boolean markSubmissionBlocked(String executionId, OffsetDateTime failedAt);
+
 	/** 조건 주문 취소 성공을 접수 상태로 기록합니다. */
 	boolean markAccepted(String executionId, OffsetDateTime completedAt);
 

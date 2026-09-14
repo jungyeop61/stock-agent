@@ -53,6 +53,15 @@ class JpaConditionalOrderCancellationExecutionStore
 				OrderExecutionFailureType.INTERNAL_STATE, failedAt, failedAt) == 1;
 	}
 
+	/** 토스 호출 전 안전정책에 차단된 제출 중 조건 주문 취소를 내부 오류 거절로 종료합니다. */
+	@Override
+	@Transactional
+	public boolean markSubmissionBlocked(String executionId, OffsetDateTime failedAt) {
+		return repository.markFailed(
+				executionId, OrderExecutionStatus.SUBMITTING, OrderExecutionStatus.REJECTED,
+				OrderExecutionFailureType.INTERNAL_STATE, failedAt, failedAt) == 1;
+	}
+
 	/** 제출 중인 실행 한 건을 취소 성공 상태로 변경합니다. */
 	@Override
 	@Transactional

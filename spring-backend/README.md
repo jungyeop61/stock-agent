@@ -548,6 +548,7 @@ V19는 결과 불명 사고 확인 요청을 직렬화하는 잠금 행과 확�
 - 사전 검사가 실패하면 승인된 취소 미리보기는 소비되지 않고 실행 기록도 생성되지 않습니다.
 - 취소 메서드 내부에서도 중앙 정책을 다시 확인합니다.
 - `CONDITIONAL_ORDER_CANCELLATION` 준비 상태는 계속 `false`이므로 토스 클라이언트 호출 전에 차단됩니다.
+- 토스 호출 직전 안전정책이 차단한 취소는 결과 불명이 아니므로 `REJECTED/INTERNAL_STATE`로 종료합니다.
 - 최종 검증된 계좌와 조건 주문 식별값은 변경 없이 토스 클라이언트에 전달하도록 준비했습니다.
 - 토스 클라이언트의 204 성공 결과는 서비스가 `ACCEPTED`로 저장할 수 있도록 정상 반환합니다.
 - 토스 클라이언트의 확정 거절과 결과 불명 상태는 서비스가 각각 `REJECTED`와 `UNKNOWN`으로 저장할 수 있도록 유지합니다.
@@ -1908,8 +1909,10 @@ curl -X POST http://localhost:8080/api/conditional-orders/cancellations/previews
 curl http://localhost:8080/api/conditional-orders/cancellations/executions/실행-식별값
 ```
 
-기본 실행 결과의 `brokerMode`는 `MOCK`입니다. `LIVE` 모드는 최신 조건 주문 재조회와 상태 변경 전에 차단되므로 실행 결과를 만들지 않습니다.
-토스증권 공식 `DELETE /api/v1/conditional-orders/{conditionalOrderId}` 요청과 204 성공 응답을 처리하는 내부 클라이언트는 구현했지만 실행 서비스에는 연결하지 않았습니다.
+기본 실행 결과의 `brokerMode`는 `MOCK`입니다.
+`LIVE` 모드에서는 같은 조건 주문 취소 서비스가 토스증권 공식 `DELETE /api/v1/conditional-orders/{conditionalOrderId}` 클라이언트 경계를 사용하지만 `CONDITIONAL_ORDER_CANCELLATION` 준비 상태가 `false`라 실제 호출 전에 차단됩니다.
+따라서 위 승인·실행 주소와 자동 테스트는 실제 조건 주문을 취소하지 않습니다.
+토스 호출 직전 중앙 안전정책이 차단하면 접수 여부가 명확하므로 `UNKNOWN`이 아니라 `REJECTED/INTERNAL_STATE`로 저장합니다.
 4xx 응답은 확정 거절로, 5xx나 통신 오류는 결과 불명으로 분류합니다. 결과가 `UNKNOWN`이면 자동으로 다시 취소하지 않고 토스증권 앱과 조건 주문 조회에서 사람이 확인해야 합니다.
 
 가짜 객체·가짜 HTTP 서버와 H2 데이터베이스로 안전 흐름을 검사합니다.

@@ -9,6 +9,7 @@ import java.util.UUID;
 
 import org.springframework.stereotype.Service;
 
+import com.jusika.backend.brokersafety.BrokerMutationBlockedException;
 import com.jusika.backend.conditionalorder.ConditionalOrderConditionStatus;
 import com.jusika.backend.conditionalorder.ConditionalOrderDetailResponse;
 import com.jusika.backend.conditionalorder.ConditionalOrderDetailResponse.Condition;
@@ -112,6 +113,7 @@ public class ConditionalOrderCancellationService {
 		OffsetDateTime startedAt = OffsetDateTime.now(clock);
 		validateExecutablePreview(preview, startedAt);
 		cancellationGateway.requireCancellationAvailable(preview.accountSeq());
+		String brokerMode = requireExecutionMode();
 
 		ConditionalOrderDetailResponse current = conditionalOrderClient.getConditionalOrder(
 				preview.accountSeq(), preview.conditionalOrderId());
@@ -123,7 +125,7 @@ public class ConditionalOrderCancellationService {
 		ConditionalOrderCancellationExecutionResponse prepared =
 				new ConditionalOrderCancellationExecutionResponse(
 						executionId, preview.previewId(), preview.accountSeq(),
-						preview.conditionalOrderId(), cancellationGateway.mode(),
+						preview.conditionalOrderId(), brokerMode,
 						OrderExecutionStatus.PREPARED, null, startedAt, startedAt, null, null);
 		if (!executionStore.claim(prepared)) {
 			throw new OrderExecutionConflictException(
@@ -162,6 +164,9 @@ public class ConditionalOrderCancellationService {
 						"조건 주문 취소 성공 결과를 데이터베이스에 기록하지 못했습니다.");
 			}
 			return findExecution(executionId);
+		} catch (BrokerMutationBlockedException exception) {
+			executionStore.markSubmissionBlocked(executionId, OffsetDateTime.now(clock));
+			throw exception;
 		} catch (OrderSubmissionException exception) {
 			OffsetDateTime failedAt = OffsetDateTime.now(clock);
 			if (exception.isSubmissionStateUnknown()) {
@@ -178,6 +183,20 @@ public class ConditionalOrderCancellationService {
 			throw new OrderExecutionSubmissionException(
 					"조건 주문 취소 여부를 확인할 수 없습니다. 자동으로 다시 취소하지 마세요.");
 		}
+	}
+
+	/**
+	 * 현재 조건 주문 취소 경계가 저장 가능한 MOCK 또는 LIVE 모드인지 확인합니다.
+	 *
+	 * @return 실행 기록에 저장할 검증된 증권사 모드 이름
+	 */
+	private String requireExecutionMode() {
+		String mode = cancellationGateway.mode();
+		if (!("MOCK".equals(mode) || "LIVE".equals(mode))) {
+			throw new OrderExecutionSubmissionException(
+					"조건 주문 취소 실행 경계의 모드가 올바르지 않습니다.");
+		}
+		return mode;
 	}
 
 	/** 외부 조회 전에 계좌와 조건 주문 식별값 형식을 검사합니다. */

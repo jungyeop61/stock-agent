@@ -145,6 +145,41 @@ class ConditionalOrderCancellationServiceTests {
 		assertThat(gateway.callCount).isZero();
 	}
 
+	/** LIVE 경계도 최신 원주문 검증과 실행권 확보 뒤 같은 취소 요청을 받는지 검사합니다. */
+	@Test
+	@DisplayName("승인된 조건 주문 취소를 LIVE 안전 경계로 전달한다")
+	void 승인된_조건_주문_취소를_LIVE_안전_경계로_전달한다() {
+		conditionalOrderClient.response = 감시_중인_조건_주문을_만든다();
+		ConditionalOrderCancellationPreviewResponse preview = 승인된_미리보기를_만든다();
+		gateway.mode = "LIVE";
+
+		ConditionalOrderCancellationExecutionResponse result =
+				service.executeApprovedPreview(preview.previewId());
+
+		assertThat(result.status()).isEqualTo(OrderExecutionStatus.ACCEPTED);
+		assertThat(result.brokerMode()).isEqualTo("LIVE");
+		assertThat(gateway.callCount).isOne();
+		assertThat(previewStore.findById(preview.previewId()).orElseThrow().status())
+				.isEqualTo(ConditionalOrderCancellationPreviewStatus.CONSUMED);
+	}
+
+	/** 지원하지 않는 실행 모드는 최신 조건 주문 재조회와 실행권 생성 전에 차단합니다. */
+	@Test
+	@DisplayName("지원하지 않는 조건 주문 취소 실행 경계 모드를 차단한다")
+	void 지원하지_않는_조건_주문_취소_실행_경계_모드를_차단한다() {
+		conditionalOrderClient.response = 감시_중인_조건_주문을_만든다();
+		ConditionalOrderCancellationPreviewResponse preview = 승인된_미리보기를_만든다();
+		gateway.mode = "INVALID";
+		int previewLookupCalls = conditionalOrderClient.callCount;
+
+		assertThatThrownBy(() -> service.executeApprovedPreview(preview.previewId()))
+				.isInstanceOf(OrderExecutionSubmissionException.class)
+				.hasMessage("조건 주문 취소 실행 경계의 모드가 올바르지 않습니다.");
+		assertThat(conditionalOrderClient.callCount).isEqualTo(previewLookupCalls);
+		assertThat(gateway.callCount).isZero();
+		assertThat(executionStore.values).isEmpty();
+	}
+
 	/** 같은 계좌의 같은 조건 주문을 여러 미리보기로도 한 번만 취소하는지 검사합니다. */
 	@Test
 	@DisplayName("같은 조건 주문은 여러 미리보기로도 한 번만 취소한다")
@@ -161,6 +196,25 @@ class ConditionalOrderCancellationServiceTests {
 		assertThat(accepted.brokerMode()).isEqualTo("MOCK");
 		assertThat(service.getExecution(accepted.executionId())).isEqualTo(accepted);
 		assertThat(gateway.callCount).isEqualTo(1);
+	}
+
+	/** 실행권 확보 뒤 토스 호출 전 안전정책 차단은 결과 불명으로 저장하지 않는지 검사합니다. */
+	@Test
+	@DisplayName("토스 호출 전 조건 주문 취소 LIVE 안전 차단을 내부 차단 상태로 저장한다")
+	void 토스_호출_전_조건_주문_취소_LIVE_안전_차단을_내부_차단_상태로_저장한다() {
+		conditionalOrderClient.response = 감시_중인_조건_주문을_만든다();
+		ConditionalOrderCancellationPreviewResponse preview = 승인된_미리보기를_만든다();
+		gateway.mode = "LIVE";
+		gateway.failure = new BrokerMutationBlockedException("테스트 호출 직전 조건 주문 취소 차단");
+
+		assertThatThrownBy(() -> service.executeApprovedPreview(preview.previewId()))
+				.isInstanceOf(BrokerMutationBlockedException.class)
+				.hasMessage("테스트 호출 직전 조건 주문 취소 차단");
+		ConditionalOrderCancellationExecutionResponse stored =
+				executionStore.values.values().iterator().next();
+		assertThat(stored.status()).isEqualTo(OrderExecutionStatus.REJECTED);
+		assertThat(stored.failureType()).isEqualTo(OrderExecutionFailureType.INTERNAL_STATE);
+		assertThat(stored.completedAt()).isEqualTo(NOW);
 	}
 
 	/** 취소 응답이 불명확하면 UNKNOWN으로 저장하고 자동 재호출하지 않는지 검사합니다. */
@@ -339,6 +393,18 @@ class ConditionalOrderCancellationServiceTests {
 					OrderExecutionFailureType.INTERNAL_STATE, null, at);
 		}
 
+		/** 제출 중 토스 호출 전 안전정책 차단을 내부 오류 거절로 바꿉니다. */
+		@Override
+		public boolean markSubmissionBlocked(String id, OffsetDateTime at) {
+			ConditionalOrderCancellationExecutionResponse value = values.get(id);
+			if (value == null || value.status() != OrderExecutionStatus.SUBMITTING) {
+				return false;
+			}
+			return 변경한다(
+					id, OrderExecutionStatus.REJECTED,
+					OrderExecutionFailureType.INTERNAL_STATE, null, at);
+		}
+
 		/** 실행을 취소 성공 상태로 변경합니다. */
 		@Override
 		public boolean markAccepted(String id, OffsetDateTime at) {
@@ -412,6 +478,8 @@ class ConditionalOrderCancellationServiceTests {
 			implements ConditionalOrderCancellationGateway {
 		private int callCount;
 		private boolean unknown;
+		private String mode = "MOCK";
+		private RuntimeException failure;
 		private RuntimeException availabilityFailure;
 
 		/** 준비한 LIVE 안전 차단을 재현하거나 MOCK 조건 주문 취소 사용 가능 상태를 유지합니다. */
@@ -426,15 +494,18 @@ class ConditionalOrderCancellationServiceTests {
 		@Override
 		public void cancelConditionalOrder(long accountSeq, String conditionalOrderId) {
 			callCount++;
+			if (failure != null) {
+				throw failure;
+			}
 			if (unknown) {
 				throw new OrderSubmissionException("테스트 결과 불명", true);
 			}
 		}
 
-		/** 테스트가 사용하는 모의 모드 이름을 반환합니다. */
+		/** 테스트에 준비한 MOCK 또는 LIVE 실행 경계 모드를 반환합니다. */
 		@Override
 		public String mode() {
-			return "MOCK";
+			return mode;
 		}
 	}
 }

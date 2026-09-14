@@ -1,6 +1,6 @@
 package com.jusika.backend.conditionalordercancellation;
 
-/** 승인된 조건 주문 취소를 모의 처리하거나 향후 실제 증권사로 전달하는 경계입니다. */
+/** 승인된 조건 주문 취소를 모의 처리하거나 실제 증권사로 전달하는 경계입니다. */
 interface ConditionalOrderCancellationGateway {
 
 	/**
