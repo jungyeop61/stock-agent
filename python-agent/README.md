@@ -49,6 +49,17 @@ PYTHONPATH=src python -m jusika_agent
 
 기본 주소는 `http://127.0.0.1:8000`이며 상태 확인 주소는 `/health`입니다.
 
+Spring 조회 요청은 연결 오류, 시간 초과, 요청 제한 또는 일시적인 서버 오류가 발생하면
+기본 최대 3회까지 짧은 지수 간격으로 재시도합니다. 주문 미리보기·승인·실행을 포함한
+모든 POST 요청은 결과 불명 상태에서 중복 전송될 위험이 있어 자동으로 재시도하지 않습니다.
+
+```dotenv
+JUSIKA_AGENT_SPRING_CONNECT_TIMEOUT_SECONDS=3
+JUSIKA_AGENT_SPRING_READ_TIMEOUT_SECONDS=8
+JUSIKA_AGENT_SPRING_READ_MAX_ATTEMPTS=3
+JUSIKA_AGENT_SPRING_RETRY_BASE_DELAY_SECONDS=0.25
+```
+
 ## 텍스트 기반 MOCK 흐름
 
 세션 ID는 Android가 한 음성 대화 동안 유지하는 UUID입니다.

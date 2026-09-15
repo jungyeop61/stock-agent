@@ -58,3 +58,5 @@ class Settings(BaseSettings):
 
     spring_connect_timeout_seconds: float = Field(default=3.0, gt=0, le=30)
     spring_read_timeout_seconds: float = Field(default=8.0, gt=0, le=60)
+    spring_read_max_attempts: int = Field(default=3, ge=1, le=5)
+    spring_retry_base_delay_seconds: float = Field(default=0.25, ge=0, le=5)

@@ -2,6 +2,7 @@ import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
+import httpx
 from langgraph.checkpoint.memory import InMemorySaver
 
 from jusika_agent.concurrency import SessionBusyError
@@ -9,6 +10,7 @@ from jusika_agent.graph import build_agent_graph
 from jusika_agent.interpreters import RuleBasedCommandInterpreter
 from jusika_agent.models import AccountResponse, AgentStatus, Intent, ParsedIntent
 from jusika_agent.service import AgentService
+from jusika_agent.spring_client import SpringBackendClient
 from tests.fakes import FakeSpringGateway
 
 
@@ -128,6 +130,50 @@ async def test_busy_session_returns_safe_error_without_starting_graph() -> None:
     assert response.status is AgentStatus.ERROR
     assert "이전 요청을 처리 중" in response.message
     assert fake.preview_requests == []
+
+
+async def test_mutation_transport_failure_is_spoken_without_automatic_resubmission() -> None:
+    captured: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        if request.method == "GET" and request.url.path == "/api/accounts":
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "accountSeq": 1,
+                        "maskedAccountNumber": "****1234",
+                        "accountType": "GENERAL",
+                    }
+                ],
+            )
+        raise httpx.ReadTimeout("token=private-timeout", request=request)
+
+    spring = SpringBackendClient(
+        base_url="http://spring.test",
+        read_api_key="read-secret",
+        order_api_key="order-secret",
+        retry_base_delay_seconds=0,
+        transport=httpx.MockTransport(handler),
+    )
+    graph = build_agent_graph(
+        interpreter=RuleBasedCommandInterpreter(),
+        spring=spring,
+        checkpointer=InMemorySaver(),
+    )
+    try:
+        response = await AgentService(graph).process_message(
+            session_id="mutation-timeout",
+            text="삼성전자 5주 사줘",
+        )
+    finally:
+        await spring.aclose()
+
+    assert response.status is AgentStatus.ERROR
+    assert "자동 재전송하지 않았습니다" in response.message
+    assert "private-timeout" not in response.message
+    assert [request.method for request in captured] == ["GET", "POST"]
 
 
 async def test_usd_amount_buy_waits_for_confirmation_then_executes_once() -> None:

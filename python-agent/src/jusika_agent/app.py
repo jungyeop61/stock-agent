@@ -53,6 +53,8 @@ def create_app(
         order_api_key=resolved_settings.spring_order_api_key.get_secret_value(),
         connect_timeout_seconds=resolved_settings.spring_connect_timeout_seconds,
         read_timeout_seconds=resolved_settings.spring_read_timeout_seconds,
+        read_max_attempts=resolved_settings.spring_read_max_attempts,
+        retry_base_delay_seconds=resolved_settings.spring_retry_base_delay_seconds,
     )
 
     @asynccontextmanager

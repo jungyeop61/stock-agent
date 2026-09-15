@@ -49,6 +49,16 @@ def preview_payload() -> dict[str, Any]:
     }
 
 
+def account_payload() -> list[dict[str, Any]]:
+    return [
+        {
+            "accountSeq": 1,
+            "maskedAccountNumber": "****1234",
+            "accountType": "GENERAL",
+        }
+    ]
+
+
 async def test_preview_uses_order_key_and_spring_contract() -> None:
     captured: list[httpx.Request] = []
 
@@ -92,6 +102,7 @@ async def test_backend_error_does_not_expose_raw_response() -> None:
         base_url="http://spring.test",
         read_api_key="read-secret",
         order_api_key="order-secret",
+        read_max_attempts=1,
         transport=httpx.MockTransport(handler),
     )
     try:
@@ -266,6 +277,7 @@ async def test_open_order_queries_use_read_key_and_open_filter() -> None:
         base_url="http://spring.test",
         read_api_key="read-secret",
         order_api_key="order-secret",
+        read_max_attempts=1,
         transport=httpx.MockTransport(handler),
     )
     try:
@@ -282,3 +294,162 @@ async def test_open_order_queries_use_read_key_and_open_filter() -> None:
     ]
     assert all(request.url.params["status"] == "OPEN" for request in captured)
     assert all(request.headers["X-Jusika-Api-Key"] == "read-secret" for request in captured)
+
+
+async def test_read_request_retries_transient_status_with_same_request_id() -> None:
+    captured: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        if len(captured) < 3:
+            return httpx.Response(503, json={"detail": "private backend detail"})
+        return httpx.Response(200, json=account_payload())
+
+    client = SpringBackendClient(
+        base_url="http://spring.test",
+        read_api_key="read-secret",
+        order_api_key="order-secret",
+        read_max_attempts=3,
+        retry_base_delay_seconds=0,
+        transport=httpx.MockTransport(handler),
+    )
+    try:
+        accounts = await client.list_accounts()
+    finally:
+        await client.aclose()
+
+    assert accounts[0].account_seq == 1
+    assert len(captured) == 3
+    assert len({request.headers["X-Jusika-Request-Id"] for request in captured}) == 1
+
+
+async def test_read_request_retries_timeout_then_recovers() -> None:
+    attempts = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise httpx.ReadTimeout("private timeout detail", request=request)
+        return httpx.Response(200, json=account_payload())
+
+    client = SpringBackendClient(
+        base_url="http://spring.test",
+        read_api_key="read-secret",
+        order_api_key="order-secret",
+        retry_base_delay_seconds=0,
+        transport=httpx.MockTransport(handler),
+    )
+    try:
+        accounts = await client.list_accounts()
+    finally:
+        await client.aclose()
+
+    assert accounts[0].account_seq == 1
+    assert attempts == 2
+
+
+async def test_read_request_does_not_retry_permanent_status() -> None:
+    attempts = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        del request
+        attempts += 1
+        return httpx.Response(404, json={"detail": "private account detail"})
+
+    client = SpringBackendClient(
+        base_url="http://spring.test",
+        read_api_key="read-secret",
+        order_api_key="order-secret",
+        retry_base_delay_seconds=0,
+        transport=httpx.MockTransport(handler),
+    )
+    try:
+        with pytest.raises(SpringBackendError, match="찾지 못했습니다") as captured:
+            await client.list_accounts()
+    finally:
+        await client.aclose()
+
+    assert captured.value.status_code == 404
+    assert attempts == 1
+
+
+async def test_mutation_timeout_is_not_retried_and_marks_unknown_outcome() -> None:
+    attempts = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        raise httpx.ReadTimeout("private timeout detail", request=request)
+
+    client = SpringBackendClient(
+        base_url="http://spring.test",
+        read_api_key="read-secret",
+        order_api_key="order-secret",
+        retry_base_delay_seconds=0,
+        transport=httpx.MockTransport(handler),
+    )
+    try:
+        with pytest.raises(SpringBackendError, match="자동 재전송하지 않았습니다") as captured:
+            await client.create_order_preview(
+                OrderPreviewRequest(
+                    account_seq=1,
+                    symbol="005930",
+                    side=OrderSide.BUY,
+                    order_type=OrderType.MARKET,
+                    quantity=5,
+                )
+            )
+    finally:
+        await client.aclose()
+
+    assert captured.value.outcome_unknown is True
+    assert "private timeout detail" not in str(captured.value)
+    assert attempts == 1
+
+
+async def test_mutation_5xx_is_not_retried_or_exposed() -> None:
+    attempts = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        del request
+        attempts += 1
+        return httpx.Response(502, json={"detail": "token=private-secret"})
+
+    client = SpringBackendClient(
+        base_url="http://spring.test",
+        read_api_key="read-secret",
+        order_api_key="order-secret",
+        retry_base_delay_seconds=0,
+        transport=httpx.MockTransport(handler),
+    )
+    try:
+        with pytest.raises(SpringBackendError, match="주문 상태를 확인") as captured:
+            await client.approve_order_preview("preview-1")
+    finally:
+        await client.aclose()
+
+    assert captured.value.status_code == 502
+    assert captured.value.outcome_unknown is True
+    assert "private-secret" not in str(captured.value)
+    assert attempts == 1
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"read_max_attempts": 0},
+        {"read_max_attempts": 6},
+        {"retry_base_delay_seconds": -1},
+    ],
+)
+def test_spring_client_rejects_unsafe_retry_limits(kwargs: dict[str, Any]) -> None:
+    with pytest.raises(ValueError):
+        SpringBackendClient(
+            base_url="http://spring.test",
+            read_api_key="read-secret",
+            order_api_key="order-secret",
+            **kwargs,
+        )
