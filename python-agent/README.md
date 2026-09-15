@@ -150,8 +150,17 @@ PYTHONPATH=src \
 ```dotenv
 JUSIKA_AGENT_COMMAND_INTERPRETER=openai
 JUSIKA_AGENT_OPENAI_MODEL=gpt-4o-mini
+JUSIKA_AGENT_OPENAI_TIMEOUT_SECONDS=15
+JUSIKA_AGENT_OPENAI_MAX_OUTPUT_TOKENS=1000
+JUSIKA_AGENT_OPENAI_MAX_ATTEMPTS=3
+JUSIKA_AGENT_OPENAI_RETRY_BASE_DELAY_SECONDS=0.25
 OPENAI_API_KEY=실제_비밀값
 ```
+
+OpenAI 해석기는 출력 토큰과 호출 시간을 제한하고, 연결 오류, 시간 초과, 요청 제한과
+일시적인 서버 오류만 최대 설정 횟수까지 지수 간격으로 재시도합니다. 잘못된 요청이나
+구조화되지 않은 응답은 재시도하지 않으며, 해석 실패 시 주문 미리보기를 생성하지 않고
+사용자에게 다시 말해달라고 안내합니다.
 
 ## 체크포인트
 

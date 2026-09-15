@@ -38,6 +38,7 @@ def create_app(
     """Create an app with overridable boundaries for deterministic tests."""
 
     resolved_settings = settings or Settings()
+    owns_interpreter = interpreter is None
     resolved_interpreter = interpreter or _create_interpreter(resolved_settings)
     owns_spring = spring is None
     resolved_spring = spring or SpringBackendClient(
@@ -63,6 +64,8 @@ def create_app(
             yield
         if owns_spring and isinstance(resolved_spring, SpringBackendClient):
             await resolved_spring.aclose()
+        if owns_interpreter and isinstance(resolved_interpreter, OpenAICommandInterpreter):
+            await resolved_interpreter.aclose()
 
     application = FastAPI(
         title="Jusika Python Agent",
@@ -98,6 +101,10 @@ def _create_interpreter(settings: Settings) -> CommandInterpreter:
         return OpenAICommandInterpreter(
             api_key=settings.openai_api_key.get_secret_value(),
             model=settings.openai_model,
+            timeout_seconds=settings.openai_timeout_seconds,
+            max_output_tokens=settings.openai_max_output_tokens,
+            max_attempts=settings.openai_max_attempts,
+            retry_base_delay_seconds=settings.openai_retry_base_delay_seconds,
         )
     return RuleBasedCommandInterpreter()
 

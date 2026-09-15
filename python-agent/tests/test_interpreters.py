@@ -1,9 +1,44 @@
 from decimal import Decimal
+from types import SimpleNamespace
+from typing import Any
 
+import httpx
 import pytest
+from openai import APIConnectionError, APIStatusError
 
-from jusika_agent.interpreters import RuleBasedCommandInterpreter
-from jusika_agent.models import Currency, Intent, OrderType
+from jusika_agent.interpreters import (
+    IntentInterpretationError,
+    OpenAICommandInterpreter,
+    RuleBasedCommandInterpreter,
+)
+from jusika_agent.models import Currency, Intent, OrderSide, OrderType, ParsedIntent
+
+
+class FakeResponses:
+    def __init__(self, outcomes: list[object]) -> None:
+        self._outcomes = outcomes
+        self.calls: list[dict[str, Any]] = []
+
+    async def parse(self, **kwargs: Any) -> object:
+        self.calls.append(kwargs)
+        outcome = self._outcomes.pop(0)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return SimpleNamespace(output_parsed=outcome)
+
+
+class FakeOpenAIClient:
+    def __init__(self, outcomes: list[object]) -> None:
+        self.responses = FakeResponses(outcomes)
+
+    async def close(self) -> None:
+        return None
+
+
+def api_status_error(status_code: int) -> APIStatusError:
+    request = httpx.Request("POST", "https://api.openai.com/v1/responses")
+    response = httpx.Response(status_code, request=request)
+    return APIStatusError("OpenAI API error", response=response, body=None)
 
 
 @pytest.mark.parametrize(
@@ -176,3 +211,137 @@ async def test_rule_interpreter_extracts_full_conditional_modification() -> None
     assert parsed.conditional_order_type.value == "OCO"
     assert parsed.first_condition is not None
     assert parsed.second_condition is not None
+
+
+async def test_openai_interpreter_uses_structured_outputs_without_storage() -> None:
+    expected = ParsedIntent(
+        intent=Intent.BUY,
+        stock_name="삼성전자",
+        quantity=Decimal("5"),
+        side=OrderSide.BUY,
+    )
+    client = FakeOpenAIClient([expected])
+    interpreter = OpenAICommandInterpreter(
+        api_key="test-key",
+        model="test-model",
+        client=client,
+    )
+
+    parsed = await interpreter.interpret("삼성전자 다섯 주 사줘")
+
+    assert parsed == expected
+    assert len(client.responses.calls) == 1
+    request = client.responses.calls[0]
+    assert request["model"] == "test-model"
+    assert request["input"] == "삼성전자 다섯 주 사줘"
+    assert request["text_format"] is ParsedIntent
+    assert request["max_output_tokens"] == 1000
+    assert request["store"] is False
+    assert "수량, 가격, 주문번호 또는 종목을 추측" in request["instructions"]
+
+
+async def test_openai_interpreter_retries_a_transient_connection_error() -> None:
+    request = httpx.Request("POST", "https://api.openai.com/v1/responses")
+    expected = ParsedIntent(intent=Intent.HOLDINGS_QUERY)
+    client = FakeOpenAIClient([APIConnectionError(request=request), expected])
+    interpreter = OpenAICommandInterpreter(
+        api_key="test-key",
+        model="test-model",
+        max_attempts=3,
+        retry_base_delay_seconds=0,
+        client=client,
+    )
+
+    parsed = await interpreter.interpret("내 보유 주식 알려줘")
+
+    assert parsed == expected
+    assert len(client.responses.calls) == 2
+
+
+@pytest.mark.parametrize("status_code", [408, 409, 429, 500, 503])
+async def test_openai_interpreter_retries_transient_api_statuses(status_code: int) -> None:
+    expected = ParsedIntent(intent=Intent.ORDER_LIST)
+    client = FakeOpenAIClient([api_status_error(status_code), expected])
+    interpreter = OpenAICommandInterpreter(
+        api_key="test-key",
+        model="test-model",
+        retry_base_delay_seconds=0,
+        client=client,
+    )
+
+    parsed = await interpreter.interpret("미체결 주문 알려줘")
+
+    assert parsed == expected
+    assert len(client.responses.calls) == 2
+
+
+async def test_openai_interpreter_does_not_retry_a_bad_request() -> None:
+    client = FakeOpenAIClient([api_status_error(400)])
+    interpreter = OpenAICommandInterpreter(
+        api_key="test-key",
+        model="test-model",
+        retry_base_delay_seconds=0,
+        client=client,
+    )
+
+    with pytest.raises(IntentInterpretationError, match="다시 말씀해주세요"):
+        await interpreter.interpret("삼성전자 사줘")
+
+    assert len(client.responses.calls) == 1
+
+
+async def test_openai_interpreter_stops_after_bounded_retries() -> None:
+    request = httpx.Request("POST", "https://api.openai.com/v1/responses")
+    client = FakeOpenAIClient(
+        [
+            APIConnectionError(request=request),
+            APIConnectionError(request=request),
+        ]
+    )
+    interpreter = OpenAICommandInterpreter(
+        api_key="test-key",
+        model="test-model",
+        max_attempts=2,
+        retry_base_delay_seconds=0,
+        client=client,
+    )
+
+    with pytest.raises(IntentInterpretationError, match="다시 말씀해주세요"):
+        await interpreter.interpret("삼성전자 사줘")
+
+    assert len(client.responses.calls) == 2
+
+
+async def test_openai_interpreter_rejects_an_unparsed_response_without_retry() -> None:
+    client = FakeOpenAIClient([None])
+    interpreter = OpenAICommandInterpreter(
+        api_key="test-key",
+        model="test-model",
+        client=client,
+    )
+
+    with pytest.raises(IntentInterpretationError, match="안전한 형식"):
+        await interpreter.interpret("삼성전자 사줘")
+
+    assert len(client.responses.calls) == 1
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"timeout_seconds": 0},
+        {"max_output_tokens": 255},
+        {"max_output_tokens": 4097},
+        {"max_attempts": 0},
+        {"max_attempts": 6},
+        {"retry_base_delay_seconds": -1},
+    ],
+)
+def test_openai_interpreter_rejects_unsafe_runtime_limits(kwargs: dict[str, Any]) -> None:
+    with pytest.raises(ValueError):
+        OpenAICommandInterpreter(
+            api_key="test-key",
+            model="test-model",
+            client=FakeOpenAIClient([]),
+            **kwargs,
+        )
