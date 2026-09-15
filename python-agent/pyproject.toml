@@ -46,4 +46,5 @@ asyncio_mode = "auto"
 pythonpath = ["src"]
 markers = [
     "postgres: requires the isolated PostgreSQL integration-test database",
+    "process_e2e: starts the real Agent, Spring, and local Toss stub processes",
 ]

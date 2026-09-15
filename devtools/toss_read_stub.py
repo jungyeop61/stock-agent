@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
@@ -95,6 +95,57 @@ class TossReadStubHandler(BaseHTTPRequestHandler):
             self._write_json(
                 HTTPStatus.OK,
                 {"result": {"currency": currency, "cashBuyingPower": amount}},
+            )
+            return
+
+        if parsed.path == "/api/v1/holdings":
+            if not self._has_account_header():
+                return
+            self._write_json(
+                HTTPStatus.OK,
+                {
+                    "result": {
+                        "totalPurchaseAmount": {"krw": "650000", "usd": None},
+                        "marketValue": {
+                            "amount": {"krw": "720000", "usd": None},
+                            "amountAfterCost": {"krw": "705000", "usd": None},
+                        },
+                        "profitLoss": {
+                            "amount": {"krw": "70000", "usd": None},
+                            "amountAfterCost": {"krw": "55000", "usd": None},
+                            "rate": "0.1077",
+                            "rateAfterCost": "0.0846",
+                        },
+                        "dailyProfitLoss": {
+                            "amount": {"krw": "10000", "usd": None},
+                            "rate": "0.0141",
+                        },
+                        "items": [
+                            {
+                                "symbol": "005930",
+                                "name": "삼성전자",
+                                "marketCountry": "KR",
+                                "currency": "KRW",
+                                "quantity": "10",
+                                "lastPrice": "72000",
+                                "averagePurchasePrice": "65000",
+                                "marketValue": {
+                                    "purchaseAmount": "650000",
+                                    "amount": "720000",
+                                    "amountAfterCost": "705000",
+                                },
+                                "profitLoss": {
+                                    "amount": "70000",
+                                    "amountAfterCost": "55000",
+                                    "rate": "0.1077",
+                                    "rateAfterCost": "0.0846",
+                                },
+                                "dailyProfitLoss": {"amount": "10000", "rate": "0.0141"},
+                                "cost": {"commission": "1440", "tax": "13560"},
+                            }
+                        ],
+                    }
+                },
             )
             return
 
@@ -241,6 +292,8 @@ class TossReadStubHandler(BaseHTTPRequestHandler):
         market_date = date.fromisoformat(requested_date)
         previous_date = market_date - timedelta(days=1)
         next_date = market_date + timedelta(days=1)
+        korea_zone = timezone(timedelta(hours=9))
+        now = datetime.now(korea_zone)
 
         def regular_session(day: date) -> dict[str, str]:
             next_day = day + timedelta(days=1)
@@ -249,12 +302,17 @@ class TossReadStubHandler(BaseHTTPRequestHandler):
                 "endTime": f"{next_day.isoformat()}T05:00:00+09:00",
             }
 
+        active_session = {
+            "startTime": (now - timedelta(hours=1)).isoformat(),
+            "endTime": (now + timedelta(hours=3)).isoformat(),
+        }
+
         return {
             "today": {
                 "date": market_date.isoformat(),
                 "dayMarket": None,
                 "preMarket": None,
-                "regularMarket": regular_session(market_date),
+                "regularMarket": active_session,
                 "afterMarket": None,
             },
             "previousBusinessDay": {

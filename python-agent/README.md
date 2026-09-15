@@ -152,6 +152,24 @@ PYTHONPATH=src \
 
 이후 위의 텍스트 기반 MOCK 흐름에서 포트만 `18000`으로 바꾸면 `Agent → Spring → 읽기 전용 스텁`과 Spring의 모의 주문 실행까지 확인할 수 있습니다.
 
+전체 기능을 한 번에 검증하려면 저장소 루트에서 자동 E2E 러너를 실행합니다. 러너는 사용
+가능한 로컬 포트를 골라 세 프로세스를 시작하고, 조회 6종, 실제 환전 거절, 다중 턴 수집,
+일반·금액·조건 주문 변경 10종을 검증한 뒤 성공·실패와 관계없이 프로세스를 종료합니다.
+
+```bash
+python-agent/.venv/bin/python devtools/run_agent_process_e2e.py
+```
+
+Pytest 선택 테스트로도 실행할 수 있습니다.
+
+```bash
+cd python-agent
+RUN_JUSIKA_AGENT_PROCESS_E2E=true .venv/bin/python -m pytest -m process_e2e
+```
+
+Spring은 강제 `mock`, LIVE 비활성화, kill switch 활성화로 실행되며 토스 스텁은 주문 변경
+요청을 거절하므로 실제 증권사 주문은 발생하지 않습니다.
+
 ## 명령 해석기
 
 기본 `rules` 모드는 외부 API 호출 없이 삼성전자, 애플, 직접 입력한 국내 6자리 종목 코드와 미국 티커의 기본 명령을 해석합니다. 로컬·CI의 MOCK End-to-End 검증에 사용합니다.
