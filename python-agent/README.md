@@ -173,6 +173,29 @@ JUSIKA_AGENT_CHECKPOINT_DATABASE_URL=postgresql://사용자:비밀번호@호스�
 
 Agent 체크포인트에는 대화 상태와 Spring 미리보기 식별값이 저장될 수 있으므로 접근 권한과 보존 정책을 주문 데이터 수준으로 관리해야 합니다.
 
+### PostgreSQL 재시작 복구 통합 테스트
+
+루트의 테스트 전용 PostgreSQL 컨테이너를 사용하면 Python Agent 앱을 매 요청마다 완전히
+종료하고 새로 생성해도 같은 세션의 누락 정보와 승인 대기가 복구되는지 확인할 수 있습니다.
+데이터베이스 이름에 `test` 또는 `integration`이 없으면 테스트는 즉시 실패합니다.
+
+```bash
+export JUSIKA_TEST_POSTGRES_PASSWORD=통합테스트에서만_사용할_비밀번호
+docker compose -f compose.postgres-test.yaml up -d
+
+cd python-agent
+RUN_JUSIKA_AGENT_POSTGRES_TEST=true \
+JUSIKA_AGENT_TEST_POSTGRES_URL="postgresql://jusika_test:${JUSIKA_TEST_POSTGRES_PASSWORD}@localhost:55432/jusika_integration_test" \
+.venv/bin/python -m pytest -m postgres
+
+cd ..
+docker compose -f compose.postgres-test.yaml stop
+```
+
+이 테스트는 실제 OpenAI API나 토스증권 API를 호출하지 않으며 주문 실행은 Fake Spring
+경계에서만 기록합니다. PostgreSQL 컨테이너의 데이터 디렉터리도 `tmpfs`이므로 컨테이너를
+제거하면 테스트 체크포인트가 함께 사라집니다.
+
 ## 검증
 
 ```bash

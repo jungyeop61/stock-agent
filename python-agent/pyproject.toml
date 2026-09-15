@@ -44,3 +44,6 @@ strict = true
 addopts = "-q"
 asyncio_mode = "auto"
 pythonpath = ["src"]
+markers = [
+    "postgres: requires the isolated PostgreSQL integration-test database",
+]
