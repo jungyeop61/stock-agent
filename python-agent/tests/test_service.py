@@ -2,7 +2,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 
 from jusika_agent.graph import build_agent_graph
 from jusika_agent.interpreters import RuleBasedCommandInterpreter
-from jusika_agent.models import AgentStatus, Intent, ParsedIntent
+from jusika_agent.models import AccountResponse, AgentStatus, Intent, ParsedIntent
 from jusika_agent.service import AgentService
 from tests.fakes import FakeSpringGateway
 
@@ -14,6 +14,22 @@ def create_service(fake: FakeSpringGateway) -> AgentService:
         checkpointer=InMemorySaver(),
     )
     return AgentService(graph)
+
+
+class MultipleAccountFakeSpringGateway(FakeSpringGateway):
+    async def list_accounts(self) -> list[AccountResponse]:
+        return [
+            AccountResponse(
+                account_seq=1,
+                masked_account_number="****1234",
+                account_type="GENERAL",
+            ),
+            AccountResponse(
+                account_seq=2,
+                masked_account_number="****5678",
+                account_type="ISA",
+            ),
+        ]
 
 
 async def test_buy_waits_for_explicit_confirmation_then_executes_once() -> None:
@@ -199,6 +215,168 @@ async def test_missing_quantity_requests_clarification_without_preview() -> None
 
     assert response.status is AgentStatus.NEEDS_INPUT
     assert fake.preview_requests == []
+
+
+async def test_missing_stock_and_quantity_are_collected_across_turns() -> None:
+    fake = FakeSpringGateway()
+    service = create_service(fake)
+
+    stock_prompt = await service.process_message(session_id="slot-buy", text="사줘")
+    quantity_prompt = await service.process_message(session_id="slot-buy", text="삼성전자")
+    preview = await service.process_message(session_id="slot-buy", text="5주")
+
+    assert stock_prompt.status is AgentStatus.NEEDS_INPUT
+    assert "어느 종목" in stock_prompt.message
+    assert quantity_prompt.status is AgentStatus.NEEDS_INPUT
+    assert "몇 주" in quantity_prompt.message
+    assert preview.status is AgentStatus.WAITING_CONFIRMATION
+    assert len(fake.preview_requests) == 1
+    assert fake.preview_requests[0].symbol == "005930"
+    assert str(fake.preview_requests[0].quantity) == "5"
+    assert fake.account_list_calls == 1
+
+
+async def test_missing_limit_price_is_collected_before_preview() -> None:
+    fake = FakeSpringGateway()
+    service = create_service(fake)
+
+    prompt = await service.process_message(
+        session_id="slot-limit", text="삼성전자 5주 지정가로 사줘"
+    )
+    preview = await service.process_message(session_id="slot-limit", text="70,000원")
+
+    assert prompt.status is AgentStatus.NEEDS_INPUT
+    assert "지정가 주문 가격" in prompt.message
+    assert preview.status is AgentStatus.WAITING_CONFIRMATION
+    assert str(fake.preview_requests[0].price) == "70000"
+
+
+async def test_missing_amount_is_collected_for_us_market_buy() -> None:
+    fake = FakeSpringGateway()
+    service = create_service(fake)
+
+    prompt = await service.process_message(session_id="slot-amount", text="애플 금액으로 사줘")
+    preview = await service.process_message(session_id="slot-amount", text="200달러")
+
+    assert prompt.status is AgentStatus.NEEDS_INPUT
+    assert "달러 금액" in prompt.message
+    assert preview.status is AgentStatus.WAITING_CONFIRMATION
+    assert str(fake.amount_preview_requests[0].order_amount) == "200"
+
+
+async def test_missing_order_id_is_collected_for_cancellation() -> None:
+    fake = FakeSpringGateway()
+    service = create_service(fake)
+
+    prompt = await service.process_message(session_id="slot-cancel", text="주문 취소해줘")
+    preview = await service.process_message(session_id="slot-cancel", text="order-123")
+
+    assert prompt.status is AgentStatus.NEEDS_INPUT
+    assert "주문번호" in prompt.message
+    assert preview.status is AgentStatus.WAITING_CONFIRMATION
+    assert fake.cancellation_preview_requests[0].order_id == "order-123"
+
+
+async def test_order_modification_collects_id_then_domestic_quantity() -> None:
+    fake = FakeSpringGateway()
+    service = create_service(fake)
+
+    id_prompt = await service.process_message(
+        session_id="slot-modify", text="71,000원으로 주문 정정해줘"
+    )
+    quantity_prompt = await service.process_message(session_id="slot-modify", text="order-123")
+    preview = await service.process_message(session_id="slot-modify", text="7주")
+
+    assert id_prompt.status is AgentStatus.NEEDS_INPUT
+    assert "주문번호" in id_prompt.message
+    assert quantity_prompt.status is AgentStatus.NEEDS_INPUT
+    assert "전체 주문 수량" in quantity_prompt.message
+    assert preview.status is AgentStatus.WAITING_CONFIRMATION
+    request = fake.modification_preview_requests[0]
+    assert request.order_id == "order-123"
+    assert str(request.quantity) == "7"
+    assert str(request.price) == "71000"
+
+
+async def test_conditional_cancellation_collects_id() -> None:
+    fake = FakeSpringGateway()
+    service = create_service(fake)
+
+    prompt = await service.process_message(
+        session_id="slot-conditional-cancel", text="조건 주문 취소해줘"
+    )
+    preview = await service.process_message(
+        session_id="slot-conditional-cancel", text="conditional-123"
+    )
+
+    assert prompt.status is AgentStatus.NEEDS_INPUT
+    assert "조건주문번호" in prompt.message
+    assert preview.status is AgentStatus.WAITING_CONFIRMATION
+    assert (
+        fake.conditional_cancellation_preview_requests[0].conditional_order_id == "conditional-123"
+    )
+
+
+async def test_slot_collection_can_be_cancelled_without_preview() -> None:
+    fake = FakeSpringGateway()
+    service = create_service(fake)
+
+    await service.process_message(session_id="slot-decline", text="삼성전자 사줘")
+    cancelled = await service.process_message(session_id="slot-decline", text="그만")
+
+    assert cancelled.status is AgentStatus.CANCELLED
+    assert fake.preview_requests == []
+
+
+async def test_single_conditional_order_collects_quantity_and_expiry() -> None:
+    fake = FakeSpringGateway()
+    service = create_service(fake)
+
+    quantity_prompt = await service.process_message(
+        session_id="slot-single",
+        text="삼성전자 80,000원이 되면 시장가 매도 조건주문",
+    )
+    expiry_prompt = await service.process_message(session_id="slot-single", text="2주")
+    preview = await service.process_message(session_id="slot-single", text="2026-09-30")
+
+    assert quantity_prompt.status is AgentStatus.NEEDS_INPUT
+    assert "수량" in quantity_prompt.message
+    assert expiry_prompt.status is AgentStatus.NEEDS_INPUT
+    assert "만료일" in expiry_prompt.message
+    assert preview.status is AgentStatus.WAITING_CONFIRMATION
+    request = fake.single_conditional_preview_requests[0]
+    assert str(request.quantity) == "2"
+    assert request.expire_date.isoformat() == "2026-09-30"
+
+
+async def test_oco_collects_missing_second_condition() -> None:
+    fake = FakeSpringGateway()
+    service = create_service(fake)
+    command = "삼성전자 2주 OCO 조건주문 첫 조건 감시가 80,000원 주문가 79,000원 만료일 2026-09-30"
+
+    prompt = await service.process_message(session_id="slot-oco", text=command)
+    preview = await service.process_message(
+        session_id="slot-oco", text="감시가 65,000원 주문가 64,900원"
+    )
+
+    assert prompt.status is AgentStatus.NEEDS_INPUT
+    assert "둘째 조건" in prompt.message
+    assert preview.status is AgentStatus.WAITING_CONFIRMATION
+    assert str(fake.oco_preview_requests[0].second.trigger_price) == "65000"
+
+
+async def test_multiple_accounts_are_selected_before_preview() -> None:
+    fake = MultipleAccountFakeSpringGateway()
+    service = create_service(fake)
+
+    prompt = await service.process_message(session_id="slot-account", text="삼성전자 5주 사줘")
+    preview = await service.process_message(session_id="slot-account", text="2번")
+
+    assert prompt.status is AgentStatus.NEEDS_INPUT
+    assert "1번 ****1234" in prompt.message
+    assert "2번 ****5678" in prompt.message
+    assert preview.status is AgentStatus.WAITING_CONFIRMATION
+    assert fake.preview_requests[0].account_seq == 2
 
 
 async def test_open_order_list_is_read_only() -> None:

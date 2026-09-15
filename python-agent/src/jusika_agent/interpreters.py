@@ -173,7 +173,7 @@ class RuleBasedCommandInterpreter:
             OrderType.MARKET
             if "시장가" in normalized
             else OrderType.LIMIT
-            if price is not None
+            if price is not None or "지정가" in normalized
             else OrderType.MARKET
         )
         expire_date = self._extract_date(normalized)

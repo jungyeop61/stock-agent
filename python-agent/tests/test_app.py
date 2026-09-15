@@ -32,3 +32,33 @@ def test_health_and_mock_order_http_flow() -> None:
     assert preview.json()["status"] == "WAITING_CONFIRMATION"
     assert execution.json()["status"] == "COMPLETED"
     assert fake.executed_preview_ids == ["preview-1"]
+
+
+def test_http_flow_collects_missing_order_fields() -> None:
+    fake = FakeSpringGateway()
+    app = create_app(
+        settings=Settings(_env_file=None),
+        interpreter=RuleBasedCommandInterpreter(),
+        spring=fake,
+        checkpointer=InMemorySaver(),
+    )
+    session_id = "22222222-2222-4222-8222-222222222222"
+
+    with TestClient(app) as client:
+        stock_prompt = client.post(
+            f"/api/agent/sessions/{session_id}/messages",
+            json={"text": "사줘"},
+        )
+        quantity_prompt = client.post(
+            f"/api/agent/sessions/{session_id}/messages",
+            json={"text": "삼성전자"},
+        )
+        preview = client.post(
+            f"/api/agent/sessions/{session_id}/messages",
+            json={"text": "5주"},
+        )
+
+    assert stock_prompt.json()["status"] == "NEEDS_INPUT"
+    assert quantity_prompt.json()["status"] == "NEEDS_INPUT"
+    assert preview.json()["status"] == "WAITING_CONFIRMATION"
+    assert len(fake.preview_requests) == 1

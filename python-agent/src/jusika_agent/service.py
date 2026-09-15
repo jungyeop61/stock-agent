@@ -12,7 +12,7 @@ from jusika_agent.models import AgentStatus, AgentTurnResponse
 
 
 class AgentService:
-    """Starts commands and safely resumes only an interrupted approval node."""
+    """Starts commands and safely resumes interrupted slot or approval nodes."""
 
     _approve_words = {"승인", "사", "네", "예", "응", "주문해", "진행해"}
     _cancel_words = {"취소", "아니", "아니요", "안해", "하지마", "그만"}
@@ -28,18 +28,21 @@ class AgentService:
         snapshot = await self._graph.aget_state(config)
 
         if snapshot.next:
-            decision = self._confirmation_decision(text)
-            if decision is None:
-                state = dict(snapshot.values)
-                return AgentTurnResponse(
-                    session_id=session_id,
-                    status=AgentStatus.WAITING_CONFIRMATION,
-                    message="실행하려면 승인, 그만두려면 취소라고 말씀해주세요.",
-                    requires_confirmation=True,
-                    preview_id=self._optional_text(state.get("preview_id")),
-                    data=self._optional_dict(state.get("preview")),
-                )
-            result = await self._graph.ainvoke(Command(resume=decision), config=config)
+            if "await_slot" in snapshot.next:
+                result = await self._graph.ainvoke(Command(resume=text), config=config)
+            else:
+                decision = self._confirmation_decision(text)
+                if decision is None:
+                    state = dict(snapshot.values)
+                    return AgentTurnResponse(
+                        session_id=session_id,
+                        status=AgentStatus.WAITING_CONFIRMATION,
+                        message="실행하려면 승인, 그만두려면 취소라고 말씀해주세요.",
+                        requires_confirmation=True,
+                        preview_id=self._optional_text(state.get("preview_id")),
+                        data=self._optional_dict(state.get("preview")),
+                    )
+                result = await self._graph.ainvoke(Command(resume=decision), config=config)
         else:
             result = await self._graph.ainvoke(
                 self._initial_state(session_id=session_id, text=text),
@@ -72,6 +75,9 @@ class AgentService:
             "execution": None,
             "result": None,
             "confirmation": None,
+            "missing_field": None,
+            "slot_response": None,
+            "selected_account_seq": None,
         }
 
     @staticmethod

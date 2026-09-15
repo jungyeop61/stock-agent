@@ -51,6 +51,7 @@ from jusika_agent.models import (
 
 class FakeSpringGateway:
     def __init__(self) -> None:
+        self.account_list_calls = 0
         self.preview_requests: list[OrderPreviewRequest] = []
         self.approved_preview_ids: list[str] = []
         self.executed_preview_ids: list[str] = []
@@ -87,6 +88,7 @@ class FakeSpringGateway:
         self.executed_conditional_modification_preview_ids: list[str] = []
 
     async def list_accounts(self) -> list[AccountResponse]:
+        self.account_list_calls += 1
         return [
             AccountResponse(
                 account_seq=1,

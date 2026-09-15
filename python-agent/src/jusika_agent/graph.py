@@ -173,6 +173,9 @@ class AgentState(TypedDict, total=False):
     execution: dict[str, Any] | None
     result: dict[str, Any] | None
     confirmation: str | None
+    missing_field: str | None
+    slot_response: str | None
+    selected_account_seq: int | None
 
 
 class AgentInputError(ValueError):
@@ -304,10 +307,236 @@ class AgentGraphNodes:
             "result": orders.model_dump(mode="json", by_alias=True),
         }
 
+    async def prepare_mutation(self, state: AgentState) -> AgentState:
+        try:
+            parsed = self._parsed(state)
+            account_seq, account_prompt = await self._prepared_account(state)
+            if account_prompt is not None:
+                return {
+                    "status": AgentStatus.NEEDS_INPUT.value,
+                    "message": account_prompt,
+                    "missing_field": "account",
+                    "slot_response": None,
+                }
+            assert account_seq is not None
+            missing = await self._next_missing_slot(parsed, state, account_seq)
+        except (AgentInputError, SpringBackendError) as exc:
+            return self._error(str(exc), needs_input=isinstance(exc, AgentInputError))
+        if missing is None:
+            return {
+                "status": "",
+                "message": "",
+                "missing_field": None,
+                "slot_response": None,
+                "selected_account_seq": account_seq,
+            }
+        field, message = missing
+        return {
+            "status": AgentStatus.NEEDS_INPUT.value,
+            "message": message,
+            "missing_field": field,
+            "slot_response": None,
+            "selected_account_seq": account_seq,
+        }
+
+    def await_slot(self, state: AgentState) -> AgentState:
+        response = interrupt(
+            {
+                "missing_field": state["missing_field"],
+                "message": state["message"],
+            }
+        )
+        return {"slot_response": str(response)}
+
+    async def merge_slot(self, state: AgentState) -> AgentState:
+        response = str(state.get("slot_response") or "").strip()
+        normalized = response.replace(" ", "")
+        if normalized in {"취소", "아니", "아니요", "안해", "하지마", "그만"}:
+            return {
+                "status": AgentStatus.CANCELLED.value,
+                "message": "요청을 중단했습니다. 주문 미리보기는 만들지 않았습니다.",
+                "missing_field": None,
+                "slot_response": None,
+            }
+
+        field = state.get("missing_field")
+        if field == "account":
+            selected = await self._select_account(response)
+            return {
+                "status": "",
+                "message": "",
+                "selected_account_seq": selected,
+                "missing_field": None,
+                "slot_response": None,
+            }
+
+        original = self._parsed(state)
+        enriched = self._slot_context(field, response)
+        combined = f"{state['user_text']} {enriched}".strip()
+        try:
+            reparsed = await self._interpreter.interpret(combined)
+        except IntentInterpretationError as exc:
+            return self._error(str(exc), needs_input=True)
+        reparsed = reparsed.model_copy(update={"intent": original.intent})
+        return {
+            "user_text": combined,
+            "parsed_intent": reparsed.model_dump(mode="json"),
+            "status": "",
+            "message": "",
+            "missing_field": None,
+            "slot_response": None,
+        }
+
+    async def _next_missing_slot(
+        self, parsed: ParsedIntent, state: AgentState, account_seq: int
+    ) -> tuple[str, str] | None:
+        source_text = state["user_text"]
+        instrument_missing = False
+        if parsed.intent in {
+            Intent.BUY,
+            Intent.SELL,
+            Intent.AMOUNT_BUY,
+            Intent.SINGLE_CONDITIONAL_ORDER,
+            Intent.OCO_CONDITIONAL_ORDER,
+            Intent.OTO_CONDITIONAL_ORDER,
+        }:
+            try:
+                self._instrument(parsed, source_text)
+            except InstrumentResolutionError:
+                instrument_missing = True
+        if instrument_missing:
+            return "instrument", "어느 종목인지 말씀해주세요. 예를 들면 삼성전자 또는 AAPL입니다."
+
+        if parsed.intent in {Intent.BUY, Intent.SELL}:
+            if parsed.order_amount is None:
+                if parsed.quantity is None:
+                    return "quantity", "몇 주를 주문할까요?"
+                if parsed.order_type is OrderType.LIMIT and parsed.price is None:
+                    return "price", "지정가 주문 가격을 말씀해주세요."
+
+        if parsed.intent is Intent.AMOUNT_BUY and (
+            parsed.order_amount is None or parsed.amount_currency is None
+        ):
+            return "order_amount", "매수할 달러 금액을 말씀해주세요. 예를 들면 200달러입니다."
+
+        if parsed.intent is Intent.ORDER_CANCEL and parsed.order_id is None:
+            return "order_id", "취소할 주문번호를 말씀해주세요."
+
+        if parsed.intent is Intent.ORDER_MODIFY:
+            if parsed.order_id is None:
+                return "order_id", "정정할 주문번호를 말씀해주세요."
+            original = await self._spring.get_order(account_seq, parsed.order_id)
+            domestic = original.symbol.isdigit() and len(original.symbol) == 6
+            if domestic and parsed.quantity is None:
+                return "quantity", "정정 후 전체 주문 수량을 말씀해주세요."
+            if parsed.price is None and "시장가" not in source_text:
+                return "price", "정정할 시장가 또는 지정가 가격을 말씀해주세요."
+
+        if parsed.intent is Intent.SINGLE_CONDITIONAL_ORDER:
+            if parsed.side is None:
+                return "side", "조건 충족 시 매수할지 매도할지 말씀해주세요."
+            if parsed.quantity is None:
+                return "quantity", "조건 주문 수량을 말씀해주세요."
+            if parsed.trigger_price is None:
+                return "trigger_price", "조건을 발동할 감시가격을 말씀해주세요."
+            if parsed.order_type is OrderType.LIMIT and parsed.price is None:
+                return "price", "발동 후 제출할 지정가를 말씀해주세요."
+            if parsed.expire_date is None:
+                return "expire_date", "조건 주문 만료일을 연도-월-일로 말씀해주세요."
+
+        if parsed.intent in {Intent.OCO_CONDITIONAL_ORDER, Intent.OTO_CONDITIONAL_ORDER}:
+            if parsed.quantity is None:
+                return "quantity", "조건 주문 수량을 말씀해주세요."
+            if parsed.first_condition is None:
+                return "first_condition", "첫 조건의 감시가격과 주문가격을 말씀해주세요."
+            if parsed.second_condition is None:
+                return "second_condition", "둘째 조건의 감시가격과 주문가격을 말씀해주세요."
+            if parsed.expire_date is None:
+                return "expire_date", "조건 주문 만료일을 연도-월-일로 말씀해주세요."
+
+        if parsed.intent is Intent.CONDITIONAL_ORDER_CANCEL and parsed.conditional_order_id is None:
+            return "conditional_order_id", "취소할 조건주문번호를 말씀해주세요."
+
+        if parsed.intent is Intent.CONDITIONAL_ORDER_MODIFY:
+            if parsed.conditional_order_id is None:
+                return "conditional_order_id", "정정할 조건주문번호를 말씀해주세요."
+            if parsed.conditional_order_type is None:
+                return "conditional_order_type", "정정 후 유형을 단일, OCO 또는 OTO로 말씀해주세요."
+            if parsed.quantity is None:
+                return "quantity", "정정 후 전체 주문 수량을 말씀해주세요."
+            if parsed.first_condition is None:
+                return "first_condition", "정정 후 첫 조건의 감시가격과 주문가격을 말씀해주세요."
+            if (
+                parsed.conditional_order_type
+                in {ConditionalOrderType.OCO, ConditionalOrderType.OTO}
+                and parsed.second_condition is None
+            ):
+                return "second_condition", "정정 후 둘째 조건의 감시가격과 주문가격을 말씀해주세요."
+            if parsed.expire_date is None:
+                return "expire_date", "정정 후 만료일을 연도-월-일로 말씀해주세요."
+
+        return None
+
+    async def _prepared_account(self, state: AgentState) -> tuple[int | None, str | None]:
+        selected = state.get("selected_account_seq")
+        if selected is not None:
+            return selected, None
+        accounts = await self._spring.list_accounts()
+        if not accounts:
+            raise AgentInputError("사용할 수 있는 증권 계좌가 없습니다.")
+        if len(accounts) == 1:
+            return accounts[0].account_seq, None
+        options = ", ".join(
+            f"{index}번 {account.masked_account_number}"
+            for index, account in enumerate(accounts, start=1)
+        )
+        return None, f"사용할 계좌를 선택해주세요. {options}입니다."
+
+    async def _select_account(self, response: str) -> int | None:
+        accounts = await self._spring.list_accounts()
+        normalized = response.replace(" ", "")
+        ordinals = {"첫번째": 0, "첫째": 0, "두번째": 1, "둘째": 1, "세번째": 2, "셋째": 2}
+        for word, index in ordinals.items():
+            if word in normalized and index < len(accounts):
+                return accounts[index].account_seq
+        for index, account in enumerate(accounts, start=1):
+            if normalized in {str(index), str(account.account_seq)} or f"{index}번" in normalized:
+                return account.account_seq
+            suffix = "".join(
+                character for character in account.masked_account_number if character.isdigit()
+            )
+            if suffix and suffix in normalized:
+                return account.account_seq
+        return None
+
+    @staticmethod
+    def _slot_context(field: str | None, response: str) -> str:
+        if field == "order_id":
+            return f"주문번호 {response}"
+        if field == "conditional_order_id":
+            return f"조건주문번호 {response}"
+        if field == "order_amount" and not any(
+            unit in response for unit in ("어치", "만큼", "금액", "로")
+        ):
+            return f"{response}어치"
+        if field == "price" and "시장가" not in response and "지정가" not in response:
+            return f"지정가 {response}"
+        if field == "trigger_price":
+            return f"{response}이 되면"
+        if field == "expire_date":
+            return f"만료일 {response}"
+        if field == "first_condition":
+            return f"첫 조건 {response}"
+        if field == "second_condition":
+            return f"둘째 조건 {response}"
+        if field == "conditional_order_type":
+            return f"{response} 조건주문으로 정정"
+        return response
+
     async def create_mutation_preview(self, state: AgentState) -> AgentState:
         try:
             parsed = self._parsed(state)
-            account_seq = await self._account_seq()
+            account_seq = state.get("selected_account_seq") or await self._account_seq()
             preview, message, display_name = await self._create_preview(
                 parsed=parsed,
                 source_text=state["user_text"],
@@ -737,6 +966,9 @@ def build_agent_graph(
     graph.add_node("holdings", nodes.holdings)
     graph.add_node("orders", nodes.orders)
     graph.add_node("conditional_orders", nodes.conditional_orders)
+    graph.add_node("prepare_mutation", nodes.prepare_mutation)
+    graph.add_node("await_slot", nodes.await_slot)
+    graph.add_node("merge_slot", nodes.merge_slot)
     graph.add_node("create_mutation_preview", nodes.create_mutation_preview)
     graph.add_node("await_confirmation", nodes.await_confirmation)
     graph.add_node("execute", nodes.execute)
@@ -753,10 +985,21 @@ def build_agent_graph(
             "holdings": "holdings",
             "orders": "orders",
             "conditional_orders": "conditional_orders",
-            "mutation": "create_mutation_preview",
+            "mutation": "prepare_mutation",
             "unsupported": "unsupported",
             "end": END,
         },
+    )
+    graph.add_conditional_edges(
+        "prepare_mutation",
+        _route_preparation,
+        {"collect": "await_slot", "preview": "create_mutation_preview", "end": END},
+    )
+    graph.add_edge("await_slot", "merge_slot")
+    graph.add_conditional_edges(
+        "merge_slot",
+        _route_slot_merge,
+        {"prepare": "prepare_mutation", "end": END},
     )
     graph.add_conditional_edges(
         "create_mutation_preview",
@@ -828,6 +1071,20 @@ def _route_intent(
 
 def _route_preview(state: AgentState) -> Literal["confirm", "end"]:
     return "confirm" if state.get("status") == AgentStatus.WAITING_CONFIRMATION.value else "end"
+
+
+def _route_preparation(state: AgentState) -> Literal["collect", "preview", "end"]:
+    if state.get("status") == AgentStatus.NEEDS_INPUT.value and state.get("missing_field"):
+        return "collect"
+    if state.get("status") == AgentStatus.ERROR.value:
+        return "end"
+    return "preview"
+
+
+def _route_slot_merge(state: AgentState) -> Literal["prepare", "end"]:
+    if state.get("status") in {AgentStatus.CANCELLED.value, AgentStatus.ERROR.value}:
+        return "end"
+    return "prepare"
 
 
 def _route_confirmation(state: AgentState) -> Literal["execute", "cancel"]:
