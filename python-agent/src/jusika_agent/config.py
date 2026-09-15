@@ -41,6 +41,7 @@ class Settings(BaseSettings):
     openai_retry_base_delay_seconds: float = Field(default=0.25, ge=0, le=5)
     checkpoint_provider: CheckpointProvider = CheckpointProvider.MEMORY
     checkpoint_database_url: SecretStr = SecretStr("")
+    checkpoint_session_lock_timeout_seconds: float = Field(default=30.0, gt=0, le=120)
 
     openai_api_key: SecretStr = Field(
         default=SecretStr(""),

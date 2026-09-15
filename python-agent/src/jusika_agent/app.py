@@ -10,6 +10,11 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from pydantic import BaseModel
 
+from jusika_agent.concurrency import (
+    InMemorySessionConcurrencyGuard,
+    PostgresSessionConcurrencyGuard,
+    SessionConcurrencyGuard,
+)
 from jusika_agent.config import CheckpointProvider, CommandInterpreterProvider, Settings
 from jusika_agent.graph import SpringGateway, build_agent_graph
 from jusika_agent.interpreters import (
@@ -34,6 +39,7 @@ def create_app(
     interpreter: CommandInterpreter | None = None,
     spring: SpringGateway | None = None,
     checkpointer: Any | None = None,
+    session_guard: SessionConcurrencyGuard | None = None,
 ) -> FastAPI:
     """Create an app with overridable boundaries for deterministic tests."""
 
@@ -55,12 +61,18 @@ def create_app(
             resolved_checkpointer = checkpointer
             if resolved_checkpointer is None:
                 resolved_checkpointer = await _create_checkpointer(resolved_settings, stack)
+            resolved_session_guard = session_guard
+            if resolved_session_guard is None:
+                resolved_session_guard = await _create_session_guard(resolved_settings, stack)
             graph = build_agent_graph(
                 interpreter=resolved_interpreter,
                 spring=resolved_spring,
                 checkpointer=resolved_checkpointer,
             )
-            application.state.agent_service = AgentService(graph)
+            application.state.agent_service = AgentService(
+                graph,
+                session_guard=resolved_session_guard,
+            )
             yield
         if owns_spring and isinstance(resolved_spring, SpringBackendClient):
             await resolved_spring.aclose()
@@ -123,6 +135,27 @@ async def _create_checkpointer(settings: Settings, stack: AsyncExitStack) -> Any
         await saver.setup()
         return saver
     return InMemorySaver()
+
+
+async def _create_session_guard(
+    settings: Settings,
+    stack: AsyncExitStack,
+) -> SessionConcurrencyGuard:
+    if settings.checkpoint_provider is CheckpointProvider.POSTGRES:
+        connection_string = settings.checkpoint_database_url.get_secret_value()
+        if not connection_string:
+            raise RuntimeError(
+                "PostgreSQL 세션 잠금을 사용하려면 "
+                "JUSIKA_AGENT_CHECKPOINT_DATABASE_URL을 설정해야 합니다."
+            )
+        guard = PostgresSessionConcurrencyGuard(
+            connection_string=connection_string,
+            lock_timeout_seconds=settings.checkpoint_session_lock_timeout_seconds,
+        )
+        await guard.open()
+        stack.push_async_callback(guard.aclose)
+        return guard
+    return InMemorySessionConcurrencyGuard()
 
 
 app = create_app()

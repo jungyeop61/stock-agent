@@ -7,6 +7,11 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command
 
+from jusika_agent.concurrency import (
+    InMemorySessionConcurrencyGuard,
+    SessionBusyError,
+    SessionConcurrencyGuard,
+)
 from jusika_agent.graph import AgentState
 from jusika_agent.models import AgentStatus, AgentTurnResponse
 
@@ -20,10 +25,23 @@ class AgentService:
     def __init__(
         self,
         graph: CompiledStateGraph[AgentState, None, AgentState, AgentState],
+        session_guard: SessionConcurrencyGuard | None = None,
     ) -> None:
         self._graph = graph
+        self._session_guard = session_guard or InMemorySessionConcurrencyGuard()
 
     async def process_message(self, *, session_id: str, text: str) -> AgentTurnResponse:
+        try:
+            async with self._session_guard.hold(session_id):
+                return await self._process_message_locked(session_id=session_id, text=text)
+        except SessionBusyError:
+            return AgentTurnResponse(
+                session_id=session_id,
+                status=AgentStatus.ERROR,
+                message="같은 대화의 이전 요청을 처리 중입니다. 잠시 후 다시 말씀해주세요.",
+            )
+
+    async def _process_message_locked(self, *, session_id: str, text: str) -> AgentTurnResponse:
         config: RunnableConfig = {"configurable": {"thread_id": session_id}}
         snapshot = await self._graph.aget_state(config)
 

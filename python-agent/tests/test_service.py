@@ -1,5 +1,10 @@
+import asyncio
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 from langgraph.checkpoint.memory import InMemorySaver
 
+from jusika_agent.concurrency import SessionBusyError
 from jusika_agent.graph import build_agent_graph
 from jusika_agent.interpreters import RuleBasedCommandInterpreter
 from jusika_agent.models import AccountResponse, AgentStatus, Intent, ParsedIntent
@@ -32,6 +37,14 @@ class MultipleAccountFakeSpringGateway(FakeSpringGateway):
         ]
 
 
+class AlwaysBusyGuard:
+    @asynccontextmanager
+    async def hold(self, session_id: str) -> AsyncIterator[None]:
+        del session_id
+        raise SessionBusyError
+        yield
+
+
 async def test_buy_waits_for_explicit_confirmation_then_executes_once() -> None:
     fake = FakeSpringGateway()
     service = create_service(fake)
@@ -62,6 +75,59 @@ async def test_buy_waits_for_explicit_confirmation_then_executes_once() -> None:
 
     assert duplicate.status is AgentStatus.NEEDS_INPUT
     assert fake.executed_preview_ids == ["preview-1"]
+
+
+async def test_concurrent_duplicate_commands_create_only_one_preview() -> None:
+    fake = FakeSpringGateway()
+    service = create_service(fake)
+
+    responses = await asyncio.gather(
+        service.process_message(session_id="duplicate-command", text="삼성전자 5주 사줘"),
+        service.process_message(session_id="duplicate-command", text="삼성전자 5주 사줘"),
+    )
+
+    assert [response.status for response in responses] == [
+        AgentStatus.WAITING_CONFIRMATION,
+        AgentStatus.WAITING_CONFIRMATION,
+    ]
+    assert responses[0].preview_id == responses[1].preview_id
+    assert len(fake.preview_requests) == 1
+
+
+async def test_concurrent_duplicate_approvals_execute_only_once() -> None:
+    fake = FakeSpringGateway()
+    service = create_service(fake)
+    preview = await service.process_message(
+        session_id="duplicate-approval",
+        text="삼성전자 5주 사줘",
+    )
+
+    responses = await asyncio.gather(
+        service.process_message(session_id="duplicate-approval", text="승인"),
+        service.process_message(session_id="duplicate-approval", text="승인"),
+    )
+
+    assert preview.status is AgentStatus.WAITING_CONFIRMATION
+    assert sum(response.status is AgentStatus.COMPLETED for response in responses) == 1
+    assert sum(response.status is AgentStatus.NEEDS_INPUT for response in responses) == 1
+    assert fake.approved_preview_ids == ["preview-1"]
+    assert fake.executed_preview_ids == ["preview-1"]
+
+
+async def test_busy_session_returns_safe_error_without_starting_graph() -> None:
+    fake = FakeSpringGateway()
+    graph = build_agent_graph(
+        interpreter=RuleBasedCommandInterpreter(),
+        spring=fake,
+        checkpointer=InMemorySaver(),
+    )
+    service = AgentService(graph, session_guard=AlwaysBusyGuard())
+
+    response = await service.process_message(session_id="busy-session", text="삼성전자 5주 사줘")
+
+    assert response.status is AgentStatus.ERROR
+    assert "이전 요청을 처리 중" in response.message
+    assert fake.preview_requests == []
 
 
 async def test_usd_amount_buy_waits_for_confirmation_then_executes_once() -> None:

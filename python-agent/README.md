@@ -169,9 +169,13 @@ OpenAI 해석기는 출력 토큰과 호출 시간을 제한하고, 연결 오�
 ```dotenv
 JUSIKA_AGENT_CHECKPOINT_PROVIDER=postgres
 JUSIKA_AGENT_CHECKPOINT_DATABASE_URL=postgresql://사용자:비밀번호@호스트:5432/데이터베이스
+JUSIKA_AGENT_CHECKPOINT_SESSION_LOCK_TIMEOUT_SECONDS=30
 ```
 
 Agent 체크포인트에는 대화 상태와 Spring 미리보기 식별값이 저장될 수 있으므로 접근 권한과 보존 정책을 주문 데이터 수준으로 관리해야 합니다.
+메모리 모드에서는 프로세스 안의 세션별 잠금으로, PostgreSQL 모드에서는 여러 프로세스가
+공유하는 advisory lock으로 같은 세션의 상태 조회와 변경을 직렬화합니다. 잠금 대기 시간이
+지나면 주문 흐름을 새로 실행하지 않고 잠시 후 다시 요청하라는 오류를 반환합니다.
 
 ### PostgreSQL 재시작 복구 통합 테스트
 

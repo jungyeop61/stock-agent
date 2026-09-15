@@ -1,6 +1,7 @@
 """Restart-recovery tests against the isolated PostgreSQL checkpoint database."""
 
 import os
+from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlsplit
 from uuid import uuid4
 
@@ -53,6 +54,16 @@ def _send_message(
             f"/api/agent/sessions/{session_id}/messages",
             json={"text": text},
         )
+    assert response.status_code == 200
+    payload: dict[str, object] = response.json()
+    return payload
+
+
+def _post(client: TestClient, session_id: str, text: str) -> dict[str, object]:
+    response = client.post(
+        f"/api/agent/sessions/{session_id}/messages",
+        json={"text": text},
+    )
     assert response.status_code == 200
     payload: dict[str, object] = response.json()
     return payload
@@ -121,5 +132,34 @@ def test_postgres_checkpoint_recovers_exact_preview_for_approval() -> None:
     assert ambiguous["preview_id"] == preview["preview_id"]
     assert len(spring.preview_requests) == 1
     assert execution["status"] == "COMPLETED"
+    assert spring.approved_preview_ids == [preview["preview_id"]]
+    assert spring.executed_preview_ids == [preview["preview_id"]]
+
+
+def test_postgres_lock_serializes_duplicate_approvals_across_app_instances() -> None:
+    settings = _postgres_settings()
+    spring = FakeSpringGateway()
+    session_id = str(uuid4())
+    first_app = create_app(
+        settings=settings,
+        interpreter=RuleBasedCommandInterpreter(),
+        spring=spring,
+    )
+    second_app = create_app(
+        settings=settings,
+        interpreter=RuleBasedCommandInterpreter(),
+        spring=spring,
+    )
+
+    with TestClient(first_app) as first_client, TestClient(second_app) as second_client:
+        preview = _post(first_client, session_id, "삼성전자 5주 사줘")
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            first_future = executor.submit(_post, first_client, session_id, "승인")
+            second_future = executor.submit(_post, second_client, session_id, "승인")
+            responses = [first_future.result(), second_future.result()]
+
+    assert preview["status"] == "WAITING_CONFIRMATION"
+    assert sum(response["status"] == "COMPLETED" for response in responses) == 1
+    assert sum(response["status"] == "NEEDS_INPUT" for response in responses) == 1
     assert spring.approved_preview_ids == [preview["preview_id"]]
     assert spring.executed_preview_ids == [preview["preview_id"]]
