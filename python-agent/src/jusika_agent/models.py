@@ -13,6 +13,8 @@ class Intent(StrEnum):
     """Commands supported by the first agent MVP."""
 
     PRICE_QUERY = "PRICE_QUERY"
+    EXCHANGE_RATE_QUERY = "EXCHANGE_RATE_QUERY"
+    CURRENCY_EXCHANGE = "CURRENCY_EXCHANGE"
     HOLDINGS_QUERY = "HOLDINGS_QUERY"
     BUY = "BUY"
     SELL = "SELL"
@@ -73,6 +75,9 @@ class ParsedIntent(BaseModel):
     quantity: Decimal | None = Field(default=None, gt=0)
     order_amount: Decimal | None = Field(default=None, gt=0)
     amount_currency: Currency | None = None
+    exchange_amount: Decimal | None = Field(default=None, gt=0)
+    base_currency: Currency | None = None
+    quote_currency: Currency | None = None
     price: Decimal | None = Field(default=None, gt=0)
     trigger_price: Decimal | None = Field(default=None, gt=0)
     order_type: OrderType = OrderType.MARKET
@@ -154,6 +159,17 @@ class StockPriceResponse(SpringModel):
     price: Decimal
     currency: str
     timestamp: datetime
+
+
+class ExchangeRateResponse(SpringModel):
+    base_currency: Currency
+    quote_currency: Currency
+    rate: Decimal
+    mid_rate: Decimal
+    basis_point: Decimal
+    rate_change_type: str
+    valid_from: datetime
+    valid_until: datetime
 
 
 class HoldingItem(SpringModel):

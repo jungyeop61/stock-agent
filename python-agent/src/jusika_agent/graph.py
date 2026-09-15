@@ -26,6 +26,7 @@ from jusika_agent.models import (
     ConditionalOrderType,
     Currency,
     DualConditionalOrderPreviewRequest,
+    ExchangeRateResponse,
     HoldingsResponse,
     Intent,
     OcoConditionalOrderPreviewResponse,
@@ -56,6 +57,7 @@ from jusika_agent.speech import (
     format_conditional_modification_preview_message,
     format_conditional_order_list_message,
     format_dual_conditional_preview_message,
+    format_exchange_rate_message,
     format_holdings_message,
     format_modification_preview_message,
     format_order_list_message,
@@ -71,6 +73,9 @@ class SpringGateway(Protocol):
 
     async def list_accounts(self) -> list[AccountResponse]: ...
     async def get_stock_price(self, symbol: str) -> StockPriceResponse: ...
+    async def get_exchange_rate(
+        self, base_currency: str, quote_currency: str
+    ) -> ExchangeRateResponse: ...
     async def get_holdings(self, account_seq: int) -> HoldingsResponse: ...
     async def create_order_preview(self, request: OrderPreviewRequest) -> OrderPreviewResponse: ...
     async def approve_order_preview(self, preview_id: str) -> OrderPreviewResponse: ...
@@ -243,6 +248,34 @@ class AgentGraphNodes:
             "message": format_holdings_message(holdings),
             "account_seq": account_seq,
             "result": holdings.model_dump(mode="json", by_alias=True),
+        }
+
+    async def exchange_rate(self, state: AgentState) -> AgentState:
+        try:
+            parsed = self._parsed(state)
+            if parsed.intent is Intent.CURRENCY_EXCHANGE:
+                return self._error(
+                    "토스증권 OpenAPI가 실제 환전 거래를 제공하지 않아 계좌 통화를 "
+                    "변경할 수 없습니다. 환율 조회나 참고 환산은 가능합니다.",
+                    needs_input=True,
+                )
+            base_currency = parsed.base_currency or Currency.USD
+            quote_currency = parsed.quote_currency or Currency.KRW
+            if base_currency is quote_currency:
+                raise AgentInputError("서로 다른 두 통화의 환율을 말씀해주세요.")
+            response = await self._spring.get_exchange_rate(
+                base_currency.value, quote_currency.value
+            )
+        except (AgentInputError, SpringBackendError) as exc:
+            return self._error(str(exc), needs_input=isinstance(exc, AgentInputError))
+        result = response.model_dump(mode="json", by_alias=True)
+        if parsed.exchange_amount is not None:
+            result["exchangeAmount"] = str(parsed.exchange_amount)
+            result["estimatedConvertedAmount"] = str(parsed.exchange_amount * response.rate)
+        return {
+            "status": AgentStatus.COMPLETED.value,
+            "message": format_exchange_rate_message(response, parsed.exchange_amount),
+            "result": result,
         }
 
     async def orders(self, state: AgentState) -> AgentState:
@@ -700,6 +733,7 @@ def build_agent_graph(
     graph: StateGraph[AgentState, None, AgentState, AgentState] = StateGraph(AgentState)
     graph.add_node("interpret", nodes.interpret)
     graph.add_node("price", nodes.price)
+    graph.add_node("exchange_rate", nodes.exchange_rate)
     graph.add_node("holdings", nodes.holdings)
     graph.add_node("orders", nodes.orders)
     graph.add_node("conditional_orders", nodes.conditional_orders)
@@ -715,6 +749,7 @@ def build_agent_graph(
         _route_intent,
         {
             "price": "price",
+            "exchange_rate": "exchange_rate",
             "holdings": "holdings",
             "orders": "orders",
             "conditional_orders": "conditional_orders",
@@ -735,6 +770,7 @@ def build_agent_graph(
     )
     for node in (
         "price",
+        "exchange_rate",
         "holdings",
         "orders",
         "conditional_orders",
@@ -748,7 +784,16 @@ def build_agent_graph(
 
 def _route_intent(
     state: AgentState,
-) -> Literal["price", "holdings", "orders", "conditional_orders", "mutation", "unsupported", "end"]:
+) -> Literal[
+    "price",
+    "exchange_rate",
+    "holdings",
+    "orders",
+    "conditional_orders",
+    "mutation",
+    "unsupported",
+    "end",
+]:
     if state.get("status") in {AgentStatus.ERROR.value, AgentStatus.NEEDS_INPUT.value}:
         return "end"
     parsed_data = state.get("parsed_intent")
@@ -757,6 +802,8 @@ def _route_intent(
     intent = ParsedIntent.model_validate(parsed_data).intent
     if intent is Intent.PRICE_QUERY:
         return "price"
+    if intent in {Intent.EXCHANGE_RATE_QUERY, Intent.CURRENCY_EXCHANGE}:
+        return "exchange_rate"
     if intent is Intent.HOLDINGS_QUERY:
         return "holdings"
     if intent is Intent.ORDER_LIST:

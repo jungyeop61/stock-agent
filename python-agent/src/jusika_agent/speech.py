@@ -7,6 +7,7 @@ from jusika_agent.models import (
     ConditionalOrderCancellationPreviewResponse,
     ConditionalOrderListResponse,
     ConditionalOrderModificationPreviewResponse,
+    ExchangeRateResponse,
     HoldingsResponse,
     OcoConditionalOrderPreviewResponse,
     OrderCancellationPreviewResponse,
@@ -81,6 +82,25 @@ def currency_unit(currency: str) -> str:
 def format_price_message(display_name: str, price: StockPriceResponse) -> str:
     unit = currency_unit(price.currency)
     return f"{display_name} 현재 가격은 {decimal_to_korean(price.price)} {unit}입니다."
+
+
+def format_exchange_rate_message(
+    response: ExchangeRateResponse, amount: Decimal | None = None
+) -> str:
+    base_unit = currency_unit(response.base_currency.value)
+    quote_unit = currency_unit(response.quote_currency.value)
+    rate = decimal_to_korean(response.rate)
+    if amount is None:
+        return (
+            f"현재 참고 환율은 일 {base_unit}당 {rate} {quote_unit}입니다. "
+            "실제 환전 거래에 적용되는 환율과 다를 수 있습니다."
+        )
+    converted = amount * response.rate
+    return (
+        f"{decimal_to_korean(amount)} {base_unit}는 현재 참고 환율로 약 "
+        f"{decimal_to_korean(converted)} {quote_unit}입니다. "
+        "실제 환전 거래에 적용되는 금액과 다를 수 있습니다."
+    )
 
 
 def format_holdings_message(holdings: HoldingsResponse) -> str:

@@ -20,8 +20,10 @@ from jusika_agent.models import (
     ConditionalOrderModificationPreviewResponse,
     ConditionalOrderMutationCondition,
     ConditionalOrderType,
+    Currency,
     DualConditionalOrderPreviewCondition,
     DualConditionalOrderPreviewRequest,
+    ExchangeRateResponse,
     HoldingItem,
     HoldingsResponse,
     OcoConditionalOrderPreviewResponse,
@@ -57,6 +59,7 @@ class FakeSpringGateway:
         self.approved_amount_preview_ids: list[str] = []
         self.executed_amount_preview_ids: list[str] = []
         self.last_amount_preview: AmountOrderPreviewResponse | None = None
+        self.exchange_rate_requests: list[tuple[str, str]] = []
         self.cancellation_preview_requests: list[OrderCancellationPreviewRequest] = []
         self.modification_preview_requests: list[OrderModificationPreviewRequest] = []
         self.single_conditional_preview_requests: list[SingleConditionalOrderPreviewRequest] = []
@@ -98,6 +101,25 @@ class FakeSpringGateway:
             price=Decimal("72300"),
             currency="KRW",
             timestamp=datetime(2026, 9, 14, 7, 0, tzinfo=UTC),
+        )
+
+    async def get_exchange_rate(
+        self, base_currency: str, quote_currency: str
+    ) -> ExchangeRateResponse:
+        self.exchange_rate_requests.append((base_currency, quote_currency))
+        now = datetime(2026, 9, 14, 7, 0, tzinfo=UTC)
+        rate = Decimal("1380.5")
+        if base_currency == "KRW":
+            rate = Decimal("0.00072437522636725824")
+        return ExchangeRateResponse(
+            base_currency=Currency(base_currency),
+            quote_currency=Currency(quote_currency),
+            rate=rate,
+            mid_rate=rate,
+            basis_point=Decimal("0"),
+            rate_change_type="UNCHANGED",
+            valid_from=now - timedelta(minutes=1),
+            valid_until=now + timedelta(minutes=1),
         )
 
     async def get_holdings(self, account_seq: int) -> HoldingsResponse:

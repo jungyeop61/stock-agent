@@ -1,5 +1,6 @@
 import json
 from datetime import UTC, date, datetime
+from decimal import Decimal
 from typing import Any
 
 import httpx
@@ -103,6 +104,44 @@ async def test_backend_error_does_not_expose_raw_response() -> None:
             raise AssertionError("SpringBackendError was not raised")
     finally:
         await client.aclose()
+
+
+async def test_exchange_rate_query_uses_public_spring_endpoint() -> None:
+    captured: list[httpx.Request] = []
+    now = datetime(2026, 9, 14, 7, 0, tzinfo=UTC).isoformat()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return httpx.Response(
+            200,
+            json={
+                "baseCurrency": "USD",
+                "quoteCurrency": "KRW",
+                "rate": 1380.5,
+                "midRate": 1375,
+                "basisPoint": 40,
+                "rateChangeType": "UP",
+                "validFrom": now,
+                "validUntil": now,
+            },
+        )
+
+    client = SpringBackendClient(
+        base_url="http://spring.test",
+        read_api_key="read-secret",
+        order_api_key="order-secret",
+        transport=httpx.MockTransport(handler),
+    )
+    try:
+        response = await client.get_exchange_rate("USD", "KRW")
+    finally:
+        await client.aclose()
+
+    request = captured[0]
+    assert request.url.path == "/api/market/exchange-rate"
+    assert dict(request.url.params) == {"baseCurrency": "USD", "quoteCurrency": "KRW"}
+    assert "X-Jusika-Api-Key" not in request.headers
+    assert response.rate == Decimal("1380.5")
 
 
 async def test_new_mutation_clients_use_separate_spring_endpoints_and_order_key() -> None:

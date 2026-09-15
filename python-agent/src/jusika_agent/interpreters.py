@@ -34,7 +34,8 @@ class OpenAICommandInterpreter:
     _instructions = """
 당신은 시각장애 사용자의 한국어 주식 명령을 구조화하는 파서입니다.
 투자 판단이나 추천을 하지 말고 사용자가 명시한 내용만 추출하세요.
-지원 intent는 PRICE_QUERY, HOLDINGS_QUERY, BUY, SELL, AMOUNT_BUY, ORDER_LIST, ORDER_CANCEL,
+지원 intent는 PRICE_QUERY, EXCHANGE_RATE_QUERY, CURRENCY_EXCHANGE, HOLDINGS_QUERY, BUY,
+SELL, AMOUNT_BUY, ORDER_LIST, ORDER_CANCEL,
 ORDER_MODIFY, CONDITIONAL_ORDER_LIST, SINGLE_CONDITIONAL_ORDER,
 CONDITIONAL_ORDER_CANCEL, UNKNOWN입니다.
 시장가라는 말이 없더라도 가격을 명시하지 않은 매수/매도는 MARKET입니다.
@@ -42,6 +43,9 @@ CONDITIONAL_ORDER_CANCEL, UNKNOWN입니다.
 금액으로 매수하려는 명령은 AMOUNT_BUY이며 order_amount와 사용자가 말한
 amount_currency=USD 또는 KRW를 기록하세요. 수량과 주문 금액을 혼동하지 마세요.
 금액 매도는 SELL로 기록하되 말한 order_amount와 amount_currency를 보존하세요.
+환율 조회나 통화 환산 계산은 EXCHANGE_RATE_QUERY입니다. 실제 계좌 통화를 바꿔달라는
+요청은 CURRENCY_EXCHANGE입니다. 기준 금액은 exchange_amount, 원래 통화는
+base_currency, 결과 통화는 quote_currency에 기록하세요.
 일반 주문 취소·정정은 사용자가 명시한 order_id만 기록하고 추측하지 마세요.
 조건 주문 취소는 conditional_order_id만 기록하고 일반 order_id와 혼동하지 마세요.
 SINGLE_CONDITIONAL_ORDER, OCO_CONDITIONAL_ORDER, OTO_CONDITIONAL_ORDER,
@@ -146,6 +150,10 @@ class RuleBasedCommandInterpreter:
         r"(?P<amount>\d[\d,]*(?:\.\d+)?)\s*(?P<unit>만|천)?\s*원\s*"
         r"(?:어치|만큼|금액)"
     )
+    _exchange_dollar_amount_pattern = re.compile(r"(?P<amount>\d[\d,]*(?:\.\d+)?)\s*(?:달러|불)")
+    _exchange_won_amount_pattern = re.compile(
+        r"(?P<amount>\d[\d,]*(?:\.\d+)?)\s*(?P<unit>천|만|억)?\s*원"
+    )
 
     async def interpret(self, text: str) -> ParsedIntent:
         normalized = " ".join(text.strip().split())
@@ -154,6 +162,9 @@ class RuleBasedCommandInterpreter:
         symbol = self._extract_symbol(normalized)
         quantity = self._extract_quantity(normalized)
         order_amount, amount_currency = self._extract_amount(normalized)
+        exchange_amount, base_currency, quote_currency = self._extract_exchange_values(
+            normalized, intent
+        )
         order_id = self._extract_id(self._order_id_pattern, normalized)
         conditional_order_id = self._extract_id(self._conditional_order_id_pattern, normalized)
         trigger_price = self._extract_decimal(self._trigger_price_pattern, normalized, "price")
@@ -179,6 +190,9 @@ class RuleBasedCommandInterpreter:
             quantity=quantity,
             order_amount=order_amount,
             amount_currency=amount_currency,
+            exchange_amount=exchange_amount,
+            base_currency=base_currency,
+            quote_currency=quote_currency,
             price=price,
             trigger_price=trigger_price,
             order_type=order_type,
@@ -214,6 +228,15 @@ class RuleBasedCommandInterpreter:
             return Intent.ORDER_CANCEL
         if any(word in text for word in ("미체결 주문", "열린 주문", "진행 중 주문")):
             return Intent.ORDER_LIST
+        currency_words = any(word in text for word in ("달러", "불", "원화"))
+        if "환전" in text and any(word in text for word in ("해줘", "해 줘", "바꿔", "실행")):
+            return Intent.CURRENCY_EXCHANGE
+        if "환율" in text or (
+            currency_words
+            and any(word in text for word in ("얼마", "몇 원", "몇 달러"))
+            and ("원" in text or "원화" in text)
+        ):
+            return Intent.EXCHANGE_RATE_QUERY
         buy = any(word in text for word in ("매수", "사줘", "사 줘", "살래", "사고 싶"))
         if buy and any(word in text for word in ("어치", "만큼", "금액으로", "달러로", "불로")):
             return Intent.AMOUNT_BUY
@@ -284,6 +307,26 @@ class RuleBasedCommandInterpreter:
             return None, None
         multiplier = {None: Decimal(1), "천": Decimal(1000), "만": Decimal(10000)}
         return amount * multiplier[won.group("unit")], Currency.KRW
+
+    def _extract_exchange_values(
+        self, text: str, intent: Intent
+    ) -> tuple[Decimal | None, Currency | None, Currency | None]:
+        if intent not in {Intent.EXCHANGE_RATE_QUERY, Intent.CURRENCY_EXCHANGE}:
+            return None, None, None
+        dollars = self._extract_decimal(self._exchange_dollar_amount_pattern, text, "amount")
+        if dollars is not None:
+            return dollars, Currency.USD, Currency.KRW
+        won = self._exchange_won_amount_pattern.search(text)
+        if won is not None:
+            amount = Decimal(won.group("amount").replace(",", ""))
+            multiplier = {
+                None: Decimal(1),
+                "천": Decimal(1000),
+                "만": Decimal(10000),
+                "억": Decimal(100000000),
+            }
+            return amount * multiplier[won.group("unit")], Currency.KRW, Currency.USD
+        return None, Currency.USD, Currency.KRW
 
     @staticmethod
     def _extract_id(pattern: re.Pattern[str], text: str) -> str | None:

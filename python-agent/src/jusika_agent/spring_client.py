@@ -22,6 +22,7 @@ from jusika_agent.models import (
     ConditionalOrderModificationPreviewRequest,
     ConditionalOrderModificationPreviewResponse,
     DualConditionalOrderPreviewRequest,
+    ExchangeRateResponse,
     HoldingsResponse,
     OcoConditionalOrderPreviewResponse,
     OrderCancellationExecutionResponse,
@@ -98,6 +99,20 @@ class SpringBackendClient:
             authority=None,
         )
         return self._validate(StockPriceResponse, data, "현재가")
+
+    async def get_exchange_rate(
+        self, base_currency: str, quote_currency: str
+    ) -> ExchangeRateResponse:
+        data = await self._request_json(
+            "GET",
+            "/api/market/exchange-rate",
+            authority=None,
+            params={
+                "baseCurrency": base_currency,
+                "quoteCurrency": quote_currency,
+            },
+        )
+        return self._validate(ExchangeRateResponse, data, "환율")
 
     async def get_holdings(self, account_seq: int) -> HoldingsResponse:
         data = await self._request_json(

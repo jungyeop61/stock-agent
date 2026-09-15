@@ -124,14 +124,19 @@ class TossReadStubHandler(BaseHTTPRequestHandler):
 
         if parsed.path == "/api/v1/exchange-rate":
             now = datetime.now(UTC)
+            base_currency = query.get("baseCurrency", ["USD"])[0].upper()
+            quote_currency = query.get("quoteCurrency", ["KRW"])[0].upper()
+            usd_to_krw = base_currency == "USD" and quote_currency == "KRW"
+            rate = "1380.5" if usd_to_krw else "0.00072437522636725824"
+            mid_rate = "1375" if usd_to_krw else "0.00072727272727272727"
             self._write_json(
                 HTTPStatus.OK,
                 {
                     "result": {
-                        "baseCurrency": "USD",
-                        "quoteCurrency": "KRW",
-                        "rate": "1380.5",
-                        "midRate": "1375",
+                        "baseCurrency": base_currency,
+                        "quoteCurrency": quote_currency,
+                        "rate": rate,
+                        "midRate": mid_rate,
                         "basisPoint": "40",
                         "rateChangeType": "UP",
                         "validFrom": (now - timedelta(minutes=5)).isoformat(),

@@ -10,6 +10,8 @@ from jusika_agent.models import Currency, Intent, OrderType
     ("text", "intent"),
     [
         ("삼성전자 지금 얼마야", Intent.PRICE_QUERY),
+        ("지금 달러 환율 알려줘", Intent.EXCHANGE_RATE_QUERY),
+        ("10만 원을 달러로 환전해줘", Intent.CURRENCY_EXCHANGE),
         ("내 보유 주식 알려줘", Intent.HOLDINGS_QUERY),
         ("삼성전자 5주 사줘", Intent.BUY),
         ("애플 200달러어치 매수해줘", Intent.AMOUNT_BUY),
@@ -36,6 +38,24 @@ async def test_rule_interpreter_extracts_limit_order_values() -> None:
     assert parsed.quantity == Decimal("5")
     assert parsed.price == Decimal("70000")
     assert parsed.order_type is OrderType.LIMIT
+
+
+async def test_rule_interpreter_extracts_dollar_conversion_query() -> None:
+    parsed = await RuleBasedCommandInterpreter().interpret("100달러는 원화로 얼마야")
+
+    assert parsed.intent is Intent.EXCHANGE_RATE_QUERY
+    assert parsed.exchange_amount == Decimal("100")
+    assert parsed.base_currency is Currency.USD
+    assert parsed.quote_currency is Currency.KRW
+
+
+async def test_rule_interpreter_keeps_actual_exchange_separate_from_estimate() -> None:
+    parsed = await RuleBasedCommandInterpreter().interpret("10만 원을 달러로 환전해줘")
+
+    assert parsed.intent is Intent.CURRENCY_EXCHANGE
+    assert parsed.exchange_amount == Decimal("100000")
+    assert parsed.base_currency is Currency.KRW
+    assert parsed.quote_currency is Currency.USD
 
 
 async def test_rule_interpreter_understands_spoken_quantity() -> None:

@@ -137,6 +137,48 @@ async def test_price_query_completes_without_order_calls() -> None:
     assert fake.preview_requests == []
 
 
+async def test_exchange_rate_query_is_read_only() -> None:
+    fake = FakeSpringGateway()
+    service = create_service(fake)
+
+    response = await service.process_message(
+        session_id="exchange-rate", text="지금 달러 환율 알려줘"
+    )
+
+    assert response.status is AgentStatus.COMPLETED
+    assert "일 달러당 천삼백팔십 점 오 원" in response.message
+    assert fake.exchange_rate_requests == [("USD", "KRW")]
+    assert fake.preview_requests == []
+
+
+async def test_currency_conversion_uses_current_reference_rate() -> None:
+    fake = FakeSpringGateway()
+    service = create_service(fake)
+
+    response = await service.process_message(
+        session_id="currency-conversion", text="100달러는 원화로 얼마야"
+    )
+
+    assert response.status is AgentStatus.COMPLETED
+    assert response.data is not None
+    assert response.data["exchangeAmount"] == "100"
+    assert response.data["estimatedConvertedAmount"] == "138050.0"
+    assert "십삼만팔천오십 원" in response.message
+
+
+async def test_actual_currency_exchange_is_rejected_without_external_call() -> None:
+    fake = FakeSpringGateway()
+    service = create_service(fake)
+
+    response = await service.process_message(
+        session_id="currency-exchange", text="10만 원을 달러로 환전해줘"
+    )
+
+    assert response.status is AgentStatus.NEEDS_INPUT
+    assert "실제 환전 거래를 제공하지 않아" in response.message
+    assert fake.exchange_rate_requests == []
+
+
 class MissingQuantityInterpreter:
     async def interpret(self, text: str) -> ParsedIntent:
         del text
