@@ -1,7 +1,9 @@
 """Typed and sanitized HTTP client for the Spring transaction backend."""
 
 import asyncio
+import logging
 from collections.abc import Mapping
+from time import perf_counter
 from typing import Any, TypeVar
 from urllib.parse import quote
 from uuid import uuid4
@@ -47,6 +49,9 @@ from jusika_agent.models import (
     SingleConditionalOrderPreviewResponse,
     StockPriceResponse,
 )
+from jusika_agent.observability import current_request_id, log_event
+
+logger = logging.getLogger("jusika_agent.spring_client")
 
 
 class SpringBackendError(RuntimeError):
@@ -104,6 +109,11 @@ class SpringBackendClient:
 
     async def aclose(self) -> None:
         await self._client.aclose()
+
+    async def check_readiness(self) -> None:
+        data = await self._request_json("GET", "/actuator/health", authority=None)
+        if not isinstance(data, dict) or data.get("status") != "UP":
+            raise SpringBackendError("금융 백엔드가 준비되지 않았습니다.")
 
     async def list_accounts(self) -> list[AccountResponse]:
         data = await self._request_json("GET", "/api/accounts", authority="read")
@@ -542,6 +552,8 @@ class SpringBackendClient:
         params: Mapping[str, str] | None = None,
     ) -> Any:
         normalized_method = method.upper()
+        started_at = perf_counter()
+        endpoint_group = self._endpoint_group(path)
         headers = self._headers(authority)
         if content is not None:
             headers["Content-Type"] = "application/json"
@@ -560,6 +572,15 @@ class SpringBackendClient:
                 if attempt + 1 < max_attempts:
                     await asyncio.sleep(self._retry_delay(attempt))
                     continue
+                log_event(
+                    logger,
+                    "spring.request.failed",
+                    level=logging.WARNING,
+                    method=normalized_method,
+                    endpoint=endpoint_group,
+                    outcome="TIMEOUT",
+                    durationMs=round((perf_counter() - started_at) * 1000, 2),
+                )
                 raise SpringBackendError(
                     self._transport_error_message(normalized_method, timed_out=True),
                     outcome_unknown=normalized_method != "GET",
@@ -568,6 +589,15 @@ class SpringBackendClient:
                 if attempt + 1 < max_attempts:
                     await asyncio.sleep(self._retry_delay(attempt))
                     continue
+                log_event(
+                    logger,
+                    "spring.request.failed",
+                    level=logging.WARNING,
+                    method=normalized_method,
+                    endpoint=endpoint_group,
+                    outcome="UNAVAILABLE",
+                    durationMs=round((perf_counter() - started_at) * 1000, 2),
+                )
                 raise SpringBackendError(
                     self._transport_error_message(normalized_method, timed_out=False),
                     outcome_unknown=normalized_method != "GET",
@@ -584,6 +614,16 @@ class SpringBackendClient:
                 }:
                     await asyncio.sleep(self._retry_delay(attempt))
                     continue
+                log_event(
+                    logger,
+                    "spring.request.completed",
+                    level=logging.WARNING,
+                    method=normalized_method,
+                    endpoint=endpoint_group,
+                    statusCode=response.status_code,
+                    outcome="ERROR",
+                    durationMs=round((perf_counter() - started_at) * 1000, 2),
+                )
                 raise SpringBackendError(
                     self._safe_status_message(response.status_code, normalized_method),
                     status_code=response.status_code,
@@ -596,19 +636,39 @@ class SpringBackendClient:
                     ),
                 )
             try:
-                return response.json()
+                data = response.json()
             except ValueError as exc:
                 raise SpringBackendError("금융 백엔드 응답을 읽지 못했습니다.") from exc
+            log_event(
+                logger,
+                "spring.request.completed",
+                method=normalized_method,
+                endpoint=endpoint_group,
+                statusCode=response.status_code,
+                outcome="SUCCESS",
+                durationMs=round((perf_counter() - started_at) * 1000, 2),
+            )
+            return data
 
         raise AssertionError("Spring 조회 재시도 루프가 예상하지 못하게 종료되었습니다.")
 
     def _headers(self, authority: str | None) -> dict[str, str]:
-        headers = {"X-Jusika-Request-Id": str(uuid4())}
+        request_id = current_request_id()
+        headers = {"X-Jusika-Request-Id": request_id if request_id != "-" else str(uuid4())}
         if authority == "read":
             headers["X-Jusika-Api-Key"] = self._read_api_key
         elif authority == "order":
             headers["X-Jusika-Api-Key"] = self._order_api_key
         return headers
+
+    @staticmethod
+    def _endpoint_group(path: str) -> str:
+        if path == "/actuator/health":
+            return path
+        parts = [part for part in path.split("/") if part]
+        if len(parts) >= 2:
+            return "/" + "/".join(parts[:2])
+        return "/unknown"
 
     @staticmethod
     def _validate(model: type[ResponseModel], data: Any, label: str) -> ResponseModel:

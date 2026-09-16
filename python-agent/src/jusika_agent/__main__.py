@@ -12,6 +12,7 @@ def main() -> None:
         host="127.0.0.1",
         port=settings.port,
         reload=False,
+        access_log=False,
     )
 
 

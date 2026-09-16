@@ -20,6 +20,7 @@ from jusika_agent.models import (
     OrderType,
     SingleConditionalOrderPreviewRequest,
 )
+from jusika_agent.observability import bind_request_id, reset_request_id
 from jusika_agent.spring_client import SpringBackendClient, SpringBackendError
 
 
@@ -57,6 +58,32 @@ def account_payload() -> list[dict[str, Any]]:
             "accountType": "GENERAL",
         }
     ]
+
+
+async def test_readiness_uses_actuator_and_propagates_request_id() -> None:
+    captured: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return httpx.Response(200, json={"status": "UP"})
+
+    client = SpringBackendClient(
+        base_url="http://spring.test",
+        read_api_key="read-secret",
+        order_api_key="order-secret",
+        transport=httpx.MockTransport(handler),
+    )
+    request_id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+    token = bind_request_id(request_id)
+    try:
+        await client.check_readiness()
+    finally:
+        reset_request_id(token)
+        await client.aclose()
+
+    assert captured[0].url.path == "/actuator/health"
+    assert captured[0].headers["X-Jusika-Request-Id"] == request_id
+    assert "X-Jusika-Api-Key" not in captured[0].headers
 
 
 async def test_preview_uses_order_key_and_spring_contract() -> None:

@@ -235,6 +235,29 @@ def sanitized_log_tail(path: Path, line_count: int = 60) -> str:
     return text
 
 
+def assert_agent_log_safety(path: Path) -> None:
+    content = path.read_text(encoding="utf-8", errors="replace")
+    for event in (
+        '"event":"http.request.completed"',
+        '"event":"agent.turn.completed"',
+        '"event":"spring.request.completed"',
+    ):
+        if event not in content:
+            raise ProcessE2EError(f"structured agent log event is missing: {event}")
+    for forbidden in (
+        READ_KEY,
+        ORDER_KEY,
+        "local-secret",
+        "삼성전자 5주 사줘",
+        "1234567890",
+        "order-123",
+        "conditional-123",
+    ):
+        if forbidden in content:
+            raise ProcessE2EError("agent log exposed a protected value")
+    print("PASS observability: structured logs contain no protected test values")
+
+
 def run_suite(agent_url: str) -> None:
     expiry = (datetime.now(UTC).date() + timedelta(days=30)).isoformat()
     read_cases = [
@@ -381,8 +404,15 @@ def main() -> int:
                 process=agent,
                 timeout_seconds=30,
             )
+            wait_for_http(
+                f"{agent_url}/ready",
+                process=agent,
+                timeout_seconds=30,
+            )
 
             run_suite(agent_url)
+            agent_log.flush()
+            assert_agent_log_safety(log_paths["agent"])
             print("PASS: complete real-process Agent -> Spring -> Toss read stub E2E")
             return 0
         except (OSError, ProcessE2EError, subprocess.SubprocessError) as exc:

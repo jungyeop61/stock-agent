@@ -31,6 +31,8 @@ class Settings(BaseSettings):
     )
 
     environment: str = "local"
+    log_level: str = "INFO"
+    readiness_timeout_seconds: float = Field(default=3.0, gt=0, le=15)
     spring_backend_url: str = "http://localhost:8080"
     port: int = Field(default=8000, ge=1, le=65535)
     command_interpreter: CommandInterpreterProvider = CommandInterpreterProvider.RULES

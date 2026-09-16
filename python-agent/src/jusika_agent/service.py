@@ -1,6 +1,8 @@
 """Session-aware application service around the compiled LangGraph."""
 
+import logging
 import re
+from time import perf_counter
 from typing import Any
 
 from langchain_core.runnables import RunnableConfig
@@ -14,6 +16,9 @@ from jusika_agent.concurrency import (
 )
 from jusika_agent.graph import AgentState
 from jusika_agent.models import AgentStatus, AgentTurnResponse
+from jusika_agent.observability import hash_identifier, log_event
+
+logger = logging.getLogger("jusika_agent.service")
 
 
 class AgentService:
@@ -31,15 +36,25 @@ class AgentService:
         self._session_guard = session_guard or InMemorySessionConcurrencyGuard()
 
     async def process_message(self, *, session_id: str, text: str) -> AgentTurnResponse:
+        started_at = perf_counter()
         try:
             async with self._session_guard.hold(session_id):
-                return await self._process_message_locked(session_id=session_id, text=text)
+                response = await self._process_message_locked(session_id=session_id, text=text)
         except SessionBusyError:
-            return AgentTurnResponse(
+            response = AgentTurnResponse(
                 session_id=session_id,
                 status=AgentStatus.ERROR,
                 message="같은 대화의 이전 요청을 처리 중입니다. 잠시 후 다시 말씀해주세요.",
             )
+        log_event(
+            logger,
+            "agent.turn.completed",
+            sessionHash=hash_identifier(session_id),
+            status=response.status.value,
+            requiresConfirmation=response.requires_confirmation,
+            durationMs=round((perf_counter() - started_at) * 1000, 2),
+        )
+        return response
 
     async def _process_message_locked(self, *, session_id: str, text: str) -> AgentTurnResponse:
         config: RunnableConfig = {"configurable": {"thread_id": session_id}}
@@ -49,9 +64,9 @@ class AgentService:
             if "await_slot" in snapshot.next:
                 result = await self._graph.ainvoke(Command(resume=text), config=config)
             else:
+                state = dict(snapshot.values)
                 decision = self._confirmation_decision(text)
                 if decision is None:
-                    state = dict(snapshot.values)
                     return AgentTurnResponse(
                         session_id=session_id,
                         status=AgentStatus.WAITING_CONFIRMATION,
@@ -60,13 +75,32 @@ class AgentService:
                         preview_id=self._optional_text(state.get("preview_id")),
                         data=self._optional_dict(state.get("preview")),
                     )
+                log_event(
+                    logger,
+                    "agent.confirmation.received",
+                    sessionHash=hash_identifier(session_id),
+                    decision=decision,
+                    action=state.get("pending_action") or "UNKNOWN",
+                )
                 result = await self._graph.ainvoke(Command(resume=decision), config=config)
         else:
             result = await self._graph.ainvoke(
                 self._initial_state(session_id=session_id, text=text),
                 config=config,
             )
-        return self._response(session_id, result)
+        response = self._response(session_id, result)
+        parsed = result.get("parsed_intent")
+        intent = parsed.get("intent") if isinstance(parsed, dict) else None
+        pending_action = result.get("pending_action")
+        log_event(
+            logger,
+            "agent.workflow.transitioned",
+            sessionHash=hash_identifier(session_id),
+            intent=intent or "UNKNOWN",
+            action=pending_action or "NONE",
+            status=response.status.value,
+        )
+        return response
 
     @classmethod
     def _confirmation_decision(cls, text: str) -> str | None:

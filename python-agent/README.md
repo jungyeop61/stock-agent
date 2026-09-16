@@ -7,9 +7,11 @@
 - 종목 현재가 조회
 - 달러·원화 참고 환율 조회와 금액 환산
 - 단일 계좌의 보유자산 조회
+- 통화별 매수 가능 금액·시장별 수수료·종목별 매도 가능 수량 조회
 - 수량 기반 매수·매도 미리보기 생성
 - 미국 주식 달러 금액 시장가 매수 미리보기 생성
-- 미체결 일반 주문과 감시 중 조건 주문 조회
+- 미체결·종료 일반 주문과 주문 상세, 감시 중 조건 주문과 상세 조회
+- 일반·금액 주문 실행 상태 조회와 결과 불명 실행의 승인 기반 복구
 - 주문번호를 명시한 일반 주문 취소·정정
 - 감시가격·수량·방향·만료일을 명시한 단일 조건 주문 생성
 - 첫·둘째 감시가격과 주문가격을 명시한 OCO·OTO 조건 주문 생성
@@ -21,6 +23,7 @@
 - 메모리 또는 PostgreSQL LangGraph 체크포인트
 - OpenAI Structured Outputs 또는 오프라인 규칙 기반 명령 해석
 - 누락된 주문 정보를 세션 체크포인트에 보존하며 차례로 묻는 다중 턴 대화
+- Spring·체크포인트 의존성을 확인하는 readiness와 민감정보 없는 JSON 운영 로그
 
 Python Agent는 토스증권 API를 직접 호출하지 않습니다. 실제 금융 검증, 주문 승인 상태 변경, 멱등 실행과 증권사 호출은 Spring 백엔드만 담당합니다.
 
@@ -47,7 +50,9 @@ source .venv/bin/activate
 PYTHONPATH=src python -m jusika_agent
 ```
 
-기본 주소는 `http://127.0.0.1:8000`이며 상태 확인 주소는 `/health`입니다.
+기본 주소는 `http://127.0.0.1:8000`입니다. `/health`는 외부 의존성을 호출하지 않는 프로세스 생존 확인이고, `/ready`는 Spring Actuator와 현재 LangGraph 체크포인트 저장소를 읽기 전용으로 확인합니다. 의존성이 준비되지 않으면 `/ready`는 `503 NOT_READY`를 반환합니다. OpenAI 해석기는 상태 확인마다 유료 원격 호출을 만들지 않고 시작 시 구성·클라이언트 생성 성공 여부로 준비 상태를 판단합니다.
+
+모든 에이전트 운영 로그는 한 줄 JSON입니다. 요청 UUID가 `X-Jusika-Request-Id`로 Spring까지 전달되며 원문 사용자 발화, API 키·토큰, 계좌번호와 주문·미리보기·실행 식별자는 기록하지 않습니다. 세션은 원래 UUID 대신 비가역 해시로만 구분합니다.
 
 Spring 조회 요청은 연결 오류, 시간 초과, 요청 제한 또는 일시적인 서버 오류가 발생하면
 기본 최대 3회까지 짧은 지수 간격으로 재시도합니다. 주문 미리보기·승인·실행을 포함한
@@ -58,6 +63,8 @@ JUSIKA_AGENT_SPRING_CONNECT_TIMEOUT_SECONDS=3
 JUSIKA_AGENT_SPRING_READ_TIMEOUT_SECONDS=8
 JUSIKA_AGENT_SPRING_READ_MAX_ATTEMPTS=3
 JUSIKA_AGENT_SPRING_RETRY_BASE_DELAY_SECONDS=0.25
+JUSIKA_AGENT_READINESS_TIMEOUT_SECONDS=3
+JUSIKA_AGENT_LOG_LEVEL=INFO
 ```
 
 ## 텍스트 기반 MOCK 흐름

@@ -95,6 +95,13 @@ class FakeSpringGateway:
         self.sellable_quantity_requests: list[tuple[int, str]] = []
         self.execution_status_requests: list[tuple[str, str]] = []
         self.execution_recovery_requests: list[tuple[str, str]] = []
+        self.readiness_calls = 0
+        self.readiness_error: Exception | None = None
+
+    async def check_readiness(self) -> None:
+        self.readiness_calls += 1
+        if self.readiness_error is not None:
+            raise self.readiness_error
 
     async def list_accounts(self) -> list[AccountResponse]:
         self.account_list_calls += 1
