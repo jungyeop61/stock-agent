@@ -11,7 +11,7 @@ from jusika_agent.interpreters import (
     OpenAICommandInterpreter,
     RuleBasedCommandInterpreter,
 )
-from jusika_agent.models import Currency, Intent, OrderSide, OrderType, ParsedIntent
+from jusika_agent.models import Currency, ExecutionKind, Intent, OrderSide, OrderType, ParsedIntent
 
 
 class FakeResponses:
@@ -48,11 +48,19 @@ def api_status_error(status_code: int) -> APIStatusError:
         ("지금 달러 환율 알려줘", Intent.EXCHANGE_RATE_QUERY),
         ("10만 원을 달러로 환전해줘", Intent.CURRENCY_EXCHANGE),
         ("내 보유 주식 알려줘", Intent.HOLDINGS_QUERY),
+        ("달러 주문 가능 금액 알려줘", Intent.BUYING_POWER_QUERY),
+        ("내 주식 수수료 알려줘", Intent.COMMISSIONS_QUERY),
+        ("삼성전자 매도 가능 수량 알려줘", Intent.SELLABLE_QUANTITY_QUERY),
         ("삼성전자 5주 사줘", Intent.BUY),
         ("애플 200달러어치 매수해줘", Intent.AMOUNT_BUY),
         ("삼성전자 2주 팔아", Intent.SELL),
         ("미체결 주문 알려줘", Intent.ORDER_LIST),
+        ("지난 주문 내역 알려줘", Intent.ORDER_HISTORY_QUERY),
+        ("주문번호 order-123 상태 알려줘", Intent.ORDER_DETAIL_QUERY),
         ("조건 주문 목록 알려줘", Intent.CONDITIONAL_ORDER_LIST),
+        ("조건주문번호 conditional-123 상세 알려줘", Intent.CONDITIONAL_ORDER_DETAIL_QUERY),
+        ("실행번호 execution-123 상태 알려줘", Intent.EXECUTION_STATUS_QUERY),
+        ("금액 주문 실행번호 execution-123 복구해줘", Intent.EXECUTION_RECOVER),
         ("주문번호 order-123 취소해줘", Intent.ORDER_CANCEL),
         ("주문번호 order-123 정정해줘", Intent.ORDER_MODIFY),
         ("조건주문번호 conditional-123 취소해줘", Intent.CONDITIONAL_ORDER_CANCEL),
@@ -91,6 +99,16 @@ async def test_rule_interpreter_keeps_actual_exchange_separate_from_estimate() -
     assert parsed.exchange_amount == Decimal("100000")
     assert parsed.base_currency is Currency.KRW
     assert parsed.quote_currency is Currency.USD
+
+
+async def test_rule_interpreter_extracts_amount_execution_kind() -> None:
+    parsed = await RuleBasedCommandInterpreter().interpret(
+        "금액 주문 실행번호 amount-execution-1 상태 알려줘"
+    )
+
+    assert parsed.intent is Intent.EXECUTION_STATUS_QUERY
+    assert parsed.execution_id == "amount-execution-1"
+    assert parsed.execution_kind is ExecutionKind.AMOUNT_ORDER
 
 
 async def test_rule_interpreter_understands_spoken_quantity() -> None:

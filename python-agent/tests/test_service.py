@@ -307,6 +307,133 @@ async def test_actual_currency_exchange_is_rejected_without_external_call() -> N
     assert fake.exchange_rate_requests == []
 
 
+async def test_buying_power_query_uses_requested_currency() -> None:
+    fake = FakeSpringGateway()
+    service = create_service(fake)
+
+    response = await service.process_message(
+        session_id="buying-power", text="달러 주문 가능 금액 알려줘"
+    )
+
+    assert response.status is AgentStatus.COMPLETED
+    assert response.data is not None
+    assert response.data["currency"] == "USD"
+    assert fake.buying_power_requests == [(1, "USD")]
+
+
+async def test_commissions_query_returns_all_markets() -> None:
+    fake = FakeSpringGateway()
+    service = create_service(fake)
+
+    response = await service.process_message(session_id="commissions", text="내 주식 수수료 알려줘")
+
+    assert response.status is AgentStatus.COMPLETED
+    assert "국내 시장" in response.message
+    assert "미국 시장" in response.message
+    assert fake.commission_requests == [1]
+
+
+async def test_sellable_quantity_query_resolves_instrument() -> None:
+    fake = FakeSpringGateway()
+    service = create_service(fake)
+
+    response = await service.process_message(
+        session_id="sellable", text="삼성전자 매도 가능 수량 알려줘"
+    )
+
+    assert response.status is AgentStatus.COMPLETED
+    assert "사 주" in response.message
+    assert fake.sellable_quantity_requests == [(1, "005930")]
+
+
+async def test_closed_order_history_query() -> None:
+    fake = FakeSpringGateway()
+    service = create_service(fake)
+
+    response = await service.process_message(
+        session_id="order-history", text="지난 주문 내역 알려줘"
+    )
+
+    assert response.status is AgentStatus.COMPLETED
+    assert "최근 종료 주문" in response.message
+    assert response.data is not None
+    assert response.data["listStatus"] == "CLOSED"
+
+
+async def test_all_order_history_combines_open_and_closed_orders() -> None:
+    fake = FakeSpringGateway()
+    service = create_service(fake)
+
+    response = await service.process_message(
+        session_id="all-order-history", text="전체 주문 내역 알려줘"
+    )
+
+    assert response.status is AgentStatus.COMPLETED
+    assert "미체결 주문" in response.message
+    assert "최근 종료 주문" in response.message
+    assert response.data is not None
+    assert response.data["open"]["listStatus"] == "OPEN"
+    assert response.data["closed"]["listStatus"] == "CLOSED"
+
+
+async def test_order_detail_query() -> None:
+    fake = FakeSpringGateway()
+    service = create_service(fake)
+
+    response = await service.process_message(
+        session_id="order-detail", text="주문번호 order-123 상태 알려줘"
+    )
+
+    assert response.status is AgentStatus.COMPLETED
+    assert "order-123" in response.message
+    assert response.data is not None
+    assert response.data["orderId"] == "order-123"
+
+
+async def test_conditional_order_detail_query() -> None:
+    fake = FakeSpringGateway()
+    service = create_service(fake)
+
+    response = await service.process_message(
+        session_id="conditional-detail",
+        text="조건주문번호 conditional-123 상세 알려줘",
+    )
+
+    assert response.status is AgentStatus.COMPLETED
+    assert "conditional-123" in response.message
+    assert response.data is not None
+    assert response.data["conditionalOrderId"] == "conditional-123"
+
+
+async def test_execution_status_query_supports_amount_orders() -> None:
+    fake = FakeSpringGateway()
+    service = create_service(fake)
+
+    response = await service.process_message(
+        session_id="execution-status",
+        text="금액 주문 실행번호 amount-execution-1 상태 알려줘",
+    )
+
+    assert response.status is AgentStatus.COMPLETED
+    assert "ACCEPTED" in response.message
+    assert fake.execution_status_requests == [("AMOUNT_ORDER", "amount-execution-1")]
+
+
+async def test_execution_recovery_requires_confirmation() -> None:
+    fake = FakeSpringGateway()
+    service = create_service(fake)
+
+    preview = await service.process_message(
+        session_id="execution-recovery",
+        text="실행번호 execution-unknown 복구해줘",
+    )
+    execution = await service.process_message(session_id="execution-recovery", text="승인")
+
+    assert preview.status is AgentStatus.WAITING_CONFIRMATION
+    assert fake.execution_recovery_requests == [("ORDER", "execution-unknown")]
+    assert execution.status is AgentStatus.COMPLETED
+
+
 class MissingQuantityInterpreter:
     async def interpret(self, text: str) -> ParsedIntent:
         del text

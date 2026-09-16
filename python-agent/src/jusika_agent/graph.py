@@ -14,10 +14,13 @@ from jusika_agent.models import (
     AmountOrderExecutionResponse,
     AmountOrderPreviewRequest,
     AmountOrderPreviewResponse,
+    BuyingPowerResponse,
+    CommissionsResponse,
     ConditionalOrderCancellationExecutionResponse,
     ConditionalOrderCancellationPreviewRequest,
     ConditionalOrderCancellationPreviewResponse,
     ConditionalOrderCreationExecutionResponse,
+    ConditionalOrderDetailResponse,
     ConditionalOrderListResponse,
     ConditionalOrderModificationExecutionResponse,
     ConditionalOrderModificationPreviewRequest,
@@ -27,6 +30,7 @@ from jusika_agent.models import (
     Currency,
     DualConditionalOrderPreviewRequest,
     ExchangeRateResponse,
+    ExecutionKind,
     HoldingsResponse,
     Intent,
     OcoConditionalOrderPreviewResponse,
@@ -45,6 +49,7 @@ from jusika_agent.models import (
     OrderType,
     OtoConditionalOrderPreviewResponse,
     ParsedIntent,
+    SellableQuantityResponse,
     SingleConditionalOrderExecutionResponse,
     SingleConditionalOrderPreviewRequest,
     SingleConditionalOrderPreviewResponse,
@@ -52,17 +57,23 @@ from jusika_agent.models import (
 )
 from jusika_agent.speech import (
     format_amount_preview_message,
+    format_buying_power_message,
     format_cancellation_preview_message,
+    format_commissions_message,
     format_conditional_cancellation_preview_message,
     format_conditional_modification_preview_message,
+    format_conditional_order_detail_message,
     format_conditional_order_list_message,
     format_dual_conditional_preview_message,
     format_exchange_rate_message,
+    format_execution_status_message,
     format_holdings_message,
     format_modification_preview_message,
+    format_order_detail_message,
     format_order_list_message,
     format_preview_message,
     format_price_message,
+    format_sellable_quantity_message,
     format_single_conditional_preview_message,
 )
 from jusika_agent.spring_client import SpringBackendError
@@ -77,6 +88,11 @@ class SpringGateway(Protocol):
         self, base_currency: str, quote_currency: str
     ) -> ExchangeRateResponse: ...
     async def get_holdings(self, account_seq: int) -> HoldingsResponse: ...
+    async def get_buying_power(self, account_seq: int, currency: str) -> BuyingPowerResponse: ...
+    async def get_commissions(self, account_seq: int) -> CommissionsResponse: ...
+    async def get_sellable_quantity(
+        self, account_seq: int, symbol: str
+    ) -> SellableQuantityResponse: ...
     async def create_order_preview(self, request: OrderPreviewRequest) -> OrderPreviewResponse: ...
     async def approve_order_preview(self, preview_id: str) -> OrderPreviewResponse: ...
     async def execute_order_preview(self, preview_id: str) -> OrderExecutionResponse: ...
@@ -88,7 +104,16 @@ class SpringGateway(Protocol):
         self, preview_id: str
     ) -> AmountOrderExecutionResponse: ...
     async def list_open_orders(self, account_seq: int) -> OrderListResponse: ...
+    async def list_order_history(self, account_seq: int) -> OrderListResponse: ...
     async def get_order(self, account_seq: int, order_id: str) -> OrderDetailResponse: ...
+    async def get_order_execution(self, execution_id: str) -> OrderExecutionResponse: ...
+    async def recover_order_execution(self, execution_id: str) -> OrderExecutionResponse: ...
+    async def get_amount_order_execution(
+        self, execution_id: str
+    ) -> AmountOrderExecutionResponse: ...
+    async def recover_amount_order_execution(
+        self, execution_id: str
+    ) -> AmountOrderExecutionResponse: ...
     async def create_order_cancellation_preview(
         self, request: OrderCancellationPreviewRequest
     ) -> OrderCancellationPreviewResponse: ...
@@ -110,6 +135,9 @@ class SpringGateway(Protocol):
     async def list_open_conditional_orders(
         self, account_seq: int
     ) -> ConditionalOrderListResponse: ...
+    async def get_conditional_order(
+        self, account_seq: int, conditional_order_id: str
+    ) -> ConditionalOrderDetailResponse: ...
     async def create_single_conditional_order_preview(
         self, request: SingleConditionalOrderPreviewRequest
     ) -> SingleConditionalOrderPreviewResponse: ...
@@ -253,6 +281,52 @@ class AgentGraphNodes:
             "result": holdings.model_dump(mode="json", by_alias=True),
         }
 
+    async def buying_power(self, state: AgentState) -> AgentState:
+        try:
+            account_seq = await self._account_seq()
+            text = state["user_text"].upper()
+            currency = Currency.USD if "달러" in text or "USD" in text else Currency.KRW
+            response = await self._spring.get_buying_power(account_seq, currency.value)
+        except (AgentInputError, SpringBackendError) as exc:
+            return self._error(str(exc), needs_input=isinstance(exc, AgentInputError))
+        return {
+            "status": AgentStatus.COMPLETED.value,
+            "message": format_buying_power_message(response),
+            "account_seq": account_seq,
+            "result": response.model_dump(mode="json", by_alias=True),
+        }
+
+    async def commissions(self, state: AgentState) -> AgentState:
+        try:
+            account_seq = await self._account_seq()
+            response = await self._spring.get_commissions(account_seq)
+        except (AgentInputError, SpringBackendError) as exc:
+            return self._error(str(exc), needs_input=isinstance(exc, AgentInputError))
+        return {
+            "status": AgentStatus.COMPLETED.value,
+            "message": format_commissions_message(response),
+            "account_seq": account_seq,
+            "result": response.model_dump(mode="json", by_alias=True),
+        }
+
+    async def sellable_quantity(self, state: AgentState) -> AgentState:
+        try:
+            parsed = self._parsed(state)
+            instrument = self._instrument(parsed, state["user_text"])
+            account_seq = await self._account_seq()
+            response = await self._spring.get_sellable_quantity(account_seq, instrument.symbol)
+        except (AgentInputError, InstrumentResolutionError, SpringBackendError) as exc:
+            return self._error(
+                str(exc), needs_input=isinstance(exc, (AgentInputError, InstrumentResolutionError))
+            )
+        return {
+            "status": AgentStatus.COMPLETED.value,
+            "message": format_sellable_quantity_message(instrument.display_name, response),
+            "display_name": instrument.display_name,
+            "account_seq": account_seq,
+            "result": response.model_dump(mode="json", by_alias=True),
+        }
+
     async def exchange_rate(self, state: AgentState) -> AgentState:
         try:
             parsed = self._parsed(state)
@@ -294,6 +368,49 @@ class AgentGraphNodes:
             "result": orders.model_dump(mode="json", by_alias=True),
         }
 
+    async def order_history(self, state: AgentState) -> AgentState:
+        try:
+            account_seq = await self._account_seq()
+            closed_orders = await self._spring.list_order_history(account_seq)
+            include_open = "전체" in state["user_text"]
+            open_orders = await self._spring.list_open_orders(account_seq) if include_open else None
+        except (AgentInputError, SpringBackendError) as exc:
+            return self._error(str(exc), needs_input=isinstance(exc, AgentInputError))
+        message = format_order_list_message(closed_orders)
+        result: dict[str, Any] = closed_orders.model_dump(mode="json", by_alias=True)
+        if open_orders is not None:
+            message = (
+                format_order_list_message(open_orders)
+                + " "
+                + format_order_list_message(closed_orders)
+            )
+            result = {
+                "open": open_orders.model_dump(mode="json", by_alias=True),
+                "closed": closed_orders.model_dump(mode="json", by_alias=True),
+            }
+        return {
+            "status": AgentStatus.COMPLETED.value,
+            "message": message,
+            "account_seq": account_seq,
+            "result": result,
+        }
+
+    async def order_detail(self, state: AgentState) -> AgentState:
+        try:
+            parsed = self._parsed(state)
+            if parsed.order_id is None:
+                raise AgentInputError("조회할 주문번호를 정확히 말씀해주세요.")
+            account_seq = await self._account_seq()
+            order = await self._spring.get_order(account_seq, parsed.order_id)
+        except (AgentInputError, SpringBackendError) as exc:
+            return self._error(str(exc), needs_input=isinstance(exc, AgentInputError))
+        return {
+            "status": AgentStatus.COMPLETED.value,
+            "message": format_order_detail_message(order),
+            "account_seq": account_seq,
+            "result": order.model_dump(mode="json", by_alias=True),
+        }
+
     async def conditional_orders(self, state: AgentState) -> AgentState:
         try:
             account_seq = await self._account_seq()
@@ -307,9 +424,59 @@ class AgentGraphNodes:
             "result": orders.model_dump(mode="json", by_alias=True),
         }
 
+    async def conditional_order_detail(self, state: AgentState) -> AgentState:
+        try:
+            parsed = self._parsed(state)
+            if parsed.conditional_order_id is None:
+                raise AgentInputError("조회할 조건주문번호를 정확히 말씀해주세요.")
+            account_seq = await self._account_seq()
+            order = await self._spring.get_conditional_order(
+                account_seq, parsed.conditional_order_id
+            )
+        except (AgentInputError, SpringBackendError) as exc:
+            return self._error(str(exc), needs_input=isinstance(exc, AgentInputError))
+        return {
+            "status": AgentStatus.COMPLETED.value,
+            "message": format_conditional_order_detail_message(order),
+            "account_seq": account_seq,
+            "result": order.model_dump(mode="json", by_alias=True),
+        }
+
+    async def execution_status(self, state: AgentState) -> AgentState:
+        try:
+            parsed = self._parsed(state)
+            if parsed.execution_id is None:
+                raise AgentInputError("조회할 실행번호를 정확히 말씀해주세요.")
+            execution: OrderExecutionResponse | AmountOrderExecutionResponse
+            if parsed.execution_kind is ExecutionKind.AMOUNT_ORDER:
+                execution = await self._spring.get_amount_order_execution(parsed.execution_id)
+            else:
+                execution = await self._spring.get_order_execution(parsed.execution_id)
+        except (AgentInputError, SpringBackendError) as exc:
+            return self._error(str(exc), needs_input=isinstance(exc, AgentInputError))
+        return {
+            "status": AgentStatus.COMPLETED.value,
+            "message": format_execution_status_message(execution),
+            "result": execution.model_dump(mode="json", by_alias=True),
+        }
+
     async def prepare_mutation(self, state: AgentState) -> AgentState:
         try:
             parsed = self._parsed(state)
+            if parsed.intent is Intent.EXECUTION_RECOVER:
+                if parsed.execution_id is None:
+                    return {
+                        "status": AgentStatus.NEEDS_INPUT.value,
+                        "message": "복구할 실행번호를 말씀해주세요.",
+                        "missing_field": "execution_id",
+                        "slot_response": None,
+                    }
+                return {
+                    "status": "",
+                    "message": "",
+                    "missing_field": None,
+                    "slot_response": None,
+                }
             account_seq, account_prompt = await self._prepared_account(state)
             if account_prompt is not None:
                 return {
@@ -515,6 +682,8 @@ class AgentGraphNodes:
             return f"주문번호 {response}"
         if field == "conditional_order_id":
             return f"조건주문번호 {response}"
+        if field == "execution_id":
+            return f"실행번호 {response}"
         if field == "order_amount" and not any(
             unit in response for unit in ("어치", "만큼", "금액", "로")
         ):
@@ -536,6 +705,25 @@ class AgentGraphNodes:
     async def create_mutation_preview(self, state: AgentState) -> AgentState:
         try:
             parsed = self._parsed(state)
+            if parsed.intent is Intent.EXECUTION_RECOVER:
+                if parsed.execution_id is None:
+                    raise AgentInputError("복구할 실행번호를 정확히 말씀해주세요.")
+                kind = parsed.execution_kind or ExecutionKind.ORDER
+                kind_label = "금액 주문" if kind is ExecutionKind.AMOUNT_ORDER else "일반 주문"
+                return {
+                    "status": AgentStatus.WAITING_CONFIRMATION.value,
+                    "message": (
+                        f"실행번호 {parsed.execution_id}의 {kind_label} 결과 불명 상태를 "
+                        "한 번 복구 확인합니다. 같은 주문을 다시 제출하지는 않습니다. "
+                        "실행하려면 승인, 그만두려면 취소라고 말씀해주세요."
+                    ),
+                    "pending_action": parsed.intent.value,
+                    "preview_id": parsed.execution_id,
+                    "preview": {
+                        "executionId": parsed.execution_id,
+                        "executionKind": kind.value,
+                    },
+                }
             account_seq = state.get("selected_account_seq") or await self._account_seq()
             preview, message, display_name = await self._create_preview(
                 parsed=parsed,
@@ -815,7 +1003,13 @@ class AgentGraphNodes:
         if not preview_id or not pending_action:
             return self._error("승인할 금융 요청 미리보기를 찾지 못했습니다.")
         try:
-            execution = await self._execute_preview(pending_action, preview_id)
+            execution_kind = None
+            preview = state.get("preview")
+            if preview is not None and preview.get("executionKind") is not None:
+                execution_kind = ExecutionKind(str(preview["executionKind"]))
+            execution = await self._execute_preview(
+                pending_action, preview_id, execution_kind=execution_kind
+            )
         except SpringBackendError as exc:
             return self._error(str(exc))
 
@@ -853,7 +1047,17 @@ class AgentGraphNodes:
             "execution": execution.model_dump(mode="json", by_alias=True),
         }
 
-    async def _execute_preview(self, pending_action: str, preview_id: str) -> ExecutionResponse:
+    async def _execute_preview(
+        self,
+        pending_action: str,
+        preview_id: str,
+        *,
+        execution_kind: ExecutionKind | None = None,
+    ) -> ExecutionResponse:
+        if pending_action == Intent.EXECUTION_RECOVER.value:
+            if execution_kind is ExecutionKind.AMOUNT_ORDER:
+                return await self._spring.recover_amount_order_execution(preview_id)
+            return await self._spring.recover_order_execution(preview_id)
         if pending_action == Intent.AMOUNT_BUY.value:
             await self._spring.approve_amount_order_preview(preview_id)
             return await self._spring.execute_amount_order_preview(preview_id)
@@ -913,6 +1117,7 @@ class AgentGraphNodes:
             Intent.OTO_CONDITIONAL_ORDER.value: "OTO 조건 주문 생성",
             Intent.CONDITIONAL_ORDER_CANCEL.value: "조건 주문 취소",
             Intent.CONDITIONAL_ORDER_MODIFY.value: "조건 주문 정정",
+            Intent.EXECUTION_RECOVER.value: "실행 상태 복구",
         }.get(pending_action, "금융")
 
     @staticmethod
@@ -964,8 +1169,15 @@ def build_agent_graph(
     graph.add_node("price", nodes.price)
     graph.add_node("exchange_rate", nodes.exchange_rate)
     graph.add_node("holdings", nodes.holdings)
+    graph.add_node("buying_power", nodes.buying_power)
+    graph.add_node("commissions", nodes.commissions)
+    graph.add_node("sellable_quantity", nodes.sellable_quantity)
     graph.add_node("orders", nodes.orders)
+    graph.add_node("order_history", nodes.order_history)
+    graph.add_node("order_detail", nodes.order_detail)
     graph.add_node("conditional_orders", nodes.conditional_orders)
+    graph.add_node("conditional_order_detail", nodes.conditional_order_detail)
+    graph.add_node("execution_status", nodes.execution_status)
     graph.add_node("prepare_mutation", nodes.prepare_mutation)
     graph.add_node("await_slot", nodes.await_slot)
     graph.add_node("merge_slot", nodes.merge_slot)
@@ -983,8 +1195,15 @@ def build_agent_graph(
             "price": "price",
             "exchange_rate": "exchange_rate",
             "holdings": "holdings",
+            "buying_power": "buying_power",
+            "commissions": "commissions",
+            "sellable_quantity": "sellable_quantity",
             "orders": "orders",
+            "order_history": "order_history",
+            "order_detail": "order_detail",
             "conditional_orders": "conditional_orders",
+            "conditional_order_detail": "conditional_order_detail",
+            "execution_status": "execution_status",
             "mutation": "prepare_mutation",
             "unsupported": "unsupported",
             "end": END,
@@ -1015,8 +1234,15 @@ def build_agent_graph(
         "price",
         "exchange_rate",
         "holdings",
+        "buying_power",
+        "commissions",
+        "sellable_quantity",
         "orders",
+        "order_history",
+        "order_detail",
         "conditional_orders",
+        "conditional_order_detail",
+        "execution_status",
         "execute",
         "cancel",
         "unsupported",
@@ -1031,8 +1257,15 @@ def _route_intent(
     "price",
     "exchange_rate",
     "holdings",
+    "buying_power",
+    "commissions",
+    "sellable_quantity",
     "orders",
+    "order_history",
+    "order_detail",
     "conditional_orders",
+    "conditional_order_detail",
+    "execution_status",
     "mutation",
     "unsupported",
     "end",
@@ -1049,10 +1282,24 @@ def _route_intent(
         return "exchange_rate"
     if intent is Intent.HOLDINGS_QUERY:
         return "holdings"
+    if intent is Intent.BUYING_POWER_QUERY:
+        return "buying_power"
+    if intent is Intent.COMMISSIONS_QUERY:
+        return "commissions"
+    if intent is Intent.SELLABLE_QUANTITY_QUERY:
+        return "sellable_quantity"
     if intent is Intent.ORDER_LIST:
         return "orders"
+    if intent is Intent.ORDER_HISTORY_QUERY:
+        return "order_history"
+    if intent is Intent.ORDER_DETAIL_QUERY:
+        return "order_detail"
     if intent is Intent.CONDITIONAL_ORDER_LIST:
         return "conditional_orders"
+    if intent is Intent.CONDITIONAL_ORDER_DETAIL_QUERY:
+        return "conditional_order_detail"
+    if intent is Intent.EXECUTION_STATUS_QUERY:
+        return "execution_status"
     if intent in {
         Intent.BUY,
         Intent.SELL,
@@ -1064,6 +1311,7 @@ def _route_intent(
         Intent.OTO_CONDITIONAL_ORDER,
         Intent.CONDITIONAL_ORDER_CANCEL,
         Intent.CONDITIONAL_ORDER_MODIFY,
+        Intent.EXECUTION_RECOVER,
     }:
         return "mutation"
     return "unsupported"

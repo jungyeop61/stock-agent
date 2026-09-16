@@ -296,6 +296,58 @@ async def test_open_order_queries_use_read_key_and_open_filter() -> None:
     assert all(request.headers["X-Jusika-Api-Key"] == "read-secret" for request in captured)
 
 
+async def test_extended_queries_and_recovery_use_expected_paths_and_authorities() -> None:
+    captured: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return httpx.Response(503)
+
+    client = SpringBackendClient(
+        base_url="http://spring.test",
+        read_api_key="read-secret",
+        order_api_key="order-secret",
+        read_max_attempts=1,
+        transport=httpx.MockTransport(handler),
+    )
+    try:
+        calls = [
+            client.get_buying_power(1, "USD"),
+            client.get_commissions(1),
+            client.get_sellable_quantity(1, "005930"),
+            client.list_order_history(1),
+            client.get_order(1, "order-123"),
+            client.get_conditional_order(1, "conditional-123"),
+            client.get_order_execution("execution-1"),
+            client.get_amount_order_execution("amount-execution-1"),
+            client.recover_order_execution("execution-1"),
+            client.recover_amount_order_execution("amount-execution-1"),
+        ]
+        for call in calls:
+            with pytest.raises(SpringBackendError):
+                await call
+    finally:
+        await client.aclose()
+
+    assert [request.url.path for request in captured] == [
+        "/api/accounts/1/buying-power",
+        "/api/accounts/1/commissions",
+        "/api/accounts/1/stocks/005930/sellable-quantity",
+        "/api/accounts/1/orders",
+        "/api/accounts/1/orders/order-123",
+        "/api/accounts/1/conditional-orders/conditional-123",
+        "/api/orders/executions/execution-1",
+        "/api/orders/amount/executions/amount-execution-1",
+        "/api/orders/executions/execution-1/recover",
+        "/api/orders/amount/executions/amount-execution-1/recover",
+    ]
+    assert captured[0].url.params["currency"] == "USD"
+    assert captured[3].url.params["status"] == "CLOSED"
+    assert captured[3].url.params["limit"] == "20"
+    assert all(request.headers["X-Jusika-Api-Key"] == "read-secret" for request in captured[:8])
+    assert all(request.headers["X-Jusika-Api-Key"] == "order-secret" for request in captured[8:])
+
+
 async def test_read_request_retries_transient_status_with_same_request_id() -> None:
     captured: list[httpx.Request] = []
 

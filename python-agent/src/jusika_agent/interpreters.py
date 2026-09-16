@@ -11,6 +11,7 @@ from openai import APIConnectionError, APIStatusError, APITimeoutError, AsyncOpe
 from jusika_agent.models import (
     ConditionalOrderType,
     Currency,
+    ExecutionKind,
     Intent,
     OrderSide,
     OrderType,
@@ -38,9 +39,11 @@ class OpenAICommandInterpreter:
 투자 판단이나 추천을 하지 말고 사용자가 명시한 값만 추출하세요. 불명확하거나 지원하지
 않는 요청은 UNKNOWN이며 수량, 가격, 주문번호 또는 종목을 추측해서 채우지 마세요.
 지원 intent는 PRICE_QUERY, EXCHANGE_RATE_QUERY, CURRENCY_EXCHANGE, HOLDINGS_QUERY,
-BUY, SELL, AMOUNT_BUY, ORDER_LIST, ORDER_CANCEL, ORDER_MODIFY,
-CONDITIONAL_ORDER_LIST, SINGLE_CONDITIONAL_ORDER, OCO_CONDITIONAL_ORDER,
-OTO_CONDITIONAL_ORDER, CONDITIONAL_ORDER_CANCEL, CONDITIONAL_ORDER_MODIFY, UNKNOWN입니다.
+BUYING_POWER_QUERY, COMMISSIONS_QUERY, SELLABLE_QUANTITY_QUERY, BUY, SELL, AMOUNT_BUY,
+ORDER_LIST, ORDER_HISTORY_QUERY, ORDER_DETAIL_QUERY, ORDER_CANCEL, ORDER_MODIFY,
+CONDITIONAL_ORDER_LIST, CONDITIONAL_ORDER_DETAIL_QUERY, SINGLE_CONDITIONAL_ORDER,
+OCO_CONDITIONAL_ORDER, OTO_CONDITIONAL_ORDER, CONDITIONAL_ORDER_CANCEL,
+CONDITIONAL_ORDER_MODIFY, EXECUTION_STATUS_QUERY, EXECUTION_RECOVER, UNKNOWN입니다.
 일반 매수/매도에서 시장가라는 말이 있으면 MARKET입니다. 지정가라는 말이 있거나 가격을
 명시했다면 LIMIT이며, 지정가라고만 하고 가격이 빠졌다면 LIMIT과 price=null을 기록하세요.
 가격을 명시한 주문은 LIMIT이며 price에 숫자만 기록하세요.
@@ -52,6 +55,8 @@ amount_currency=USD 또는 KRW를 기록하세요. 수량과 주문 금액을 �
 base_currency, 결과 통화는 quote_currency에 기록하세요.
 일반 주문 취소·정정은 사용자가 명시한 order_id만 기록하고 추측하지 마세요.
 조건 주문 취소는 conditional_order_id만 기록하고 일반 order_id와 혼동하지 마세요.
+실행 상태 조회나 복구는 execution_id를 기록하세요. 수량 주문 실행이면 execution_kind=ORDER,
+금액 주문 실행이면 execution_kind=AMOUNT_ORDER입니다. 종류를 말하지 않으면 ORDER입니다.
 SINGLE_CONDITIONAL_ORDER, OCO_CONDITIONAL_ORDER, OTO_CONDITIONAL_ORDER,
 CONDITIONAL_ORDER_MODIFY도 지원합니다. 조건 주문 유형은 conditional_order_type에 기록하세요.
 두 조건 주문은 first_condition과 second_condition을 서로 바꾸지 말고 각각 기록하세요.
@@ -174,6 +179,11 @@ class RuleBasedCommandInterpreter:
         r"(?:조건\s*주문\s*번호|조건주문번호)\s*(?:는|은|:)?\s*"
         r"(?P<id>[A-Za-z0-9][A-Za-z0-9._:-]{0,127})"
     )
+    _execution_id_pattern = re.compile(
+        r"(?:실행\s*번호|실행번호|execution\s*(?:id)?)\s*(?:는|은|:)?\s*"
+        r"(?P<id>[A-Za-z0-9][A-Za-z0-9._:-]{0,127})",
+        re.IGNORECASE,
+    )
     _trigger_price_pattern = re.compile(
         r"(?P<price>\d[\d,]*(?:\.\d+)?)\s*(?:원|달러|불)(?:이|가)?\s*"
         r"(?:되면|도달하면|도달\s*시|이상이면|이하면)"
@@ -223,6 +233,15 @@ class RuleBasedCommandInterpreter:
         )
         order_id = self._extract_id(self._order_id_pattern, normalized)
         conditional_order_id = self._extract_id(self._conditional_order_id_pattern, normalized)
+        execution_id = self._extract_id(self._execution_id_pattern, normalized)
+        execution_kind = (
+            ExecutionKind.AMOUNT_ORDER
+            if intent in {Intent.EXECUTION_STATUS_QUERY, Intent.EXECUTION_RECOVER}
+            and any(word in normalized for word in ("금액 주문", "금액주문", "달러 금액"))
+            else ExecutionKind.ORDER
+            if intent in {Intent.EXECUTION_STATUS_QUERY, Intent.EXECUTION_RECOVER}
+            else None
+        )
         trigger_price = self._extract_decimal(self._trigger_price_pattern, normalized, "price")
         price = self._extract_order_price(normalized, intent, trigger_price)
         order_type = (
@@ -255,6 +274,8 @@ class RuleBasedCommandInterpreter:
             side=side,
             order_id=order_id,
             conditional_order_id=conditional_order_id,
+            execution_id=execution_id,
+            execution_kind=execution_kind,
             conditional_order_type=conditional_order_type,
             first_condition=first_condition,
             second_condition=second_condition,
@@ -263,7 +284,18 @@ class RuleBasedCommandInterpreter:
 
     @staticmethod
     def _detect_intent(text: str) -> Intent:
+        execution = "실행번호" in text.replace(" ", "") or "execution" in text.lower()
+        if execution and any(word in text for word in ("복구", "회수", "확인 요청")):
+            return Intent.EXECUTION_RECOVER
+        if execution and any(word in text for word in ("상태", "조회", "확인", "알려")):
+            return Intent.EXECUTION_STATUS_QUERY
         conditional = "조건" in text and "주문" in text
+        if (
+            conditional
+            and "번호" in text
+            and any(word in text for word in ("상세", "상태", "조회", "알려"))
+        ):
+            return Intent.CONDITIONAL_ORDER_DETAIL_QUERY
         if conditional and any(word in text for word in ("취소", "취소해", "취소해줘")):
             return Intent.CONDITIONAL_ORDER_CANCEL
         if conditional and any(word in text for word in ("정정", "변경")):
@@ -282,8 +314,25 @@ class RuleBasedCommandInterpreter:
             return Intent.ORDER_MODIFY
         if "취소" in text and "주문" in text:
             return Intent.ORDER_CANCEL
+        if (
+            "주문" in text
+            and "번호" in text
+            and any(word in text for word in ("상세", "상태", "조회", "알려"))
+        ):
+            return Intent.ORDER_DETAIL_QUERY
         if any(word in text for word in ("미체결 주문", "열린 주문", "진행 중 주문")):
             return Intent.ORDER_LIST
+        if any(
+            word in text
+            for word in ("주문 내역", "주문내역", "지난 주문", "종료 주문", "체결 내역")
+        ):
+            return Intent.ORDER_HISTORY_QUERY
+        if any(word in text for word in ("매수 가능 금액", "주문 가능 금액", "매수가능금액")):
+            return Intent.BUYING_POWER_QUERY
+        if "수수료" in text and any(word in text for word in ("조회", "알려", "얼마", "확인")):
+            return Intent.COMMISSIONS_QUERY
+        if any(word in text for word in ("매도 가능 수량", "매도가능수량", "팔 수 있는 수량")):
+            return Intent.SELLABLE_QUANTITY_QUERY
         currency_words = any(word in text for word in ("달러", "불", "원화"))
         if "환전" in text and any(word in text for word in ("해줘", "해 줘", "바꿔", "실행")):
             return Intent.CURRENCY_EXCHANGE

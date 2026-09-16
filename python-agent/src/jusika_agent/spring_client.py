@@ -14,10 +14,13 @@ from jusika_agent.models import (
     AmountOrderExecutionResponse,
     AmountOrderPreviewRequest,
     AmountOrderPreviewResponse,
+    BuyingPowerResponse,
+    CommissionsResponse,
     ConditionalOrderCancellationExecutionResponse,
     ConditionalOrderCancellationPreviewRequest,
     ConditionalOrderCancellationPreviewResponse,
     ConditionalOrderCreationExecutionResponse,
+    ConditionalOrderDetailResponse,
     ConditionalOrderListResponse,
     ConditionalOrderModificationExecutionResponse,
     ConditionalOrderModificationPreviewRequest,
@@ -38,6 +41,7 @@ from jusika_agent.models import (
     OrderPreviewRequest,
     OrderPreviewResponse,
     OtoConditionalOrderPreviewResponse,
+    SellableQuantityResponse,
     SingleConditionalOrderExecutionResponse,
     SingleConditionalOrderPreviewRequest,
     SingleConditionalOrderPreviewResponse,
@@ -138,6 +142,33 @@ class SpringBackendClient:
         )
         return self._validate(HoldingsResponse, data, "보유자산")
 
+    async def get_buying_power(self, account_seq: int, currency: str) -> BuyingPowerResponse:
+        data = await self._request_json(
+            "GET",
+            f"/api/accounts/{account_seq}/buying-power",
+            authority="read",
+            params={"currency": currency},
+        )
+        return self._validate(BuyingPowerResponse, data, "매수 가능 금액")
+
+    async def get_commissions(self, account_seq: int) -> CommissionsResponse:
+        data = await self._request_json(
+            "GET",
+            f"/api/accounts/{account_seq}/commissions",
+            authority="read",
+        )
+        return self._validate(CommissionsResponse, data, "수수료")
+
+    async def get_sellable_quantity(
+        self, account_seq: int, symbol: str
+    ) -> SellableQuantityResponse:
+        data = await self._request_json(
+            "GET",
+            f"/api/accounts/{account_seq}/stocks/{quote(symbol, safe='')}/sellable-quantity",
+            authority="read",
+        )
+        return self._validate(SellableQuantityResponse, data, "매도 가능 수량")
+
     async def create_order_preview(self, request: OrderPreviewRequest) -> OrderPreviewResponse:
         data = await self._request_json(
             "POST",
@@ -199,6 +230,15 @@ class SpringBackendClient:
         )
         return self._validate(OrderListResponse, data, "미체결 주문 목록")
 
+    async def list_order_history(self, account_seq: int) -> OrderListResponse:
+        data = await self._request_json(
+            "GET",
+            f"/api/accounts/{account_seq}/orders",
+            authority="read",
+            params={"status": "CLOSED", "limit": "20"},
+        )
+        return self._validate(OrderListResponse, data, "주문 내역")
+
     async def get_order(self, account_seq: int, order_id: str) -> OrderDetailResponse:
         data = await self._request_json(
             "GET",
@@ -206,6 +246,40 @@ class SpringBackendClient:
             authority="read",
         )
         return self._validate(OrderDetailResponse, data, "주문 상세")
+
+    async def get_order_execution(self, execution_id: str) -> OrderExecutionResponse:
+        data = await self._request_json(
+            "GET",
+            f"/api/orders/executions/{quote(execution_id, safe='')}",
+            authority="read",
+        )
+        return self._validate(OrderExecutionResponse, data, "주문 실행 상태")
+
+    async def recover_order_execution(self, execution_id: str) -> OrderExecutionResponse:
+        data = await self._request_json(
+            "POST",
+            f"/api/orders/executions/{quote(execution_id, safe='')}/recover",
+            authority="order",
+        )
+        return self._validate(OrderExecutionResponse, data, "주문 실행 복구")
+
+    async def get_amount_order_execution(self, execution_id: str) -> AmountOrderExecutionResponse:
+        data = await self._request_json(
+            "GET",
+            f"/api/orders/amount/executions/{quote(execution_id, safe='')}",
+            authority="read",
+        )
+        return self._validate(AmountOrderExecutionResponse, data, "금액 주문 실행 상태")
+
+    async def recover_amount_order_execution(
+        self, execution_id: str
+    ) -> AmountOrderExecutionResponse:
+        data = await self._request_json(
+            "POST",
+            f"/api/orders/amount/executions/{quote(execution_id, safe='')}/recover",
+            authority="order",
+        )
+        return self._validate(AmountOrderExecutionResponse, data, "금액 주문 실행 복구")
 
     async def create_order_cancellation_preview(
         self, request: OrderCancellationPreviewRequest
@@ -277,6 +351,17 @@ class SpringBackendClient:
             params={"status": "OPEN"},
         )
         return self._validate(ConditionalOrderListResponse, data, "조건 주문 목록")
+
+    async def get_conditional_order(
+        self, account_seq: int, conditional_order_id: str
+    ) -> ConditionalOrderDetailResponse:
+        data = await self._request_json(
+            "GET",
+            f"/api/accounts/{account_seq}/conditional-orders/"
+            f"{quote(conditional_order_id, safe='')}",
+            authority="read",
+        )
+        return self._validate(ConditionalOrderDetailResponse, data, "조건 주문 상세")
 
     async def create_single_conditional_order_preview(
         self, request: SingleConditionalOrderPreviewRequest
@@ -489,10 +574,14 @@ class SpringBackendClient:
                 ) from exc
 
             if response.is_error:
-                if (
-                    attempt + 1 < max_attempts
-                    and response.status_code in {408, 429, 500, 502, 503, 504}
-                ):
+                if attempt + 1 < max_attempts and response.status_code in {
+                    408,
+                    429,
+                    500,
+                    502,
+                    503,
+                    504,
+                }:
                     await asyncio.sleep(self._retry_delay(attempt))
                     continue
                 raise SpringBackendError(
@@ -502,9 +591,7 @@ class SpringBackendClient:
                         normalized_method != "GET"
                         and (
                             response.status_code == 408
-                            or (
-                                response.status_code >= 500 and response.status_code != 503
-                            )
+                            or (response.status_code >= 500 and response.status_code != 503)
                         )
                     ),
                 )

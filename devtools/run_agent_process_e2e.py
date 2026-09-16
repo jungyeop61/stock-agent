@@ -103,7 +103,7 @@ def run_rejection_case(agent_url: str, label: str, text: str) -> None:
     print(f"PASS rejection: {label}")
 
 
-def run_mutation_case(agent_url: str, label: str, text: str) -> None:
+def run_mutation_case(agent_url: str, label: str, text: str) -> dict[str, Any]:
     session_id = str(uuid4())
     preview = post_message(agent_url, session_id, text)
     require_status(preview, "WAITING_CONFIRMATION", f"{label} preview")
@@ -121,6 +121,20 @@ def run_mutation_case(agent_url: str, label: str, text: str) -> None:
     if data.get("status") != "ACCEPTED":
         raise ProcessE2EError(f"{label}: execution was not accepted")
     print(f"PASS mutation: {label}")
+    return data
+
+
+def run_recovery_conflict_case(agent_url: str, execution_id: str) -> None:
+    session_id = str(uuid4())
+    preview = post_message(
+        agent_url,
+        session_id,
+        f"실행번호 {execution_id} 복구해줘",
+    )
+    require_status(preview, "WAITING_CONFIRMATION", "execution recovery confirmation")
+    response = post_message(agent_url, session_id, "승인")
+    require_status(response, "ERROR", "accepted execution recovery rejection")
+    print("PASS safety: accepted execution cannot be recovered again")
 
 
 def run_multiturn_case(agent_url: str) -> None:
@@ -228,8 +242,17 @@ def run_suite(agent_url: str) -> None:
         ("exchange rate", "지금 달러 환율 알려줘"),
         ("currency conversion", "100달러는 원화로 얼마야"),
         ("holdings", "내 보유 주식 알려줘"),
+        ("buying power", "원화 주문 가능 금액 알려줘"),
+        ("commissions", "내 주식 수수료 알려줘"),
+        ("sellable quantity", "삼성전자 매도 가능 수량 알려줘"),
         ("open orders", "미체결 주문 알려줘"),
+        ("complete order history", "전체 주문 내역 알려줘"),
+        ("order detail", "주문번호 order-123 상태 알려줘"),
         ("conditional orders", "조건 주문 목록 알려줘"),
+        (
+            "conditional order detail",
+            "조건주문번호 conditional-123 상세 알려줘",
+        ),
     ]
     mutation_cases = [
         ("quantity buy", "삼성전자 5주 사줘"),
@@ -278,8 +301,20 @@ def run_suite(agent_url: str) -> None:
         run_read_case(agent_url, label, command)
     run_rejection_case(agent_url, "unsupported real currency exchange", "10만 원을 달러로 환전해줘")
     run_multiturn_case(agent_url)
+    quantity_execution: dict[str, Any] | None = None
     for label, command in mutation_cases:
-        run_mutation_case(agent_url, label, command)
+        execution = run_mutation_case(agent_url, label, command)
+        if label == "quantity buy":
+            quantity_execution = execution
+    if quantity_execution is None or not isinstance(quantity_execution.get("executionId"), str):
+        raise ProcessE2EError("quantity execution ID is missing")
+    execution_id = str(quantity_execution["executionId"])
+    run_read_case(
+        agent_url,
+        "execution status",
+        f"실행번호 {execution_id} 상태 알려줘",
+    )
+    run_recovery_conflict_case(agent_url, execution_id)
 
 
 def main() -> int:

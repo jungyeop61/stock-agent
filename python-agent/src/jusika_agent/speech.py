@@ -3,20 +3,27 @@
 from decimal import Decimal
 
 from jusika_agent.models import (
+    AmountOrderExecutionResponse,
     AmountOrderPreviewResponse,
+    BuyingPowerResponse,
+    CommissionsResponse,
     ConditionalOrderCancellationPreviewResponse,
+    ConditionalOrderDetailResponse,
     ConditionalOrderListResponse,
     ConditionalOrderModificationPreviewResponse,
     ExchangeRateResponse,
     HoldingsResponse,
     OcoConditionalOrderPreviewResponse,
     OrderCancellationPreviewResponse,
+    OrderDetailResponse,
+    OrderExecutionResponse,
     OrderListResponse,
     OrderModificationPreviewResponse,
     OrderPreviewResponse,
     OrderSide,
     OrderType,
     OtoConditionalOrderPreviewResponse,
+    SellableQuantityResponse,
     SingleConditionalOrderPreviewResponse,
     StockPriceResponse,
 )
@@ -116,6 +123,31 @@ def format_holdings_message(holdings: HoldingsResponse) -> str:
     return prefix + ", ".join(item_messages) + suffix
 
 
+def format_buying_power_message(response: BuyingPowerResponse) -> str:
+    return (
+        f"현재 현금 매수 가능 금액은 {decimal_to_korean(response.cash_buying_power)} "
+        f"{currency_unit(response.currency.value)}입니다."
+    )
+
+
+def format_commissions_message(response: CommissionsResponse) -> str:
+    if not response.commissions:
+        return "현재 적용 중인 매매 수수료 정보를 찾지 못했습니다."
+    rendered = []
+    for item in response.commissions:
+        market = {"KR": "국내", "US": "미국"}.get(item.market_country, item.market_country)
+        percent = item.commission_rate * Decimal("100")
+        rendered.append(f"{market} 시장 {decimal_to_korean(percent)} 퍼센트")
+    return "현재 매매 수수료율은 " + ", ".join(rendered) + "입니다."
+
+
+def format_sellable_quantity_message(display_name: str, response: SellableQuantityResponse) -> str:
+    return (
+        f"{display_name}의 현재 매도 가능 수량은 "
+        f"{decimal_to_korean(response.sellable_quantity)} 주입니다."
+    )
+
+
 def format_preview_message(display_name: str, preview: OrderPreviewResponse) -> str:
     side = "매수" if preview.side.value == "BUY" else "매도"
     if preview.order_type is OrderType.MARKET:
@@ -155,7 +187,11 @@ def format_amount_preview_message(display_name: str, preview: AmountOrderPreview
 
 def format_order_list_message(response: OrderListResponse) -> str:
     if not response.orders:
-        return "현재 미체결 주문이 없습니다."
+        return (
+            "최근 종료된 주문 내역이 없습니다."
+            if response.list_status == "CLOSED"
+            else "현재 미체결 주문이 없습니다."
+        )
     rendered: list[str] = []
     for order in response.orders[:5]:
         side = "매수" if order.side.value == "BUY" else "매도"
@@ -171,10 +207,26 @@ def format_order_list_message(response: OrderListResponse) -> str:
     suffix = ""
     if len(response.orders) > 5 or response.has_next:
         suffix = " 나머지 주문도 있습니다."
+    label = "최근 종료 주문" if response.list_status == "CLOSED" else "미체결 주문"
     return (
-        f"미체결 주문은 {integer_to_korean(len(response.orders))}건입니다. "
+        f"{label}은 {integer_to_korean(len(response.orders))}건입니다. "
         + ". ".join(rendered)
         + suffix
+    )
+
+
+def format_order_detail_message(response: OrderDetailResponse) -> str:
+    side = "매수" if response.side is OrderSide.BUY else "매도"
+    if response.quantity is not None:
+        size = f"{decimal_to_korean(response.quantity)} 주"
+    elif response.order_amount is not None:
+        size = f"{decimal_to_korean(response.order_amount)} {currency_unit(response.currency)} 금액"
+    else:
+        size = "수량 미확인"
+    filled = decimal_to_korean(response.execution.filled_quantity)
+    return (
+        f"주문번호 {response.order_id}, {response.symbol} {side} {size} 주문은 "
+        f"현재 {response.status} 상태이고 누적 체결 수량은 {filled} 주입니다."
     )
 
 
@@ -239,6 +291,43 @@ def format_conditional_order_list_message(
         + ". ".join(rendered)
         + suffix
     )
+
+
+def format_conditional_order_detail_message(
+    response: ConditionalOrderDetailResponse,
+) -> str:
+    first_trigger = (
+        f"감시가격 {decimal_to_korean(response.first.trigger_price)}"
+        if response.first.trigger_price is not None
+        else (
+            "목표 수익률 "
+            f"{decimal_to_korean(response.first.target_profit_rate or Decimal(0))} 퍼센트"
+        )
+    )
+    second = ""
+    if response.second is not None:
+        second_trigger = (
+            f"감시가격 {decimal_to_korean(response.second.trigger_price)}"
+            if response.second.trigger_price is not None
+            else "수익률 조건"
+        )
+        second = f" 둘째 조건은 {second_trigger}, 상태 {response.second.status}입니다."
+    return (
+        f"조건주문번호 {response.conditional_order_id}, {response.symbol} {response.type} 주문은 "
+        f"현재 {response.status} 상태입니다. 수량은 {decimal_to_korean(response.quantity)} 주, "
+        f"첫 조건은 {first_trigger}, 상태 {response.first.status}입니다.{second}"
+    )
+
+
+def format_execution_status_message(
+    response: OrderExecutionResponse | AmountOrderExecutionResponse,
+) -> str:
+    message = f"실행번호 {response.execution_id}의 현재 상태는 {response.status}입니다."
+    if response.failure_type is not None:
+        message += f" 실패 유형은 {response.failure_type}입니다."
+    if response.broker_order_id is not None:
+        message += f" 증권사 주문번호는 {response.broker_order_id}입니다."
+    return message
 
 
 def format_single_conditional_preview_message(

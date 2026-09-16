@@ -16,18 +16,26 @@ class Intent(StrEnum):
     EXCHANGE_RATE_QUERY = "EXCHANGE_RATE_QUERY"
     CURRENCY_EXCHANGE = "CURRENCY_EXCHANGE"
     HOLDINGS_QUERY = "HOLDINGS_QUERY"
+    BUYING_POWER_QUERY = "BUYING_POWER_QUERY"
+    COMMISSIONS_QUERY = "COMMISSIONS_QUERY"
+    SELLABLE_QUANTITY_QUERY = "SELLABLE_QUANTITY_QUERY"
     BUY = "BUY"
     SELL = "SELL"
     AMOUNT_BUY = "AMOUNT_BUY"
     ORDER_LIST = "ORDER_LIST"
+    ORDER_HISTORY_QUERY = "ORDER_HISTORY_QUERY"
+    ORDER_DETAIL_QUERY = "ORDER_DETAIL_QUERY"
     ORDER_CANCEL = "ORDER_CANCEL"
     ORDER_MODIFY = "ORDER_MODIFY"
     CONDITIONAL_ORDER_LIST = "CONDITIONAL_ORDER_LIST"
+    CONDITIONAL_ORDER_DETAIL_QUERY = "CONDITIONAL_ORDER_DETAIL_QUERY"
     SINGLE_CONDITIONAL_ORDER = "SINGLE_CONDITIONAL_ORDER"
     OCO_CONDITIONAL_ORDER = "OCO_CONDITIONAL_ORDER"
     OTO_CONDITIONAL_ORDER = "OTO_CONDITIONAL_ORDER"
     CONDITIONAL_ORDER_CANCEL = "CONDITIONAL_ORDER_CANCEL"
     CONDITIONAL_ORDER_MODIFY = "CONDITIONAL_ORDER_MODIFY"
+    EXECUTION_STATUS_QUERY = "EXECUTION_STATUS_QUERY"
+    EXECUTION_RECOVER = "EXECUTION_RECOVER"
     UNKNOWN = "UNKNOWN"
 
 
@@ -54,6 +62,13 @@ class ConditionalOrderType(StrEnum):
     SINGLE = "SINGLE"
     OCO = "OCO"
     OTO = "OTO"
+
+
+class ExecutionKind(StrEnum):
+    """Backend execution families that support status lookup and safe recovery."""
+
+    ORDER = "ORDER"
+    AMOUNT_ORDER = "AMOUNT_ORDER"
 
 
 class ParsedCondition(BaseModel):
@@ -84,12 +99,14 @@ class ParsedIntent(BaseModel):
     side: OrderSide | None = None
     order_id: str | None = None
     conditional_order_id: str | None = None
+    execution_id: str | None = None
+    execution_kind: ExecutionKind | None = None
     conditional_order_type: ConditionalOrderType | None = None
     first_condition: ParsedCondition | None = None
     second_condition: ParsedCondition | None = None
     expire_date: date | None = None
 
-    @field_validator("stock_name", "symbol", "order_id", "conditional_order_id")
+    @field_validator("stock_name", "symbol", "order_id", "conditional_order_id", "execution_id")
     @classmethod
     def blank_text_is_none(cls, value: str | None) -> str | None:
         if value is None:
@@ -184,6 +201,30 @@ class HoldingItem(SpringModel):
 class HoldingsResponse(SpringModel):
     account_seq: int
     items: list[HoldingItem]
+
+
+class BuyingPowerResponse(SpringModel):
+    account_seq: int
+    currency: Currency
+    cash_buying_power: Decimal
+
+
+class CommissionItem(SpringModel):
+    market_country: str
+    commission_rate: Decimal
+    start_date: date | None
+    end_date: date | None
+
+
+class CommissionsResponse(SpringModel):
+    account_seq: int
+    commissions: list[CommissionItem]
+
+
+class SellableQuantityResponse(SpringModel):
+    account_seq: int
+    symbol: str
+    sellable_quantity: Decimal
 
 
 class OrderPreviewRequest(SpringModel):

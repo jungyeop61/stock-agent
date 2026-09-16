@@ -140,7 +140,10 @@ class TossReadStubHandler(BaseHTTPRequestHandler):
                                     "rate": "0.1077",
                                     "rateAfterCost": "0.0846",
                                 },
-                                "dailyProfitLoss": {"amount": "10000", "rate": "0.0141"},
+                                "dailyProfitLoss": {
+                                    "amount": "10000",
+                                    "rate": "0.0141",
+                                },
                                 "cost": {"commission": "1440", "tax": "13560"},
                             }
                         ],
@@ -217,11 +220,14 @@ class TossReadStubHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/v1/orders":
             if not self._has_account_header():
                 return
+            order = self._open_order()
+            if query.get("status") == ["CLOSED"]:
+                order = order | {"status": "FILLED"}
             self._write_json(
                 HTTPStatus.OK,
                 {
                     "result": {
-                        "orders": [self._open_order()],
+                        "orders": [order],
                         "nextCursor": None,
                         "hasNext": False,
                     }

@@ -8,6 +8,9 @@ from jusika_agent.models import (
     AmountOrderExecutionResponse,
     AmountOrderPreviewRequest,
     AmountOrderPreviewResponse,
+    BuyingPowerResponse,
+    CommissionItem,
+    CommissionsResponse,
     ConditionalOrderCancellationExecutionResponse,
     ConditionalOrderCancellationPreviewRequest,
     ConditionalOrderCancellationPreviewResponse,
@@ -42,6 +45,7 @@ from jusika_agent.models import (
     OrderSide,
     OrderType,
     OtoConditionalOrderPreviewResponse,
+    SellableQuantityResponse,
     SingleConditionalOrderExecutionResponse,
     SingleConditionalOrderPreviewRequest,
     SingleConditionalOrderPreviewResponse,
@@ -86,6 +90,11 @@ class FakeSpringGateway:
         self.executed_oto_preview_ids: list[str] = []
         self.approved_conditional_modification_preview_ids: list[str] = []
         self.executed_conditional_modification_preview_ids: list[str] = []
+        self.buying_power_requests: list[tuple[int, str]] = []
+        self.commission_requests: list[int] = []
+        self.sellable_quantity_requests: list[tuple[int, str]] = []
+        self.execution_status_requests: list[tuple[str, str]] = []
+        self.execution_recovery_requests: list[tuple[str, str]] = []
 
     async def list_accounts(self) -> list[AccountResponse]:
         self.account_list_calls += 1
@@ -137,6 +146,45 @@ class FakeSpringGateway:
                     last_price=Decimal("72300"),
                 )
             ],
+        )
+
+    async def get_buying_power(self, account_seq: int, currency: str) -> BuyingPowerResponse:
+        self.buying_power_requests.append((account_seq, currency))
+        amount = Decimal("1000") if currency == "USD" else Decimal("1500000")
+        return BuyingPowerResponse(
+            account_seq=account_seq,
+            currency=Currency(currency),
+            cash_buying_power=amount,
+        )
+
+    async def get_commissions(self, account_seq: int) -> CommissionsResponse:
+        self.commission_requests.append(account_seq)
+        return CommissionsResponse(
+            account_seq=account_seq,
+            commissions=[
+                CommissionItem(
+                    market_country="KR",
+                    commission_rate=Decimal("0.0015"),
+                    start_date=date(2026, 1, 1),
+                    end_date=None,
+                ),
+                CommissionItem(
+                    market_country="US",
+                    commission_rate=Decimal("0.0025"),
+                    start_date=None,
+                    end_date=None,
+                ),
+            ],
+        )
+
+    async def get_sellable_quantity(
+        self, account_seq: int, symbol: str
+    ) -> SellableQuantityResponse:
+        self.sellable_quantity_requests.append((account_seq, symbol))
+        return SellableQuantityResponse(
+            account_seq=account_seq,
+            symbol=symbol,
+            sellable_quantity=Decimal("4"),
         )
 
     async def create_order_preview(self, request: OrderPreviewRequest) -> OrderPreviewResponse:
@@ -263,6 +311,21 @@ class FakeSpringGateway:
             has_next=False,
         )
 
+    async def list_order_history(self, account_seq: int) -> OrderListResponse:
+        order = (await self.get_order(account_seq, "order-closed-1")).model_copy(
+            update={"status": "FILLED"}
+        )
+        return OrderListResponse(
+            account_seq=account_seq,
+            list_status="CLOSED",
+            **{"from": None},
+            to=None,
+            symbol=None,
+            orders=[order],
+            next_cursor=None,
+            has_next=False,
+        )
+
     async def get_order(self, account_seq: int, order_id: str) -> OrderDetailResponse:
         now = datetime(2026, 9, 14, 7, 0, tzinfo=UTC)
         return OrderDetailResponse(
@@ -289,6 +352,60 @@ class FakeSpringGateway:
                 filled_at=None,
                 settlement_date=None,
             ),
+        )
+
+    async def get_order_execution(self, execution_id: str) -> OrderExecutionResponse:
+        self.execution_status_requests.append(("ORDER", execution_id))
+        return await self._order_execution(execution_id)
+
+    async def recover_order_execution(self, execution_id: str) -> OrderExecutionResponse:
+        self.execution_recovery_requests.append(("ORDER", execution_id))
+        return await self._order_execution(execution_id)
+
+    async def get_amount_order_execution(self, execution_id: str) -> AmountOrderExecutionResponse:
+        self.execution_status_requests.append(("AMOUNT_ORDER", execution_id))
+        return await self._amount_execution(execution_id)
+
+    async def recover_amount_order_execution(
+        self, execution_id: str
+    ) -> AmountOrderExecutionResponse:
+        self.execution_recovery_requests.append(("AMOUNT_ORDER", execution_id))
+        return await self._amount_execution(execution_id)
+
+    @staticmethod
+    async def _order_execution(execution_id: str) -> OrderExecutionResponse:
+        now = datetime(2026, 9, 14, 7, 0, tzinfo=UTC)
+        return OrderExecutionResponse(
+            execution_id=execution_id,
+            preview_id="preview-1",
+            client_order_id="client-order-1",
+            broker_mode="MOCK",
+            status="ACCEPTED",
+            broker_order_id="mock-order-1",
+            failure_type=None,
+            created_at=now,
+            updated_at=now,
+            submitted_at=now,
+            recovery_attempted_at=now,
+            completed_at=now,
+        )
+
+    @staticmethod
+    async def _amount_execution(execution_id: str) -> AmountOrderExecutionResponse:
+        now = datetime(2026, 9, 14, 7, 0, tzinfo=UTC)
+        return AmountOrderExecutionResponse(
+            execution_id=execution_id,
+            preview_id="amount-preview-1",
+            client_order_id="amount-client-order-1",
+            broker_mode="MOCK",
+            status="ACCEPTED",
+            broker_order_id="mock-amount-order-1",
+            failure_type=None,
+            created_at=now,
+            updated_at=now,
+            submitted_at=now,
+            recovery_attempted_at=now,
+            completed_at=now,
         )
 
     async def create_order_cancellation_preview(
@@ -439,6 +556,14 @@ class FakeSpringGateway:
             ],
             next_cursor=None,
             has_next=False,
+        )
+
+    async def get_conditional_order(
+        self, account_seq: int, conditional_order_id: str
+    ) -> ConditionalOrderDetailResponse:
+        response = await self.list_open_conditional_orders(account_seq)
+        return response.conditional_orders[0].model_copy(
+            update={"conditional_order_id": conditional_order_id}
         )
 
     async def create_single_conditional_order_preview(
