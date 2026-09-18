@@ -26,7 +26,8 @@ def voice_client(fake: FakeSpringGateway) -> TestClient:
             interpreter=RuleBasedCommandInterpreter(),
             spring=fake,
             checkpointer=InMemorySaver(),
-        )
+        ),
+        client=("127.0.0.1", 50000),
     )
 
 

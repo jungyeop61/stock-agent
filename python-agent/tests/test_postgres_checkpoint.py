@@ -49,7 +49,7 @@ def _send_message(
         interpreter=RuleBasedCommandInterpreter(),
         spring=spring,
     )
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         response = client.post(
             f"/api/agent/sessions/{session_id}/messages",
             json={"text": text},
@@ -151,7 +151,10 @@ def test_postgres_lock_serializes_duplicate_approvals_across_app_instances() -> 
         spring=spring,
     )
 
-    with TestClient(first_app) as first_client, TestClient(second_app) as second_client:
+    with (
+        TestClient(first_app, client=("127.0.0.1", 50000)) as first_client,
+        TestClient(second_app, client=("127.0.0.1", 50000)) as second_client,
+    ):
         preview = _post(first_client, session_id, "삼성전자 5주 사줘")
         with ThreadPoolExecutor(max_workers=2) as executor:
             first_future = executor.submit(_post, first_client, session_id, "승인")

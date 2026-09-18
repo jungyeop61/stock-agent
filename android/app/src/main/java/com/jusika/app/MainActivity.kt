@@ -21,6 +21,7 @@ class MainActivity : Activity() {
     private val main = Handler(Looper.getMainLooper())
     private val downloads = Executors.newSingleThreadExecutor()
     private lateinit var endpoint: EditText
+    private lateinit var mobileToken: EditText
     private lateinit var status: TextView
     private lateinit var modelButton: Button
     private lateinit var startButton: Button
@@ -28,6 +29,7 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        window.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
         val container = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(32, 32, 32, 32)
@@ -48,7 +50,28 @@ class MainActivity : Activity() {
                 .getString(VoiceStandbyService.ENDPOINT, "http://127.0.0.1:8000"))
         }
         container.addView(endpoint)
-        text("개발 테스트는 USB 연결 후 adb reverse tcp:8000 tcp:8000을 사용하세요. 인터넷에 인증 없는 서버를 공개하지 마세요.")
+        text("개인 접속 토큰 (OpenAI·증권사 키가 아닙니다)")
+        mobileToken = EditText(this).apply {
+            setSingleLine(true)
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+            contentDescription = "관리자가 발급한 개인 접속 토큰"
+            importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS
+            isSaveEnabled = false
+            imeOptions = android.view.inputmethod.EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING
+        }.also { container.addView(it) }
+        text("이미 저장한 토큰은 빈칸으로 두면 유지됩니다. 서버 주소를 바꾸면 새 토큰을 입력하세요. 로컬 USB 개발만 토큰 없이 가능합니다.")
+        Button(this).apply {
+            text = "저장한 접속 토큰 삭제 및 대기 끄기"
+            setOnClickListener {
+                val stopIntent = Intent(this@MainActivity, VoiceStandbyService::class.java)
+                stopService(stopIntent)
+                val removed = runCatching { MobileCredentialStore(this@MainActivity).save("", "") }
+                mobileToken.text.clear()
+                status.text = if (removed.isSuccess) "이 기기의 접속 토큰을 삭제했습니다. 서버 토큰 폐기는 관리자가 별도로 해야 합니다."
+                    else "접속 토큰 삭제에 실패했습니다. 다시 시도해주세요."
+            }
+        }.also { container.addView(it) }
+        text("개발 테스트는 USB 연결 후 adb reverse tcp:8000 tcp:8000을 사용하세요. 외부 서버는 인증과 HTTPS가 필요합니다.")
         status = text("설정 준비 중").apply {
             accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
         }
@@ -103,6 +126,20 @@ class MainActivity : Activity() {
             status.text = getString(R.string.invalid_endpoint)
             return
         }
+        try {
+            val credentials = MobileCredentialStore(this)
+            val typed = mobileToken.text.toString().trim()
+            val token = if (typed.isNotEmpty()) typed else credentials.load(url)
+            require(token.isNotEmpty() || java.net.URI(url).host in setOf("127.0.0.1", "localhost", "10.0.2.2"))
+            credentials.save(token, url)
+            mobileToken.text.clear()
+        } catch (_: Exception) {
+            status.text = getString(R.string.invalid_mobile_token)
+            return
+        }
+        // Restart explicitly so an old connection cannot retain the previous credential/server.
+        val stopIntent = Intent(this, VoiceStandbyService::class.java)
+        stopService(stopIntent)
         getSharedPreferences(VoiceStandbyService.PREFS, MODE_PRIVATE).edit()
             .putString(VoiceStandbyService.ENDPOINT, url).apply()
         val permissions = mutableListOf<String>()

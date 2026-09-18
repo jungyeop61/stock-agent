@@ -69,14 +69,14 @@ JUSIKA_AGENT_LOG_LEVEL=INFO
 
 ## 텍스트 기반 MOCK 흐름
 
-Android 0.2.0은 아래 텍스트 API 대신 `POST /api/agent/sessions/{session_id}/voice-messages`를
+Android 0.3.0은 아래 텍스트 API 대신 `POST /api/agent/sessions/{session_id}/voice-messages`를
 사용합니다. 명령/누락 정보 답변은 `{"text":"..."}`, 미리보기 승인/중단은
 `{"text":"승인", "confirmation_preview_id":"안내한 preview_id"}` 또는 `취소`를 보냅니다.
 음성 API는 각 요청 전 Spring 안전 상태에서 MOCK·LIVE 비활성화·kill switch 활성화를
 확인하며, 승인/중단 시 미리보기 ID와 승인 대기 상태가 일치해야 합니다. `네/응` 등의
 텍스트 승인 별칭은 음성 API에서 승인으로 사용하지 않습니다. 잘못되거나 이미 처리된 ID는
 실행하지 않고 오류로 반환합니다. 기존 텍스트 API 계약은 유지합니다.
-이 API는 모바일 인증을 추가한 것이 아니며 로컬 MOCK 개발 검증용입니다.
+두 API에 동일한 모바일 인증·세션 격리·사용자별 요청 제한이 적용됩니다. 주문은 여전히 MOCK 전용입니다.
 실제 프로세스 전체 기능 검증은 루트에서 다음과 같이 실행합니다.
 
 ```bash
@@ -84,6 +84,50 @@ python-agent/.venv/bin/python devtools/run_agent_process_e2e.py --voice
 ```
 
 세션 ID는 Android가 한 음성 대화 동안 유지하는 UUID입니다.
+
+### 가족용 모바일 인증 설정 (0.3.0)
+
+관리자가 무작위 개인 토큰을 발급하고 앱에 직접 입력하는 방식입니다. OpenAI 키나 증권사
+비밀키를 앱에 넣지 않습니다. 토큰은 소지자가 사용자 권한을 갖는 비밀값이므로 채팅·로그·Git에
+공유하지 마세요. 아래 명령은 로컬 터미널에 새 토큰 하나를 표시합니다.
+
+```bash
+python-agent/.venv/bin/python -c 'import secrets; print(secrets.token_urlsafe(32))'
+```
+
+루트 `.env`에 생성한 값을 직접 넣고 서버를 재시작합니다 (예시 문자열은 실제 토큰이 아닙니다).
+
+```dotenv
+JUSIKA_AGENT_ENVIRONMENT=production
+JUSIKA_AGENT_MOBILE_AUTH_REQUIRED=true
+JUSIKA_AGENT_MOBILE_CREDENTIALS='{"father":"생성한_토큰으로_교체"}'
+JUSIKA_AGENT_MOBILE_REQUESTS_PER_MINUTE=30
+```
+
+앱에서 HTTPS 서버 주소와 같은 토큰을 입력합니다. HTTP 개발은 loopback USB reverse만 가능합니다.
+서버는 `Authorization: Bearer <개인 토큰>`을 검사하고, 잘못된/누락 토큰은 401,
+외부 평문 연결·브라우저 Origin은 403, 분당 한도 초과는 429 (`Retry-After: 60`),
+8 KiB 초과 요청 본문은 413으로 차단합니다. 자동 재시도는 하지 않습니다.
+인증 OFF는 환경 `local` + 실제 peer loopback만 허용합니다. **인증 OFF 서버를 reverse proxy로
+공개하지 마세요.** 운영에서는 인증을 반드시 켜고 Spring은 비공개 네트워크에 둡니다.
+
+내부 체크포인트/잠금 ID는 사용자 ID + 클라이언트 UUID에서 결정적으로 분리합니다.
+동일한 UUID나 다른 사람의 preview ID를 보내도 다른 사용자의 승인 대기를 이어받지 않습니다.
+응답에는 원래 UUID만 반환합니다. 인증을 켜기 전 익명 세션은 인증 세션에서 재개하지 않습니다.
+재시작 복구에는 기존 PostgreSQL 체크포인터가 필요하며, 토큰 교체 시 사용자 ID를 유지하면
+해당 사용자의 체크포인트 이름도 유지됩니다. 사용자 ID를 다른 사람에게 재사용하지 마세요.
+분실/폐기는 `.env`에서 해당 토큰을 제거하거나 교체한 뒤 재시작합니다. 이미 처리 중인 요청을
+소급 취소하는 기능은 아니므로 즉시 거래 차단에는 기존 kill switch를 사용합니다.
+
+범위와 운영 제한:
+
+- 가족용 수동 토큰 인증이며 가입·자동 토큰 만료·계정 복구·사용자별 증권계좌 권한은 없습니다.
+  서로 다른 사용자도 같은 서버의 금융 백엔드를 이용하므로 신뢰하는 가족에게만 발급하세요.
+- 요청 제한은 프로세스 메모리 기반입니다. 단일 worker/단일 instance로만 사용하며 재시작 시
+  초기화됩니다. 여러 instance에는 Redis 등 공유 제한기가 필요합니다.
+- HTTPS reverse proxy, 신뢰할 proxy IP만 허용한 forwarded 설정, 익명 IP 제한·접속/본문 시간 제한은
+  배포 단계에서 구성해야 합니다. `--forwarded-allow-ips='*'`를 사용하지 마세요.
+- 서버 배포나 실계좌 연결은 이 변경에서 수행하지 않았습니다. 실제 주문 차단도 유지합니다.
 
 ```bash
 SESSION_ID="11111111-1111-4111-8111-111111111111"

@@ -6,8 +6,16 @@ import java.net.URL
 import java.time.Instant
 import java.util.UUID
 
-/** No keys, broker access, redirects, or application-level POST retries in the mobile client. */
-class AgentClient(private val baseUrl: String) {
+class AgentAccessException(val statusCode: Int) : Exception("Agent request rejected")
+
+/** No broker/provider keys, redirects, or application-level POST retries in the mobile client. */
+class AgentClient(private val baseUrl: String, private val mobileToken: String = "") {
+    init {
+        require(mobileToken.isEmpty() || Regex("[a-zA-Z0-9_-]{32,256}").matches(mobileToken))
+        AgentEndpoint.validate(baseUrl, BuildConfig.DEBUG)
+        require(mobileToken.isNotEmpty() || java.net.URI(baseUrl).host in
+            setOf("127.0.0.1", "localhost", "10.0.2.2"))
+    }
     @Volatile private var cancelled = false
     @Volatile private var active: HttpURLConnection? = null
     fun close() {
@@ -30,13 +38,16 @@ class AgentClient(private val baseUrl: String) {
             connection.doOutput = true
             connection.setRequestProperty("Content-Type", "application/json; charset=utf-8")
             connection.setRequestProperty("X-Jusika-Request-Id", request.turnId.toString())
+            if (mobileToken.isNotEmpty()) connection.setRequestProperty("Authorization", "Bearer $mobileToken")
             val body = JSONObject().put("text", request.text)
             request.confirmationPreviewId?.let { body.put("confirmation_preview_id", it) }
             // Fixed-length streaming avoids transparent replay of a streamed POST body.
             val bytes = body.toString().toByteArray(Charsets.UTF_8)
             connection.setFixedLengthStreamingMode(bytes.size)
             connection.outputStream.use { it.write(bytes) }
-            check(connection.responseCode == 200) { "Agent unavailable" }
+            val code = connection.responseCode
+            if (code in setOf(401, 403, 429)) throw AgentAccessException(code)
+            check(code == 200) { "Agent unavailable" }
             val response = connection.inputStream.use { input ->
                 val output = java.io.ByteArrayOutputStream()
                 val buffer = ByteArray(4_096)

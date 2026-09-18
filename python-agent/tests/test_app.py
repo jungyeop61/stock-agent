@@ -23,7 +23,7 @@ def test_health_and_mock_order_http_flow() -> None:
     )
     session_id = "11111111-1111-4111-8111-111111111111"
 
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         health = client.get("/health")
         readiness = client.get("/ready")
         preview = client.post(
@@ -61,7 +61,7 @@ def test_http_flow_collects_missing_order_fields() -> None:
     )
     session_id = "22222222-2222-4222-8222-222222222222"
 
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         stock_prompt = client.post(
             f"/api/agent/sessions/{session_id}/messages",
             json={"text": "사줘"},
@@ -91,7 +91,7 @@ def test_readiness_returns_503_without_leaking_dependency_error() -> None:
         checkpointer=InMemorySaver(),
     )
 
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         response = client.get("/ready")
 
     assert response.status_code == 503
@@ -111,7 +111,7 @@ def test_request_id_is_validated_and_returned() -> None:
     )
     valid_id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
 
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         preserved = client.get("/health", headers={"X-Jusika-Request-Id": valid_id})
         replaced = client.get("/health", headers={"X-Jusika-Request-Id": "not-a-valid-request-id"})
 
@@ -129,7 +129,7 @@ def test_readiness_returns_503_when_checkpoint_is_unavailable() -> None:
         checkpointer=FailingCheckpointer(),
     )
 
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         response = client.get("/ready")
 
     assert response.status_code == 503

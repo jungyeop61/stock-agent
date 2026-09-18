@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import secrets
 import signal
 import socket
 import subprocess
@@ -26,6 +27,7 @@ AGENT_DIR = ROOT / "python-agent"
 STUB_PATH = ROOT / "devtools" / "toss_read_stub.py"
 READ_KEY = "local-e2e-read-key"
 ORDER_KEY = "local-e2e-order-key"
+MOBILE_TOKEN = secrets.token_urlsafe(32)
 
 
 class ProcessE2EError(RuntimeError):
@@ -78,7 +80,10 @@ def post_message(
     request = Request(
         f"{agent_url}/api/agent/sessions/{session_id}/{channel}",
         data=body,
-        headers={"Content-Type": "application/json"},
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {MOBILE_TOKEN}",
+        },
         method="POST",
     )
     try:
@@ -100,13 +105,17 @@ def require_status(payload: dict[str, Any], expected: str, label: str) -> None:
         raise ProcessE2EError(f"{label}: expected {expected}, got {actual}: {message}")
 
 
-def run_read_case(agent_url: str, label: str, text: str, *, voice: bool = False) -> None:
+def run_read_case(
+    agent_url: str, label: str, text: str, *, voice: bool = False
+) -> None:
     payload = post_message(agent_url, str(uuid4()), text, voice=voice)
     require_status(payload, "COMPLETED", label)
     print(f"PASS read: {label}")
 
 
-def run_rejection_case(agent_url: str, label: str, text: str, *, voice: bool = False) -> None:
+def run_rejection_case(
+    agent_url: str, label: str, text: str, *, voice: bool = False
+) -> None:
     payload = post_message(agent_url, str(uuid4()), text, voice=voice)
     require_status(payload, "NEEDS_INPUT", label)
     if payload.get("requires_confirmation") is True:
@@ -217,6 +226,9 @@ def process_environment(
     }
     agent_environment = base | {
         "JUSIKA_AGENT_ENVIRONMENT": "process-e2e",
+        "JUSIKA_AGENT_MOBILE_AUTH_REQUIRED": "true",
+        "JUSIKA_AGENT_MOBILE_CREDENTIALS": json.dumps({"e2e": MOBILE_TOKEN}),
+        "JUSIKA_AGENT_MOBILE_REQUESTS_PER_MINUTE": "300",
         "JUSIKA_AGENT_SPRING_BACKEND_URL": f"http://127.0.0.1:{spring_port}",
         "JUSIKA_INTERNAL_READ_API_KEY": READ_KEY,
         "JUSIKA_INTERNAL_ORDER_API_KEY": ORDER_KEY,
@@ -262,7 +274,9 @@ def stop_process(process: subprocess.Popen[str]) -> None:
 def sanitized_log_tail(path: Path, line_count: int = 60) -> str:
     if not path.exists():
         return ""
-    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()[-line_count:]
+    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()[
+        -line_count:
+    ]
     text = "\n".join(lines)
     for secret in (READ_KEY, ORDER_KEY, "local-secret"):
         text = text.replace(secret, "[REDACTED]")
@@ -357,7 +371,10 @@ def run_suite(agent_url: str, *, voice: bool = False) -> None:
     for label, command in read_cases:
         run_read_case(agent_url, label, command, voice=voice)
     run_rejection_case(
-        agent_url, "unsupported real currency exchange", "10만 원을 달러로 환전해줘", voice=voice
+        agent_url,
+        "unsupported real currency exchange",
+        "10만 원을 달러로 환전해줘",
+        voice=voice,
     )
     run_multiturn_case(agent_url, voice=voice)
     quantity_execution: dict[str, Any] | None = None
@@ -365,7 +382,9 @@ def run_suite(agent_url: str, *, voice: bool = False) -> None:
         execution = run_mutation_case(agent_url, label, command, voice=voice)
         if label == "quantity buy":
             quantity_execution = execution
-    if quantity_execution is None or not isinstance(quantity_execution.get("executionId"), str):
+    if quantity_execution is None or not isinstance(
+        quantity_execution.get("executionId"), str
+    ):
         raise ProcessE2EError("quantity execution ID is missing")
     execution_id = str(quantity_execution["executionId"])
     run_read_case(
@@ -380,7 +399,9 @@ def run_suite(agent_url: str, *, voice: bool = False) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--startup-timeout", type=float, default=120)
-    parser.add_argument("--voice", action="store_true", help="test the MOCK-only mobile voice API")
+    parser.add_argument(
+        "--voice", action="store_true", help="test the MOCK-only mobile voice API"
+    )
     args = parser.parse_args()
 
     stub_port, spring_port, agent_port = (available_port() for _ in range(3))
@@ -392,7 +413,9 @@ def main() -> int:
     processes: list[subprocess.Popen[str]] = []
     log_files: list[TextIO] = []
 
-    with tempfile.TemporaryDirectory(prefix="jusika-process-e2e-") as temporary_directory:
+    with tempfile.TemporaryDirectory(
+        prefix="jusika-process-e2e-"
+    ) as temporary_directory:
         log_directory = Path(temporary_directory)
         log_paths = {
             "stub": log_directory / "stub.log",
@@ -448,8 +471,23 @@ def main() -> int:
                 timeout_seconds=30,
             )
 
+            request = Request(
+                f"{agent_url}/api/agent/sessions/{uuid4()}/voice-messages",
+                data=b'{"text":"test"}',
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            try:
+                with urlopen(request, timeout=5):
+                    raise ProcessE2EError("unauthenticated request was accepted")
+            except HTTPError as exc:
+                if exc.code != 401:
+                    raise ProcessE2EError("unexpected authentication status") from None
+            print("PASS: unauthenticated mobile request blocked")
             run_suite(agent_url, voice=args.voice)
             agent_log.flush()
+            if MOBILE_TOKEN in log_paths["agent"].read_text(encoding="utf-8"):
+                raise ProcessE2EError("mobile credential leaked in agent logs")
             assert_agent_log_safety(log_paths["agent"])
             print("PASS: complete real-process Agent -> Spring -> Toss read stub E2E")
             return 0

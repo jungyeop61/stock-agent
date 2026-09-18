@@ -25,6 +25,7 @@ from jusika_agent.interpreters import (
     OpenAICommandInterpreter,
     RuleBasedCommandInterpreter,
 )
+from jusika_agent.mobile_security import MobileSecurityMiddleware, owned_session
 from jusika_agent.models import AgentMessageRequest, AgentTurnResponse, AgentVoiceMessageRequest
 from jusika_agent.observability import (
     bind_request_id,
@@ -114,6 +115,7 @@ def create_app(
         lifespan=lifespan,
     )
     application.state.readiness_service = None
+    application.add_middleware(MobileSecurityMiddleware, settings=resolved_settings)
 
     @application.middleware("http")
     async def request_observability(
@@ -135,6 +137,8 @@ def create_app(
             raise
         else:
             response.headers["X-Jusika-Request-Id"] = current_request_id()
+            if request.url.path.startswith("/api/agent"):
+                response.headers["Cache-Control"] = "no-store"
             log_event(
                 logger,
                 "http.request.completed",
@@ -182,7 +186,10 @@ def create_app(
         request: Request,
     ) -> AgentTurnResponse:
         service: AgentService = request.app.state.agent_service
-        return await service.process_message(session_id=str(session_id), text=body.text)
+        result = await service.process_message(
+            session_id=owned_session(request.state.mobile_principal, session_id), text=body.text
+        )
+        return result.model_copy(update={"session_id": str(session_id)})
 
     @application.post(
         "/api/agent/sessions/{session_id}/voice-messages",
@@ -194,12 +201,13 @@ def create_app(
         request: Request,
     ) -> AgentTurnResponse:
         service: AgentService = request.app.state.agent_service
-        return await service.process_message(
-            session_id=str(session_id),
+        result = await service.process_message(
+            session_id=owned_session(request.state.mobile_principal, session_id),
             text=body.text,
             voice=True,
             confirmation_preview_id=body.confirmation_preview_id,
         )
+        return result.model_copy(update={"session_id": str(session_id)})
 
     return application
 

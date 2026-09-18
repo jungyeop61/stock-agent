@@ -77,7 +77,8 @@ class VoiceStandbyService : Service() {
         }
         val endpoint = getSharedPreferences(PREFS, MODE_PRIVATE).getString(ENDPOINT, "") ?: ""
         try {
-            client = AgentClient(AgentEndpoint.validate(endpoint, BuildConfig.DEBUG))
+            val url = AgentEndpoint.validate(endpoint, BuildConfig.DEBUG)
+            client = AgentClient(url, MobileCredentialStore(this).load(url))
         } catch (_: Exception) {
             stopSelf()
             return START_NOT_STICKY
@@ -219,7 +220,13 @@ class VoiceStandbyService : Service() {
                 if (!received) {
                     conversation.failed(request)
                     // Never retry an approval or continue its old session when the result is unknown.
-                    val warning = "통신 또는 응답 오류로 처리 결과를 확인하지 못했습니다. 같은 주문이나 승인을 반복하지 말고 주문 내역과 실행 상태를 확인해주세요. 자동으로 다시 보내지 않습니다."
+                    val rejected = result.exceptionOrNull() as? AgentAccessException
+                    val warning = when (rejected?.statusCode) {
+                        401 -> "접속 인증이 거절되어 요청을 처리하지 않았습니다. 보호자에게 개인 접속 토큰 설정을 확인해달라고 해주세요. 자동으로 다시 보내지 않습니다."
+                        403 -> "접속 정책에 의해 요청이 차단되었습니다. 보호자에게 서버 주소와 보안 설정을 확인해달라고 해주세요. 자동으로 다시 보내지 않습니다."
+                        429 -> "요청이 너무 많아 처리하지 않았습니다. 1분 뒤 다시 말씀해주세요. 자동으로 다시 보내지 않습니다."
+                        else -> "통신 또는 응답 오류로 처리 결과를 확인하지 못했습니다. 같은 주문이나 승인을 반복하지 말고 주문 내역과 실행 상태를 확인해주세요. 자동으로 다시 보내지 않습니다."
+                    }
                     speak(warning) { if (afterEnd != null) afterEnd() else standby() }
                     return@post
                 }

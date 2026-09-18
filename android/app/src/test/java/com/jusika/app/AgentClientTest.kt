@@ -63,6 +63,31 @@ class AgentClientTest {
             }
         }
     }
+    @Test fun mobileTokenIsSentOnlyAsAuthorizationHeader() {
+        val token = "a".repeat(43)
+        MockVoiceServer(200, payload().toString()).use { server ->
+            AgentClient(server.url, token).send(VoiceRequest(session, "삼성전자 현재가 알려줘"))
+            assertEquals("Bearer $token", server.headers["authorization"])
+            assertFalse(server.body.contains(token))
+            assertFalse(server.requestLine.contains(token))
+        }
+    }
+    @Test fun remoteEndpointRequiresTokenAndInvalidTokensFailBeforeNetworking() {
+        assertThrows(Exception::class.java) { AgentClient("https://agent.example") }
+        assertThrows(Exception::class.java) { AgentClient("https://agent.example", "bad\r\nheader") }
+        assertThrows(Exception::class.java) { AgentClient("http://agent.example", "a".repeat(43)) }
+    }
+    @Test fun deniedAuthenticationAndRateLimitsNeverRetry() {
+        for (code in listOf(401, 403, 429)) {
+            MockVoiceServer(code, "").use { server ->
+                val failure = assertThrows(AgentAccessException::class.java) {
+                    AgentClient(server.url, "a".repeat(43)).send(VoiceRequest(session, "승인", "preview-1"))
+                }
+                assertEquals(code, failure.statusCode)
+                assertEquals(1, server.calls.get())
+            }
+        }
+    }
     @Test fun closedClientDoesNotSendAnyTurn() {
         client.close()
         assertThrows(IllegalStateException::class.java) { client.send(VoiceRequest(session, "승인", "preview-1")) }

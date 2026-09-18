@@ -73,7 +73,7 @@ def test_http_logs_use_route_template_and_never_include_user_utterance() -> None
     session_id = "11111111-1111-4111-8111-111111111111"
 
     try:
-        with TestClient(app) as client:
+        with TestClient(app, client=("127.0.0.1", 50000)) as client:
             response = client.post(
                 f"/api/agent/sessions/{session_id}/messages",
                 json={"text": "삼성전자 5주 사줘"},
