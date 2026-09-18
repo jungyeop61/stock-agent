@@ -23,6 +23,7 @@ application-local.yaml
 *.class
 *.jar
 !**/.mvn/wrapper/maven-wrapper.jar
+!**/gradle/wrapper/gradle-wrapper.jar
 *.mv.db
 *.trace.db
 
@@ -58,6 +59,8 @@ nbproject/private/
 nbbuild/
 nbdist/
 .nb-gradle/
+.gradle/
+.android-tooling/
 
 # Logs and temporary files
 *.log

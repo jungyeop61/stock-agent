@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="download_model">한국어 인식 모델 다운로드 · 약 82 MB</string>
+    <string name="invalid_endpoint">서버 주소는 HTTPS를 사용하세요. 개발 버전은 로컬 HTTP 주소도 허용합니다.</string>
+</resources>

@@ -61,7 +61,7 @@ Python Agent의 `/health`는 프로세스 생존만, `/ready`는 Spring과 활�
 
 - `spring-backend/`: 금융 검증, 위험 정책, 감사 로그, 주문 미리보기와 증권사 연동을 담당할 스프링 프로젝트입니다.
 - `python-agent/`: 음성 명령 해석, 구조화된 의도 추출, LangGraph 대화 흐름을 담당할 파이썬 프로젝트입니다.
-- `android/`: 음성 우선 Android 앱을 둘 예정입니다.
+- `android/`: 기기 내 무료 `주식아` 호출 대기와 현재가 음성 조회를 연결한 Kotlin 네이티브 개발 앱입니다. 최초 설정 후 microphone foreground service로 대기하며, 실제 S22 검증과 모바일 인증·주문 음성 연결은 별도 단계입니다. 설정과 테스트는 `android/README.md`를 참고하세요.
 - `infra/`: 로컬 및 클라우드 배포 설정을 둘 예정입니다.
 - `docs/`: 아키텍처와 API 문서를 둘 예정입니다.
 
