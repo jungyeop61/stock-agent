@@ -69,6 +69,20 @@ JUSIKA_AGENT_LOG_LEVEL=INFO
 
 ## 텍스트 기반 MOCK 흐름
 
+Android 0.2.0은 아래 텍스트 API 대신 `POST /api/agent/sessions/{session_id}/voice-messages`를
+사용합니다. 명령/누락 정보 답변은 `{"text":"..."}`, 미리보기 승인/중단은
+`{"text":"승인", "confirmation_preview_id":"안내한 preview_id"}` 또는 `취소`를 보냅니다.
+음성 API는 각 요청 전 Spring 안전 상태에서 MOCK·LIVE 비활성화·kill switch 활성화를
+확인하며, 승인/중단 시 미리보기 ID와 승인 대기 상태가 일치해야 합니다. `네/응` 등의
+텍스트 승인 별칭은 음성 API에서 승인으로 사용하지 않습니다. 잘못되거나 이미 처리된 ID는
+실행하지 않고 오류로 반환합니다. 기존 텍스트 API 계약은 유지합니다.
+이 API는 모바일 인증을 추가한 것이 아니며 로컬 MOCK 개발 검증용입니다.
+실제 프로세스 전체 기능 검증은 루트에서 다음과 같이 실행합니다.
+
+```bash
+python-agent/.venv/bin/python devtools/run_agent_process_e2e.py --voice
+```
+
 세션 ID는 Android가 한 음성 대화 동안 유지하는 UUID입니다.
 
 ```bash

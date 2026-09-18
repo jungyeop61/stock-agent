@@ -37,7 +37,7 @@ class MainActivity : Activity() {
         }.also { container.addView(it) }
         val heading = text("주식아", 32f)
         if (Build.VERSION.SDK_INT >= 28) heading.isAccessibilityHeading = true
-        text("무료 기기 내 호출 대기 · 현재가 조회 개발 버전")
+        text("무료 기기 내 호출 대기 · 전체 에이전트 MOCK 연동")
         text("최초 설정 후 대기를 켜두면 ‘주식아’로 대화가 시작됩니다. 화면을 잠가도 대기를 유지하도록 구성되어 있습니다. 배터리와 마이크를 사용하며 대기 알림이 표시됩니다.")
         text("서버 주소")
         endpoint = EditText(this).apply {
@@ -68,7 +68,7 @@ class MainActivity : Activity() {
                 status.text = "호출 대기를 껐습니다. 주식아라고 불러도 반응하지 않습니다."
             }
         }.also { container.addView(it) }
-        text("음성 사용법\n주식아 → 네, 말씀하세요 → 삼성전자 현재가 알려줘\n그만 → 호출 대기로 돌아가기\n대기 기능 꺼줘 → 마이크까지 끄기\n\n앱 강제 종료·휴대폰 재부팅 후에는 앱에서 대기를 다시 켜주세요. 이번 버전에서는 주문·승인은 처리하지 않습니다.")
+        text("음성 사용법\n주식아 → 조회나 주문 명령 → 안내와 후속 질문에 답하기\n주문 내용을 끝까지 들은 뒤 ‘승인’ 또는 ‘취소’\n‘네/응’으로는 주문을 실행하지 않습니다.\n그만 → 미승인 대화 중단 후 호출 대기로 돌아가기\n대기 기능 꺼줘 → 마이크까지 끄기\n\n실제 거래는 연결하지 않습니다. 환전은 조회·환산만 지원합니다. 주문번호·조건주문번호·실행번호는 정확하게 지정해야 합니다.\n앱 강제 종료·휴대폰 재부팅 후에는 앱에서 대기를 다시 켜주세요. 대화 종료가 이미 접수된 주문을 취소하지는 않습니다.")
         setContentView(ScrollView(this).apply { addView(container) })
         refreshModel()
     }

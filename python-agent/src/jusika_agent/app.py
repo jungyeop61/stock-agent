@@ -25,7 +25,7 @@ from jusika_agent.interpreters import (
     OpenAICommandInterpreter,
     RuleBasedCommandInterpreter,
 )
-from jusika_agent.models import AgentMessageRequest, AgentTurnResponse
+from jusika_agent.models import AgentMessageRequest, AgentTurnResponse, AgentVoiceMessageRequest
 from jusika_agent.observability import (
     bind_request_id,
     configure_logging,
@@ -92,6 +92,7 @@ def create_app(
             application.state.agent_service = AgentService(
                 graph,
                 session_guard=resolved_session_guard,
+                voice_safety_check=resolved_spring.check_mock_safety,
             )
             application.state.readiness_service = ReadinessService(
                 spring=resolved_spring,
@@ -182,6 +183,23 @@ def create_app(
     ) -> AgentTurnResponse:
         service: AgentService = request.app.state.agent_service
         return await service.process_message(session_id=str(session_id), text=body.text)
+
+    @application.post(
+        "/api/agent/sessions/{session_id}/voice-messages",
+        response_model=AgentTurnResponse,
+    )
+    async def process_voice_message(
+        session_id: UUID,
+        body: AgentVoiceMessageRequest,
+        request: Request,
+    ) -> AgentTurnResponse:
+        service: AgentService = request.app.state.agent_service
+        return await service.process_message(
+            session_id=str(session_id),
+            text=body.text,
+            voice=True,
+            confirmation_preview_id=body.confirmation_preview_id,
+        )
 
     return application
 

@@ -2,6 +2,7 @@
 
 import logging
 import re
+from collections.abc import Awaitable, Callable
 from time import perf_counter
 from typing import Any
 
@@ -31,15 +32,47 @@ class AgentService:
         self,
         graph: CompiledStateGraph[AgentState, None, AgentState, AgentState],
         session_guard: SessionConcurrencyGuard | None = None,
+        voice_safety_check: Callable[[], Awaitable[None]] | None = None,
     ) -> None:
         self._graph = graph
         self._session_guard = session_guard or InMemorySessionConcurrencyGuard()
+        self._voice_safety_check = voice_safety_check
 
-    async def process_message(self, *, session_id: str, text: str) -> AgentTurnResponse:
+    async def process_message(
+        self,
+        *,
+        session_id: str,
+        text: str,
+        voice: bool = False,
+        confirmation_preview_id: str | None = None,
+    ) -> AgentTurnResponse:
         started_at = perf_counter()
         try:
             async with self._session_guard.hold(session_id):
-                response = await self._process_message_locked(session_id=session_id, text=text)
+                voice_safe = True
+                if voice:
+                    try:
+                        if self._voice_safety_check is None:
+                            raise RuntimeError("voice safety checker missing")
+                        await self._voice_safety_check()
+                    except Exception:
+                        voice_safe = False
+                if voice_safe:
+                    response = await self._process_message_locked(
+                        session_id=session_id,
+                        text=text,
+                        voice=voice,
+                        confirmation_preview_id=confirmation_preview_id,
+                    )
+                else:
+                    response = AgentTurnResponse(
+                        session_id=session_id,
+                        status=AgentStatus.ERROR,
+                        message=(
+                            "음성 요청을 중단했습니다. MOCK 모드, LIVE 비활성화, "
+                            "긴급 차단 활성화와 금융 백엔드 연결을 확인해주세요."
+                        ),
+                    )
         except SessionBusyError:
             response = AgentTurnResponse(
                 session_id=session_id,
@@ -56,9 +89,46 @@ class AgentService:
         )
         return response
 
-    async def _process_message_locked(self, *, session_id: str, text: str) -> AgentTurnResponse:
+    async def _process_message_locked(
+        self,
+        *,
+        session_id: str,
+        text: str,
+        voice: bool = False,
+        confirmation_preview_id: str | None = None,
+    ) -> AgentTurnResponse:
         config: RunnableConfig = {"configurable": {"thread_id": session_id}}
         snapshot = await self._graph.aget_state(config)
+
+        if voice:
+            normalized = re.sub(r"[\s.!?]+", "", text.strip())
+            waiting = "await_confirmation" in snapshot.next
+            if confirmation_preview_id is not None and (
+                not waiting or confirmation_preview_id != snapshot.values.get("preview_id")
+            ):
+                return AgentTurnResponse(
+                    session_id=session_id,
+                    status=AgentStatus.ERROR,
+                    message=(
+                        "안내한 미리보기와 승인 대상이 다르거나 이미 처리된 요청입니다. "
+                        "실행하지 않았습니다."
+                    ),
+                )
+            if waiting:
+                if normalized not in {"승인", "취소"}:
+                    return self._response(session_id, dict(snapshot.values))
+                if confirmation_preview_id is None:
+                    return AgentTurnResponse(
+                        session_id=session_id,
+                        status=AgentStatus.ERROR,
+                        message="음성 안내한 미리보기 식별값이 없어 승인 또는 중단하지 않았습니다.",
+                    )
+            elif "await_slot" not in snapshot.next and normalized in self._approve_words:
+                return AgentTurnResponse(
+                    session_id=session_id,
+                    status=AgentStatus.ERROR,
+                    message="현재 음성 승인할 미리보기가 없습니다. 먼저 요청 내용을 말씀해주세요.",
+                )
 
         if snapshot.next:
             if "await_slot" in snapshot.next:

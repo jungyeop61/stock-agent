@@ -60,6 +60,7 @@ nbbuild/
 nbdist/
 .nb-gradle/
 .gradle/
+.kotlin/
 .android-tooling/
 
 # Logs and temporary files

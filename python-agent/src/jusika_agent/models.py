@@ -155,6 +155,12 @@ class AgentTurnResponse(BaseModel):
     data: dict[str, Any] | None = None
 
 
+class AgentVoiceMessageRequest(AgentMessageRequest):
+    """A mobile voice turn; consent is bound to the preview actually read aloud."""
+
+    confirmation_preview_id: str | None = Field(default=None, min_length=1, max_length=256)
+
+
 class SpringModel(BaseModel):
     """Base model matching Spring's camelCase JSON contracts."""
 

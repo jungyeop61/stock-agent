@@ -54,6 +54,9 @@ from jusika_agent.models import (
 
 
 class FakeSpringGateway:
+    async def check_mock_safety(self) -> None:
+        pass
+
     def __init__(self) -> None:
         self.account_list_calls = 0
         self.preview_requests: list[OrderPreviewRequest] = []

@@ -16,10 +16,12 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
+import android.os.SystemClock
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import java.util.Locale
 import java.util.UUID
+import java.time.Instant
 import java.util.concurrent.Executors
 
 class VoiceStandbyService : Service() {
@@ -41,13 +43,17 @@ class VoiceStandbyService : Service() {
     private var ttsReady = false
     private var micReady = false
     private var wakeLock: PowerManager.WakeLock? = null
-    private var session = UUID.randomUUID()
+    private val conversation = VoiceSession(SystemClock::elapsedRealtime, Instant::now)
     private lateinit var client: AgentClient
     private var spokenId: String? = null
+    private var spokenIds: Set<String> = emptySet()
     private var afterSpeech: (() -> Unit)? = null
     private val idle = Runnable {
         if (phase == Phase.LISTENING) {
-            speak("대화를 마치고 호출 대기로 돌아갑니다.") { standby() }
+            endConversation(
+                if (conversation.waitingConfirmation) "승인 대기 시간이 지나 요청을 중단합니다."
+                else "대화를 마치고 호출 대기로 돌아갑니다.",
+            )
         }
     }
     private val speechTimeout = Runnable { failClosed("음성 출력이 멈춰 대기 기능을 종료합니다.") }
@@ -134,15 +140,20 @@ class VoiceStandbyService : Service() {
         }
     }
     private fun standby() {
-        session = UUID.randomUUID() // Fresh read-only conversation; no prior approval can be resumed.
+        conversation.abandon() // Old previews/unknown requests can never resume on the next wake.
         phase = Phase.STANDBY
         update("호출 대기 중 · 주식아라고 불러주세요")
         speech?.enable(true)
     }
     private fun listen() {
         if (phase == Phase.STOPPED) return
+        if (conversation.confirmationExpired) {
+            endConversation("승인 유효 시간이 지나 요청을 중단합니다. 필요하면 새로 요청해주세요.")
+            return
+        }
         phase = Phase.LISTENING
-        update("명령 듣는 중 · 현재가 조회 가능")
+        conversation.speechFinished()
+        update(if (conversation.waitingConfirmation) "승인 대기 중 · 승인 또는 취소" else "명령 듣는 중")
         speech?.enable(true)
         main.removeCallbacks(idle)
         main.postDelayed(idle, CONVERSATION_TIMEOUT_MS)
@@ -153,7 +164,8 @@ class VoiceStandbyService : Service() {
                 val command = VoicePolicy.wakeCommand(text) ?: return
                 // Other ambient transcripts are discarded. No HTTP or command interpretation.
                 speech?.enable(false)
-                session = UUID.randomUUID()
+                conversation.activate()
+                conversation.speechFinished() // Inline wake+command is a first turn, never consent.
                 if (command.isEmpty()) speak("네, 말씀하세요.") { listen() }
                 else handleCommand(command)
             }
@@ -169,29 +181,58 @@ class VoiceStandbyService : Service() {
         speech?.enable(false)
         when {
             VoicePolicy.disablesStandby(text) -> {
-                speak("마이크와 호출 대기를 끕니다. 다시 사용하려면 앱에서 대기를 켜주세요.") { shutdown() }
+                endConversation("마이크와 호출 대기를 끕니다. 다시 사용하려면 앱에서 대기를 켜주세요.", disable = true)
             }
             VoicePolicy.endsConversation(text) -> {
-                speak("대화를 마치고 호출 대기로 돌아갑니다.") { standby() }
+                endConversation("대화를 마치고 호출 대기로 돌아갑니다.")
             }
             else -> {
-                val command = VoicePolicy.priceCommand(text)
-                if (command == null) {
-                    speak("이번 버전은 현재가 조회만 지원합니다. 삼성전자 현재가 알려줘라고 말씀해주세요.") { listen() }
-                    return
+                when (val decision = conversation.decide(text)) {
+                    is VoiceDecision.Send -> send(decision.request)
+                    is VoiceDecision.Prompt -> speak(decision.message) { listen() }
+                    VoiceDecision.Expired -> endConversation("승인 유효 시간이 지나 요청을 중단합니다. 새로 요청해주세요.")
+                    VoiceDecision.Ignore -> Unit
                 }
-                phase = Phase.PROCESSING
-                update("현재가 조회 중")
-                val currentSession = session
-                requests.execute {
-                    val result = runCatching { client.currentPrice(currentSession, command) }
-                    main.post {
-                        if (phase != Phase.PROCESSING || session != currentSession) return@post
-                        val message = result.getOrElse {
-                            "서버에 연결하지 못했거나 응답을 확인할 수 없습니다. 자동으로 다시 보내지 않습니다."
-                        }
-                        speak(message) { listen() }
-                    }
+            }
+        }
+    }
+    private fun endConversation(message: String, disable: Boolean = false) {
+        main.removeCallbacks(idle)
+        speech?.enable(false)
+        val then: () -> Unit = { if (disable) shutdown() else standby() }
+        val request = conversation.endRequest()
+        if (request != null) send(request, endMessage = message, afterEnd = then)
+        else {
+            conversation.abandon()
+            speak(message, then)
+        }
+    }
+    private fun send(request: VoiceRequest, endMessage: String? = null, afterEnd: (() -> Unit)? = null) {
+        phase = Phase.PROCESSING
+        update(if (request.confirmationPreviewId != null) "승인 또는 중단 처리 중" else "요청 처리 중 · MOCK 전용")
+        requests.execute {
+            val result = runCatching { client.send(request) }
+            main.post {
+                if (phase != Phase.PROCESSING || conversation.sessionId != request.sessionId) return@post
+                val response = result.getOrNull()
+                val received = response != null && runCatching { conversation.receive(request, response) }.getOrDefault(false)
+                if (!received) {
+                    conversation.failed(request)
+                    // Never retry an approval or continue its old session when the result is unknown.
+                    val warning = "통신 또는 응답 오류로 처리 결과를 확인하지 못했습니다. 같은 주문이나 승인을 반복하지 말고 주문 내역과 실행 상태를 확인해주세요. 자동으로 다시 보내지 않습니다."
+                    speak(warning) { if (afterEnd != null) afterEnd() else standby() }
+                    return@post
+                }
+                if (endMessage != null) {
+                    conversation.abandon()
+                    val message = if (response!!.status == AgentStatus.CANCELLED) endMessage
+                    else "$endMessage 미승인 요청의 서버 중단 결과는 확인하지 못했습니다. 자동 실행하거나 다시 승인하지 않습니다."
+                    speak(message) { afterEnd?.invoke() }
+                } else if (response!!.status == AgentStatus.ERROR) {
+                    conversation.abandon()
+                    speak(response.message) { standby() }
+                } else {
+                    speak(response.message) { listen() }
                 }
             }
         }
@@ -199,28 +240,36 @@ class VoiceStandbyService : Service() {
     private fun speak(message: String, then: () -> Unit) {
         if (phase == Phase.STOPPED) return
         speech?.enable(false) // Never recognize the app's own response as a wake word / command.
+        conversation.beforeSpeech()
         main.removeCallbacks(idle)
         phase = Phase.SPEAKING
         update("음성 안내 중")
-        spokenId = UUID.randomUUID().toString()
+        val chunks = SpeechChunks.split(message, TextToSpeech.getMaxSpeechInputLength())
+        val ids = chunks.map { UUID.randomUUID().toString() }
+        spokenIds = ids.toSet()
+        spokenId = ids.last()
         afterSpeech = then
         main.removeCallbacks(speechTimeout)
-        main.postDelayed(speechTimeout, 90_000)
-        if (tts?.speak(message, TextToSpeech.QUEUE_FLUSH, null, spokenId) != TextToSpeech.SUCCESS) {
-            failClosed("음성 출력을 사용할 수 없어 대기를 종료합니다.")
+        main.postDelayed(speechTimeout, (chunks.size * 90_000L).coerceAtMost(900_000L))
+        for ((index, chunk) in chunks.withIndex()) {
+            if (tts?.speak(chunk, if (index == 0) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD, null, ids[index]) != TextToSpeech.SUCCESS) {
+                failClosed("음성 출력을 사용할 수 없어 대기를 종료합니다.")
+                return
+            }
         }
     }
     private fun speechFinished(id: String?) {
         if (phase != Phase.SPEAKING || id != spokenId) return
         main.removeCallbacks(speechTimeout)
         spokenId = null
+        spokenIds = emptySet()
         val action = afterSpeech
         afterSpeech = null
         // Discard speaker tail and queued microphone results before listening again.
         main.postDelayed({ if (phase == Phase.SPEAKING) action?.invoke() }, 500)
     }
     private fun speechFailed(id: String?) {
-        if (id == spokenId) failClosed("음성 출력 오류로 대기를 종료합니다.")
+        if (id in spokenIds) failClosed("음성 출력 오류로 대기를 종료합니다.")
     }
     private fun failClosed(message: String) {
         (getSystemService(NOTIFICATION_SERVICE) as NotificationManager)
@@ -229,6 +278,7 @@ class VoiceStandbyService : Service() {
     }
     private fun shutdown() {
         phase = Phase.STOPPED
+        conversation.abandon()
         main.removeCallbacksAndMessages(null)
         speech?.close()
         speech = null

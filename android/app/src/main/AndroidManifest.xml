@@ -13,6 +13,7 @@
         android:label="주식아"
         android:icon="@drawable/ic_jusika"
         android:allowBackup="false"
+        android:fullBackupContent="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:usesCleartextTraffic="false"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">

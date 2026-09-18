@@ -62,10 +62,21 @@ def wait_for_http(
     raise ProcessE2EError(f"startup timed out: {url}")
 
 
-def post_message(agent_url: str, session_id: str, text: str) -> dict[str, Any]:
-    body = json.dumps({"text": text}, ensure_ascii=False).encode("utf-8")
+def post_message(
+    agent_url: str,
+    session_id: str,
+    text: str,
+    *,
+    voice: bool = False,
+    confirmation_preview_id: str | None = None,
+) -> dict[str, Any]:
+    content = {"text": text}
+    if confirmation_preview_id is not None:
+        content["confirmation_preview_id"] = confirmation_preview_id
+    body = json.dumps(content, ensure_ascii=False).encode("utf-8")
+    channel = "voice-messages" if voice else "messages"
     request = Request(
-        f"{agent_url}/api/agent/sessions/{session_id}/messages",
+        f"{agent_url}/api/agent/sessions/{session_id}/{channel}",
         data=body,
         headers={"Content-Type": "application/json"},
         method="POST",
@@ -89,23 +100,25 @@ def require_status(payload: dict[str, Any], expected: str, label: str) -> None:
         raise ProcessE2EError(f"{label}: expected {expected}, got {actual}: {message}")
 
 
-def run_read_case(agent_url: str, label: str, text: str) -> None:
-    payload = post_message(agent_url, str(uuid4()), text)
+def run_read_case(agent_url: str, label: str, text: str, *, voice: bool = False) -> None:
+    payload = post_message(agent_url, str(uuid4()), text, voice=voice)
     require_status(payload, "COMPLETED", label)
     print(f"PASS read: {label}")
 
 
-def run_rejection_case(agent_url: str, label: str, text: str) -> None:
-    payload = post_message(agent_url, str(uuid4()), text)
+def run_rejection_case(agent_url: str, label: str, text: str, *, voice: bool = False) -> None:
+    payload = post_message(agent_url, str(uuid4()), text, voice=voice)
     require_status(payload, "NEEDS_INPUT", label)
     if payload.get("requires_confirmation") is True:
         raise ProcessE2EError(f"{label}: rejected command requested confirmation")
     print(f"PASS rejection: {label}")
 
 
-def run_mutation_case(agent_url: str, label: str, text: str) -> dict[str, Any]:
+def run_mutation_case(
+    agent_url: str, label: str, text: str, *, voice: bool = False
+) -> dict[str, Any]:
     session_id = str(uuid4())
-    preview = post_message(agent_url, session_id, text)
+    preview = post_message(agent_url, session_id, text, voice=voice)
     require_status(preview, "WAITING_CONFIRMATION", f"{label} preview")
     preview_id = preview.get("preview_id")
     if not isinstance(preview_id, str) or not preview_id:
@@ -113,7 +126,13 @@ def run_mutation_case(agent_url: str, label: str, text: str) -> dict[str, Any]:
     if preview.get("requires_confirmation") is not True:
         raise ProcessE2EError(f"{label}: explicit confirmation was not required")
 
-    execution = post_message(agent_url, session_id, "승인")
+    execution = post_message(
+        agent_url,
+        session_id,
+        "승인",
+        voice=voice,
+        confirmation_preview_id=preview_id if voice else None,
+    )
     require_status(execution, "COMPLETED", f"{label} execution")
     data = execution.get("data")
     if not isinstance(data, dict) or data.get("brokerMode") != "MOCK":
@@ -124,28 +143,43 @@ def run_mutation_case(agent_url: str, label: str, text: str) -> dict[str, Any]:
     return data
 
 
-def run_recovery_conflict_case(agent_url: str, execution_id: str) -> None:
+def run_recovery_conflict_case(
+    agent_url: str, execution_id: str, *, voice: bool = False
+) -> None:
     session_id = str(uuid4())
     preview = post_message(
         agent_url,
         session_id,
         f"실행번호 {execution_id} 복구해줘",
+        voice=voice,
     )
     require_status(preview, "WAITING_CONFIRMATION", "execution recovery confirmation")
-    response = post_message(agent_url, session_id, "승인")
+    response = post_message(
+        agent_url,
+        session_id,
+        "승인",
+        voice=voice,
+        confirmation_preview_id=str(preview["preview_id"]) if voice else None,
+    )
     require_status(response, "ERROR", "accepted execution recovery rejection")
     print("PASS safety: accepted execution cannot be recovered again")
 
 
-def run_multiturn_case(agent_url: str) -> None:
+def run_multiturn_case(agent_url: str, *, voice: bool = False) -> None:
     session_id = str(uuid4())
-    stock_prompt = post_message(agent_url, session_id, "사줘")
+    stock_prompt = post_message(agent_url, session_id, "사줘", voice=voice)
     require_status(stock_prompt, "NEEDS_INPUT", "multi-turn stock prompt")
-    quantity_prompt = post_message(agent_url, session_id, "삼성전자")
+    quantity_prompt = post_message(agent_url, session_id, "삼성전자", voice=voice)
     require_status(quantity_prompt, "NEEDS_INPUT", "multi-turn quantity prompt")
-    preview = post_message(agent_url, session_id, "5주")
+    preview = post_message(agent_url, session_id, "5주", voice=voice)
     require_status(preview, "WAITING_CONFIRMATION", "multi-turn preview")
-    execution = post_message(agent_url, session_id, "승인")
+    execution = post_message(
+        agent_url,
+        session_id,
+        "승인",
+        voice=voice,
+        confirmation_preview_id=str(preview["preview_id"]) if voice else None,
+    )
     require_status(execution, "COMPLETED", "multi-turn execution")
     print("PASS conversation: multi-turn slot collection")
 
@@ -258,7 +292,7 @@ def assert_agent_log_safety(path: Path) -> None:
     print("PASS observability: structured logs contain no protected test values")
 
 
-def run_suite(agent_url: str) -> None:
+def run_suite(agent_url: str, *, voice: bool = False) -> None:
     expiry = (datetime.now(UTC).date() + timedelta(days=30)).isoformat()
     read_cases = [
         ("stock price", "삼성전자 지금 얼마야"),
@@ -321,12 +355,14 @@ def run_suite(agent_url: str) -> None:
     ]
 
     for label, command in read_cases:
-        run_read_case(agent_url, label, command)
-    run_rejection_case(agent_url, "unsupported real currency exchange", "10만 원을 달러로 환전해줘")
-    run_multiturn_case(agent_url)
+        run_read_case(agent_url, label, command, voice=voice)
+    run_rejection_case(
+        agent_url, "unsupported real currency exchange", "10만 원을 달러로 환전해줘", voice=voice
+    )
+    run_multiturn_case(agent_url, voice=voice)
     quantity_execution: dict[str, Any] | None = None
     for label, command in mutation_cases:
-        execution = run_mutation_case(agent_url, label, command)
+        execution = run_mutation_case(agent_url, label, command, voice=voice)
         if label == "quantity buy":
             quantity_execution = execution
     if quantity_execution is None or not isinstance(quantity_execution.get("executionId"), str):
@@ -336,13 +372,15 @@ def run_suite(agent_url: str) -> None:
         agent_url,
         "execution status",
         f"실행번호 {execution_id} 상태 알려줘",
+        voice=voice,
     )
-    run_recovery_conflict_case(agent_url, execution_id)
+    run_recovery_conflict_case(agent_url, execution_id, voice=voice)
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--startup-timeout", type=float, default=120)
+    parser.add_argument("--voice", action="store_true", help="test the MOCK-only mobile voice API")
     args = parser.parse_args()
 
     stub_port, spring_port, agent_port = (available_port() for _ in range(3))
@@ -410,7 +448,7 @@ def main() -> int:
                 timeout_seconds=30,
             )
 
-            run_suite(agent_url)
+            run_suite(agent_url, voice=args.voice)
             agent_log.flush()
             assert_agent_log_safety(log_paths["agent"])
             print("PASS: complete real-process Agent -> Spring -> Toss read stub E2E")

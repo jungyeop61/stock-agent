@@ -115,6 +115,20 @@ class SpringBackendClient:
         if not isinstance(data, dict) or data.get("status") != "UP":
             raise SpringBackendError("금융 백엔드가 준비되지 않았습니다.")
 
+    async def check_mock_safety(self) -> None:
+        """Fail closed for the development-only mobile voice boundary."""
+        data = await self._request_json("GET", "/api/broker/safety", authority=None)
+        if (
+            not isinstance(data, dict)
+            or data.get("mode") != "MOCK"
+            or data.get("liveEnabled") is not False
+            or data.get("killSwitchActive") is not True
+            or data.get("liveMutationAvailable") is not False
+        ):
+            raise SpringBackendError(
+                "음성 개발 버전은 MOCK 모드, LIVE 비활성화, 긴급 차단 활성화가 필요합니다."
+            )
+
     async def list_accounts(self) -> list[AccountResponse]:
         data = await self._request_json("GET", "/api/accounts", authority="read")
         try:
