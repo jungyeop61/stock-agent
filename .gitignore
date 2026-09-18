@@ -68,3 +68,8 @@ nbdist/
 *.tmp
 *.swp
 *~
+
+# VM deployment secrets, exported images and private database backups
+deploy/.mobile-token
+deploy/artifacts/
+deploy/backups/

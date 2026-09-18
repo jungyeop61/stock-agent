@@ -102,6 +102,7 @@ JUSIKA_AGENT_ENVIRONMENT=production
 JUSIKA_AGENT_MOBILE_AUTH_REQUIRED=true
 JUSIKA_AGENT_MOBILE_CREDENTIALS='{"father":"생성한_토큰으로_교체"}'
 JUSIKA_AGENT_MOBILE_REQUESTS_PER_MINUTE=30
+JUSIKA_AGENT_MOBILE_IP_REQUESTS_PER_MINUTE=60
 ```
 
 앱에서 HTTPS 서버 주소와 같은 토큰을 입력합니다. HTTP 개발은 loopback USB reverse만 가능합니다.
@@ -125,8 +126,9 @@ JUSIKA_AGENT_MOBILE_REQUESTS_PER_MINUTE=30
   서로 다른 사용자도 같은 서버의 금융 백엔드를 이용하므로 신뢰하는 가족에게만 발급하세요.
 - 요청 제한은 프로세스 메모리 기반입니다. 단일 worker/단일 instance로만 사용하며 재시작 시
   초기화됩니다. 여러 instance에는 Redis 등 공유 제한기가 필요합니다.
-- HTTPS reverse proxy, 신뢰할 proxy IP만 허용한 forwarded 설정, 익명 IP 제한·접속/본문 시간 제한은
-  배포 단계에서 구성해야 합니다. `--forwarded-allow-ips='*'`를 사용하지 마세요.
+- 인증 실패 요청도 IP별 분당 60회로 제한합니다. 신뢰할 proxy IP만 forwarded 설정에 허용해야
+  실제 클라이언트 IP를 안전하게 사용할 수 있습니다. `--forwarded-allow-ips='*'`를 사용하지 마세요.
+  [단일 VM 배포 구성](../deploy/README.md)은 HTTPS·본문/접속 시간 제한을 함께 제공합니다.
 - 서버 배포나 실계좌 연결은 이 변경에서 수행하지 않았습니다. 실제 주문 차단도 유지합니다.
 
 ```bash

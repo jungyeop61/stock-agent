@@ -1,0 +1,142 @@
+name: jusika-vm
+
+x-logging: &bounded-logs
+  driver: json-file
+  options:
+    max-size: "5m"
+    max-file: "2"
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    mem_limit: 320m
+    pids_limit: 100
+    logging: *bounded-logs
+    environment:
+      POSTGRES_DB: jusika
+      POSTGRES_USER: jusika
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Run deploy/init_environment.py first}
+      TZ: Asia/Seoul
+    command: ["postgres", "-c", "shared_buffers=64MB", "-c", "work_mem=2MB", "-c", "maintenance_work_mem=32MB", "-c", "max_connections=40"]
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks: [backend]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jusika -d jusika"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  spring:
+    image: jusika-spring:vm-1
+    restart: unless-stopped
+    mem_limit: 896m
+    pids_limit: 150
+    read_only: true
+    tmpfs: ["/tmp:size=64m,mode=1777"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    logging: *bounded-logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      JAVA_TOOL_OPTIONS: "-Xms128m -Xmx512m -XX:MaxMetaspaceSize=192m -XX:ReservedCodeCacheSize=64m -XX:+ExitOnOutOfMemoryError"
+      SPRING_PROFILES_ACTIVE: postgres
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/jusika
+      SPRING_DATASOURCE_USERNAME: jusika
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:?Required}
+      SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE: "4"
+      SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE: "1"
+      SERVER_TOMCAT_THREADS_MAX: "20"
+      SERVER_TOMCAT_THREADS_MIN_SPARE: "2"
+      JUSIKA_INTERNAL_READ_API_KEY: ${JUSIKA_INTERNAL_READ_API_KEY:?Required}
+      JUSIKA_INTERNAL_ORDER_API_KEY: ${JUSIKA_INTERNAL_ORDER_API_KEY:?Required}
+      TOSSINVEST_CLIENT_ID: ${TOSSINVEST_CLIENT_ID:-}
+      TOSSINVEST_CLIENT_SECRET: ${TOSSINVEST_CLIENT_SECRET:-}
+      # Hard-coded MOCK: host/.env overrides cannot accidentally enable actual trading.
+      JUSIKA_BROKER_MODE: mock
+      JUSIKA_LIVE_TRADING_ENABLED: "false"
+      JUSIKA_TRADING_KILL_SWITCH_ACTIVE: "true"
+      TZ: Asia/Seoul
+    networks: [backend]
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8080/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 90s
+
+  agent:
+    image: jusika-agent:vm-1
+    restart: unless-stopped
+    mem_limit: 384m
+    pids_limit: 75
+    read_only: true
+    tmpfs: ["/tmp:size=32m,mode=1777"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    logging: *bounded-logs
+    depends_on:
+      spring:
+        condition: service_healthy
+    environment:
+      JUSIKA_AGENT_ENVIRONMENT: production
+      JUSIKA_AGENT_MOBILE_AUTH_REQUIRED: "true"
+      JUSIKA_AGENT_MOBILE_CREDENTIALS: ${JUSIKA_AGENT_MOBILE_CREDENTIALS:?Required}
+      JUSIKA_AGENT_MOBILE_REQUESTS_PER_MINUTE: "30"
+      JUSIKA_AGENT_MOBILE_IP_REQUESTS_PER_MINUTE: "60"
+      JUSIKA_AGENT_SPRING_BACKEND_URL: http://spring:8080
+      JUSIKA_AGENT_CHECKPOINT_PROVIDER: postgres
+      JUSIKA_AGENT_CHECKPOINT_DATABASE_URL: postgresql://jusika:${POSTGRES_PASSWORD:?Required}@postgres:5432/jusika
+      JUSIKA_INTERNAL_READ_API_KEY: ${JUSIKA_INTERNAL_READ_API_KEY:?Required}
+      JUSIKA_INTERNAL_ORDER_API_KEY: ${JUSIKA_INTERNAL_ORDER_API_KEY:?Required}
+      # Initial deployment has no paid interpreter/API calls.
+      JUSIKA_AGENT_COMMAND_INTERPRETER: rules
+      TZ: Asia/Seoul
+    networks:
+      backend: {}
+      proxy:
+        ipv4_address: 172.30.91.3
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=5)"]
+      interval: 20s
+      timeout: 8s
+      retries: 10
+      start_period: 30s
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    mem_limit: 96m
+    pids_limit: 75
+    logging: *bounded-logs
+    depends_on:
+      agent:
+        condition: service_healthy
+    environment:
+      JUSIKA_DOMAIN: ${JUSIKA_DOMAIN:?A DNS hostname is required}
+      ACME_EMAIL: ${ACME_EMAIL:?Required}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks:
+      proxy:
+        ipv4_address: 172.30.91.2
+
+networks:
+  backend: {}
+  proxy:
+    ipam:
+      config:
+        - subnet: 172.30.91.0/24
+
+volumes:
+  postgres-data: {}
+  caddy-data: {}
+  caddy-config: {}

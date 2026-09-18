@@ -62,7 +62,7 @@ Python Agent의 `/health`는 프로세스 생존만, `/ready`는 Spring과 활�
 - `spring-backend/`: 금융 검증, 위험 정책, 감사 로그, 주문 미리보기와 증권사 연동을 담당할 스프링 프로젝트입니다.
 - `python-agent/`: 음성 명령 해석, 구조화된 의도 추출, LangGraph 대화 흐름을 담당할 파이썬 프로젝트입니다.
 - `android/`: 기기 내 무료 `주식아` 호출 대기와 Python 에이전트의 전체 지원 기능을 연결한 Kotlin 네이티브 개발 앱입니다. 다중 턴 입력과 미리보기 ID에 묶인 명시적 음성 승인, Keystore 암호화 개인 토큰을 지원합니다. Agent는 개인 토큰 인증·사용자별 세션 격리·단일 프로세스 요청 제한을 적용하며 음성 API는 MOCK 안전 상태에서만 처리합니다. 실제 S22 검증과 HTTPS 운영 배포는 별도 단계입니다. 설정과 테스트는 `android/README.md`를 참고하세요.
-- `infra/`: 로컬 및 클라우드 배포 설정을 둘 예정입니다.
+- `deploy/`: GCP/AWS 서버 한 대용 Spring·Python·PostgreSQL·Caddy Docker 구성입니다. 2GB 메모리 제한, 개인 토큰 인증, HTTPS, 영구 체크포인트와 MOCK 고정 설정을 제공합니다. 설치·백업·이전은 `deploy/README.md`를 참고하세요.
 - `docs/`: 아키텍처와 API 문서를 둘 예정입니다.
 
 실제 증권사 주문 API는 스프링 백엔드만 호출할 수 있습니다. 파이썬 에이전트는 명령을 해석하고 주문 미리보기를 요청할 수 있지만 실제 증권사 주문을 직접 실행해서는 안 됩니다.

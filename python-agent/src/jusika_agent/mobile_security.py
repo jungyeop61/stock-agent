@@ -23,11 +23,30 @@ class MobileSecurityMiddleware:
         ]
         self.limit = settings.mobile_requests_per_minute
         self.windows: dict[str, deque[float]] = {}
+        self.ip_limit = settings.mobile_ip_requests_per_minute
+        self.ip_windows: dict[str, deque[float]] = {}
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http" or not scope["path"].startswith("/api/agent"):
             await self.app(scope, receive, send)
             return
+        # Bound invalid-token traffic too; only trusted proxy metadata may change the peer.
+        now = monotonic()
+        for peer in list(self.ip_windows):
+            if self.ip_windows[peer][-1] <= now - 60:
+                del self.ip_windows[peer]
+        client = scope.get("client")
+        peer = client[0] if client else "unknown"
+        if peer not in self.ip_windows and len(self.ip_windows) >= 1024:
+            await self.reject(scope, receive, send, 429)
+            return
+        ip_window = self.ip_windows.setdefault(peer, deque())
+        while ip_window and ip_window[0] <= now - 60:
+            ip_window.popleft()
+        if len(ip_window) >= self.ip_limit:
+            await self.reject(scope, receive, send, 429)
+            return
+        ip_window.append(now)
         headers = scope.get("headers", [])
         # Browser-origin requests are not part of this native-app protocol.
         if any(key == b"origin" for key, _ in headers):
@@ -52,7 +71,6 @@ class MobileSecurityMiddleware:
             await self.reject(scope, receive, send, 401)
             return
         bucket = principal or "local-development"
-        now = monotonic()
         window = self.windows.setdefault(bucket, deque())
         while window and window[0] <= now - 60:
             window.popleft()

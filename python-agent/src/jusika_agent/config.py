@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     mobile_auth_required: bool = False
     mobile_credentials: SecretStr = SecretStr("{}")
     mobile_requests_per_minute: int = Field(default=30, ge=1, le=300)
+    mobile_ip_requests_per_minute: int = Field(default=60, ge=1, le=600)
     log_level: str = "INFO"
     readiness_timeout_seconds: float = Field(default=3.0, gt=0, le=15)
     spring_backend_url: str = "http://localhost:8080"

@@ -1,0 +1,47 @@
+{
+    email {$ACME_EMAIL}
+    admin off
+    servers {
+        timeouts {
+            read_header 10s
+            read_body 15s
+            write 120s
+            idle 60s
+        }
+        max_header_size 16KB
+    }
+}
+
+{$JUSIKA_DOMAIN} {
+    header {
+        Strict-Transport-Security "max-age=31536000"
+        Cache-Control "no-store"
+        X-Content-Type-Options "nosniff"
+    }
+    request_body {
+        max_size 8KB
+    }
+    @voice {
+        method POST
+        path /api/agent/sessions/*/voice-messages
+    }
+    handle @voice {
+        reverse_proxy agent:8000 {
+            # Drop attacker-supplied forwarding metadata before setting trusted values.
+            header_up X-Forwarded-For {remote_host}
+            header_up X-Forwarded-Proto https
+            header_up -Forwarded
+            transport http {
+                dial_timeout 5s
+                response_header_timeout 95s
+            }
+        }
+    }
+    handle /health {
+        reverse_proxy agent:8000
+    }
+    handle {
+        respond "Not found" 404
+    }
+    # No access log: utterances, tokens and session/order IDs must not be logged.
+}

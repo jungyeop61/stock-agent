@@ -181,6 +181,20 @@ def test_namespace_is_stable_and_does_not_expose_user_id() -> None:
     assert owned_session(None, session) == str(session)
 
 
+def test_invalid_auth_is_also_ip_limited_and_window_expires(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    now = [0.0]
+    monkeypatch.setattr("jusika_agent.mobile_security.monotonic", lambda: now[0])
+    with client(settings(mobile_ip_requests_per_minute=2)) as api:
+        path = f"/api/agent/sessions/{uuid4()}/voice-messages"
+        assert api.post(path, json={"text": "승인"}).status_code == 401
+        assert api.post(path, json={"text": "승인"}).status_code == 401
+        assert api.post(path, json={"text": "승인"}).status_code == 429
+        now[0] = 60.0
+        assert api.post(path, json={"text": "승인"}).status_code == 401
+
+
 def test_rate_window_expires_without_sleep(monkeypatch: pytest.MonkeyPatch) -> None:
     now = [0.0]
     monkeypatch.setattr("jusika_agent.mobile_security.monotonic", lambda: now[0])

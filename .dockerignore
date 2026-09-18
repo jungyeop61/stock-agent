@@ -1,0 +1,15 @@
+# Allow only runtime source and deployment definitions. Never send secrets/APKs to Docker.
+**
+!spring-backend/
+!spring-backend/pom.xml
+!spring-backend/src/
+!spring-backend/src/**
+!python-agent/
+!python-agent/pyproject.toml
+!python-agent/src/
+!python-agent/src/**
+!deploy/
+!deploy/spring.Dockerfile
+!deploy/agent.Dockerfile
+**/__pycache__/
+**/*.pyc
