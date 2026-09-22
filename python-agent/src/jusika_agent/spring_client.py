@@ -16,6 +16,7 @@ from jusika_agent.models import (
     AmountOrderExecutionResponse,
     AmountOrderPreviewRequest,
     AmountOrderPreviewResponse,
+    BrokerSafetyStatusResponse,
     BuyingPowerResponse,
     CommissionsResponse,
     ConditionalOrderCancellationExecutionResponse,
@@ -115,18 +116,60 @@ class SpringBackendClient:
         if not isinstance(data, dict) or data.get("status") != "UP":
             raise SpringBackendError("금융 백엔드가 준비되지 않았습니다.")
 
-    async def check_mock_safety(self) -> None:
-        """Fail closed for the development-only mobile voice boundary."""
+    async def get_broker_safety_status(self) -> BrokerSafetyStatusResponse:
+        """Return the typed, non-secret broker mutation safety state."""
         data = await self._request_json("GET", "/api/broker/safety", authority=None)
-        if (
-            not isinstance(data, dict)
-            or data.get("mode") != "MOCK"
-            or data.get("liveEnabled") is not False
-            or data.get("killSwitchActive") is not True
-            or data.get("liveMutationAvailable") is not False
-        ):
+        return self._validate(BrokerSafetyStatusResponse, data, "증권사 안전 상태")
+
+    async def check_voice_safety(self) -> None:
+        """Allow voice only when Spring reports an internally consistent safety state."""
+        status = await self.get_broker_safety_status()
+        if status.mode == "MOCK":
+            safe = (
+                status.live_enabled is False
+                and status.kill_switch_active is True
+                and status.live_safety_gate_open is False
+                and status.live_mutation_available is False
+                and status.block_reason == "MOCK_MODE"
+            )
+        elif status.live_mutation_available:
+            safe = (
+                status.live_enabled is True
+                and status.kill_switch_active is False
+                and status.live_safety_gate_open is True
+                and status.block_reason == "NONE"
+            )
+        else:
+            # A guarded LIVE deployment may continue serving read-only voice queries.
+            # Every mutation remains fail-closed in Spring until all gates are open.
+            post_gate_reason = status.block_reason in {
+                "LIVE_ADAPTER_NOT_CONNECTED",
+                "LIVE_ACCOUNT_ALLOWLIST_EMPTY",
+                "LIVE_INSTRUMENT_ALLOWLIST_EMPTY",
+                "LIVE_ORDER_LIMITS_NOT_CONFIGURED",
+                "LIVE_DAILY_ORDER_LIMITS_NOT_CONFIGURED",
+                "LIVE_OPEN_ORDER_LIMITS_NOT_CONFIGURED",
+                "LIVE_ORDER_RATE_LIMITS_NOT_CONFIGURED",
+                "LIVE_UNKNOWN_INCIDENT_HALT_ACTIVE",
+            }
+            if status.block_reason == "LIVE_FEATURE_DISABLED":
+                safe = status.live_enabled is False and status.live_safety_gate_open is False
+            elif status.block_reason == "KILL_SWITCH_ACTIVE":
+                safe = (
+                    status.live_enabled is True
+                    and status.kill_switch_active is True
+                    and status.live_safety_gate_open is False
+                )
+            else:
+                safe = (
+                    post_gate_reason
+                    and status.live_enabled is True
+                    and status.kill_switch_active is False
+                    and status.live_safety_gate_open is True
+                )
+        if not safe:
             raise SpringBackendError(
-                "음성 개발 버전은 MOCK 모드, LIVE 비활성화, 긴급 차단 활성화가 필요합니다."
+                "금융 백엔드의 증권사 안전 상태가 일관되지 않아 음성 요청을 중단했습니다."
             )
 
     async def list_accounts(self) -> list[AccountResponse]:

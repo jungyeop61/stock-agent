@@ -3,9 +3,9 @@
 from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator
 from pydantic.alias_generators import to_camel
 
 
@@ -169,6 +169,30 @@ class SpringModel(BaseModel):
         populate_by_name=True,
         extra="ignore",
     )
+
+
+class BrokerSafetyStatusResponse(SpringModel):
+    """Non-secret broker mutation safety state exposed by Spring."""
+
+    mode: Literal["MOCK", "LIVE"]
+    live_enabled: StrictBool
+    kill_switch_active: StrictBool
+    live_safety_gate_open: StrictBool
+    live_mutation_available: StrictBool
+    block_reason: Literal[
+        "MOCK_MODE",
+        "LIVE_FEATURE_DISABLED",
+        "KILL_SWITCH_ACTIVE",
+        "LIVE_ADAPTER_NOT_CONNECTED",
+        "LIVE_ACCOUNT_ALLOWLIST_EMPTY",
+        "LIVE_INSTRUMENT_ALLOWLIST_EMPTY",
+        "LIVE_ORDER_LIMITS_NOT_CONFIGURED",
+        "LIVE_DAILY_ORDER_LIMITS_NOT_CONFIGURED",
+        "LIVE_OPEN_ORDER_LIMITS_NOT_CONFIGURED",
+        "LIVE_ORDER_RATE_LIMITS_NOT_CONFIGURED",
+        "LIVE_UNKNOWN_INCIDENT_HALT_ACTIVE",
+        "NONE",
+    ]
 
 
 class AccountResponse(SpringModel):

@@ -254,6 +254,7 @@ async def test_openai_interpreter_uses_structured_outputs_without_storage() -> N
     assert request["input"] == "삼성전자 다섯 주 사줘"
     assert request["text_format"] is ParsedIntent
     assert request["max_output_tokens"] == 1000
+    assert request["reasoning"] == {"effort": "none"}
     assert request["store"] is False
     assert "수량, 가격, 주문번호 또는 종목을 추측" in request["instructions"]
 

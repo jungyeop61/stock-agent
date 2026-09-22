@@ -19,11 +19,11 @@
         X-Content-Type-Options "nosniff"
     }
     request_body {
-        max_size 8KB
+        max_size 1MB
     }
     @voice {
         method POST
-        path /api/agent/sessions/*/voice-messages
+        path /api/agent/sessions/*/voice-messages /api/agent/transcriptions
     }
     handle @voice {
         reverse_proxy agent:8000 {

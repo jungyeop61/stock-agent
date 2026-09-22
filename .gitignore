@@ -71,5 +71,6 @@ nbdist/
 
 # VM deployment secrets, exported images and private database backups
 deploy/.mobile-token
+deploy/.mobile-setup.html
 deploy/artifacts/
 deploy/backups/

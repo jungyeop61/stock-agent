@@ -46,6 +46,7 @@ def create_environment(directory: Path, domain: str, email: str) -> tuple[Path, 
             "JUSIKA_AGENT_MOBILE_CREDENTIALS='" + json.dumps({"father": token}) + "'",
             "TOSSINVEST_CLIENT_ID=",
             "TOSSINVEST_CLIENT_SECRET=",
+            "OPENAI_API_KEY=",
             "",
         ]
     )

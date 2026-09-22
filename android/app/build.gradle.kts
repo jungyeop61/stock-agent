@@ -9,8 +9,8 @@ android {
         applicationId = "com.jusika.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 3
-        versionName = "0.3.0"
+        versionCode = 6
+        versionName = "0.4.0"
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -18,12 +18,10 @@ android {
     }
     kotlinOptions { jvmTarget = "17" }
     buildFeatures { buildConfig = true }
-    // Native libraries support 16 KB pages in these versions of Vosk/JNA.
-    packaging { jniLibs.useLegacyPackaging = false }
 }
 dependencies {
-    implementation("com.alphacephei:vosk-android:0.3.75@aar")
-    implementation("net.java.dev.jna:jna:5.18.1@aar")
+    implementation("androidx.activity:activity:1.9.3")
+    implementation("com.journeyapps:zxing-android-embedded:4.3.0")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")
 }

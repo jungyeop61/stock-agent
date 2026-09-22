@@ -79,14 +79,16 @@ class MobileSecurityMiddleware:
             return
         window.append(now)
         scope.setdefault("state", {})["mobile_principal"] = principal
-        # Bound the body before JSON parsing, including chunked requests.
+        # Audio is a single explicitly captured turn; JSON commands stay at the tighter limit.
+        body_limit = 1_000_044 if scope["path"] == "/api/agent/transcriptions" else 8192
+        # Bound the body before parsing, including chunked requests.
         chunks = bytearray()
         while True:
             message = await receive()
             if message["type"] == "http.disconnect":
                 return
             chunk = message.get("body", b"")
-            if len(chunks) + len(chunk) > 8192:
+            if len(chunks) + len(chunk) > body_limit:
                 await self.reject(scope, receive, send, 413)
                 return
             chunks.extend(chunk)

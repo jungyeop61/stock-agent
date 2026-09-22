@@ -54,7 +54,7 @@ from jusika_agent.models import (
 
 
 class FakeSpringGateway:
-    async def check_mock_safety(self) -> None:
+    async def check_voice_safety(self) -> None:
         pass
 
     def __init__(self) -> None:

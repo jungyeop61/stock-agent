@@ -22,6 +22,41 @@ class AgentClient(private val baseUrl: String, private val mobileToken: String =
         cancelled = true
         runCatching { active?.disconnect() }
     }
+    fun transcribe(wav: ByteArray): String {
+        check(!cancelled)
+        require(wav.size in 44..1_000_044)
+        require(String(wav, 0, 4, Charsets.US_ASCII) == "RIFF")
+        require(String(wav, 8, 4, Charsets.US_ASCII) == "WAVE")
+        val connection = URL("$baseUrl/api/agent/transcriptions").openConnection() as HttpURLConnection
+        active = connection
+        try {
+            check(!cancelled)
+            connection.requestMethod = "POST"
+            connection.instanceFollowRedirects = false
+            connection.connectTimeout = 5_000
+            connection.readTimeout = 60_000
+            connection.doOutput = true
+            connection.setRequestProperty("Content-Type", "audio/wav")
+            connection.setRequestProperty("X-Jusika-Request-Id", UUID.randomUUID().toString())
+            if (mobileToken.isNotEmpty()) connection.setRequestProperty("Authorization", "Bearer $mobileToken")
+            connection.setFixedLengthStreamingMode(wav.size)
+            connection.outputStream.use { it.write(wav) }
+            val code = connection.responseCode
+            if (code in setOf(401, 403, 429)) throw AgentAccessException(code)
+            check(code == 200) { "Transcription unavailable" }
+            val response = connection.inputStream.bufferedReader(Charsets.UTF_8).use { reader ->
+                val value = reader.readText()
+                check(value.length <= 4_096)
+                value
+            }
+            return JSONObject(response).getString("text").trim().also {
+                check(it.isNotEmpty() && it.length <= 500)
+            }
+        } finally {
+            connection.disconnect()
+            active = null
+        }
+    }
     fun send(request: VoiceRequest): AgentTurn {
         check(!cancelled)
         require(request.text.isNotBlank() && request.text.length <= 500)

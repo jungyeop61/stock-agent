@@ -70,6 +70,8 @@ def test_compose_has_only_https_entrypoint_and_hardcoded_safety(tmp_path: Path) 
     if not shutil.which("docker"):
         pytest.skip("Docker CLI required for Compose syntax verification")
     env, _ = create_environment(tmp_path, "jusika.example.com", "owner@example.com")
+    with env.open("a") as output:
+        output.write("OPENAI_API_KEY=test-only-not-a-real-key\n")
     result = subprocess.run(
         [
             "docker",
@@ -97,7 +99,42 @@ def test_compose_has_only_https_entrypoint_and_hardcoded_safety(tmp_path: Path) 
     agent = services["agent"]["environment"]
     assert agent["JUSIKA_AGENT_MOBILE_AUTH_REQUIRED"] == "true"
     assert agent["JUSIKA_AGENT_CHECKPOINT_PROVIDER"] == "postgres"
-    assert agent["JUSIKA_AGENT_COMMAND_INTERPRETER"] == "rules"
-    assert "OPENAI_API_KEY" not in agent
+    assert agent["JUSIKA_AGENT_COMMAND_INTERPRETER"] == "openai"
+    assert agent["JUSIKA_AGENT_OPENAI_MODEL"] == "gpt-5.6-terra"
+    assert agent["OPENAI_API_KEY"] == "test-only-not-a-real-key"
+    assert agent["JUSIKA_AGENT_OPENAI_TRANSCRIPTION_MODEL"] == "gpt-transcribe"
     assert json.loads(agent["JUSIKA_AGENT_MOBILE_CREDENTIALS"])["father"]
     assert sum(int(service["mem_limit"]) for service in services.values()) < 1800 * 1024 * 1024
+
+
+def test_live_overlay_selects_live_adapters_but_defaults_to_blocked(tmp_path: Path) -> None:
+    if not shutil.which("docker"):
+        pytest.skip("Docker CLI required for Compose syntax verification")
+    env, _ = create_environment(tmp_path, "jusika.example.com", "owner@example.com")
+    with env.open("a") as output:
+        output.write("OPENAI_API_KEY=test-only-not-a-real-key\n")
+    result = subprocess.run(
+        [
+            "docker",
+            "compose",
+            "--env-file",
+            str(env),
+            "-f",
+            str(ROOT / "deploy/compose.yaml"),
+            "-f",
+            str(ROOT / "deploy/compose.live.yaml"),
+            "config",
+            "--format",
+            "json",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    spring = json.loads(result.stdout)["services"]["spring"]["environment"]
+    assert spring["JUSIKA_BROKER_MODE"] == "live"
+    assert spring["JUSIKA_LIVE_TRADING_ENABLED"] == "false"
+    assert spring["JUSIKA_TRADING_KILL_SWITCH_ACTIVE"] == "true"
+    assert spring["JUSIKA_LIVE_ALLOWED_ACCOUNT_SEQS"] == ""
+    assert spring["JUSIKA_LIVE_MAX_ORDER_QUANTITY"] == "0"
+    assert spring["JUSIKA_LIVE_QUANTITY_ORDER_SUBMISSION_CONNECTED"] == "false"

@@ -108,6 +108,7 @@ expire_date도 사용자가 명시한 값만 기록하세요.
                     input=text,
                     text_format=ParsedIntent,
                     max_output_tokens=self._max_output_tokens,
+                    reasoning={"effort": "none"},
                     store=False,
                 )
             except Exception as exc:

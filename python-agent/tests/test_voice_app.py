@@ -14,7 +14,7 @@ from tests.fakes import FakeSpringGateway
 class ControlledSafetyGateway(FakeSpringGateway):
     voice_allowed = True
 
-    async def check_mock_safety(self) -> None:
+    async def check_voice_safety(self) -> None:
         if not self.voice_allowed:
             raise RuntimeError("token=private-token accountNumber=1234567890")
 

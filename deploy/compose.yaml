@@ -29,7 +29,7 @@ services:
       retries: 10
 
   spring:
-    image: jusika-spring:vm-1
+    image: jusika-spring:vm-2
     restart: unless-stopped
     mem_limit: 896m
     pids_limit: 150
@@ -69,7 +69,7 @@ services:
       start_period: 90s
 
   agent:
-    image: jusika-agent:vm-1
+    image: jusika-agent:vm-2
     restart: unless-stopped
     mem_limit: 384m
     pids_limit: 75
@@ -92,8 +92,12 @@ services:
       JUSIKA_AGENT_CHECKPOINT_DATABASE_URL: postgresql://jusika:${POSTGRES_PASSWORD:?Required}@postgres:5432/jusika
       JUSIKA_INTERNAL_READ_API_KEY: ${JUSIKA_INTERNAL_READ_API_KEY:?Required}
       JUSIKA_INTERNAL_ORDER_API_KEY: ${JUSIKA_INTERNAL_ORDER_API_KEY:?Required}
-      # Initial deployment has no paid interpreter/API calls.
-      JUSIKA_AGENT_COMMAND_INTERPRETER: rules
+      # Production speech is interpreted with strict Structured Outputs.
+      JUSIKA_AGENT_COMMAND_INTERPRETER: openai
+      JUSIKA_AGENT_OPENAI_MODEL: gpt-5.6-terra
+      # Used for both transcription and natural-language command interpretation.
+      OPENAI_API_KEY: ${OPENAI_API_KEY:?Required for speech and command interpretation}
+      JUSIKA_AGENT_OPENAI_TRANSCRIPTION_MODEL: gpt-transcribe
       TZ: Asia/Seoul
     networks:
       backend: {}

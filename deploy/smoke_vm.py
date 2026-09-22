@@ -61,7 +61,13 @@ else:
 
 
 def run(command: list[str], *, input_text: str | None = None) -> str:
-    result = subprocess.run(command, input=input_text, capture_output=True, text=True)
+    result = subprocess.run(
+        command,
+        input=input_text,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
     if result.returncode:
         # Compose errors/configuration can contain secrets. Never print captured output.
         raise RuntimeError(
@@ -105,6 +111,10 @@ def main() -> None:
                 "TOSSINVEST_CLIENT_ID": "local-stub",
                 "TOSSINVEST_CLIENT_SECRET": "local-stub",
             }
+        )
+        # Local smoke tests stay deterministic and never call the paid OpenAI interpreter.
+        config["services"]["agent"]["environment"]["JUSIKA_AGENT_COMMAND_INTERPRETER"] = (
+            "rules"
         )
         fixture = directory / "compose.json"
         fixture.touch(mode=0o600)

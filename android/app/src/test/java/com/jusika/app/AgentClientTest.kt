@@ -54,6 +54,20 @@ class AgentClientTest {
             assertEquals(1, server.calls.get())
         }
     }
+    @Test fun sendsBoundedWaveToAuthenticatedTranscriptionEndpoint() {
+        val wave = PcmWave.encode(shortArrayOf(100, -100, 200, -200))
+        MockVoiceServer(200, JSONObject().put("text", "삼성전자 현재가 알려줘").toString()).use { server ->
+            val text = AgentClient(server.url).transcribe(wave)
+            assertEquals("삼성전자 현재가 알려줘", text)
+            assertEquals("POST /api/agent/transcriptions HTTP/1.1", server.requestLine)
+            assertEquals("audio/wav", server.headers["content-type"])
+            assertEquals(wave.size, server.bodyBytes.size)
+            assertTrue(server.bodyBytes.contentEquals(wave))
+        }
+    }
+    @Test fun rejectsInvalidWaveBeforeNetworking() {
+        assertThrows(IllegalArgumentException::class.java) { client.transcribe(ByteArray(44)) }
+    }
     @Test fun errorsAndRedirectsAreNotRetried() {
         for (code in listOf(500, 302)) {
             MockVoiceServer(code, "").use { server ->
@@ -100,6 +114,7 @@ private class MockVoiceServer(code: Int, response: String) : java.io.Closeable {
     val url = "http://127.0.0.1:${socket.localPort}"
     val calls = AtomicInteger()
     @Volatile var body = ""
+    @Volatile var bodyBytes = ByteArray(0)
     @Volatile var requestLine = ""
     @Volatile var headers: Map<String, String> = emptyMap()
     private val worker = Thread {
@@ -133,6 +148,7 @@ private class MockVoiceServer(code: Int, response: String) : java.io.Closeable {
                         val count = input.read(bytes, read, bytes.size - read)
                         check(count > 0); read += count
                     }
+                    bodyBytes = bytes
                     body = String(bytes, Charsets.UTF_8)
                     val result = response.toByteArray(Charsets.UTF_8)
                     connection.getOutputStream().apply {

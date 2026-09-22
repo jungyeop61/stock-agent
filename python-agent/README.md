@@ -69,14 +69,19 @@ JUSIKA_AGENT_LOG_LEVEL=INFO
 
 ## 텍스트 기반 MOCK 흐름
 
-Android 0.3.0은 아래 텍스트 API 대신 `POST /api/agent/sessions/{session_id}/voice-messages`를
-사용합니다. 명령/누락 정보 답변은 `{"text":"..."}`, 미리보기 승인/중단은
+Android 0.4.0은 명시적 앱 실행 뒤 녹음한 WAV를 먼저 `POST /api/agent/transcriptions`로
+전송합니다. 이 경로는 서버의 `gpt-transcribe`를 사용해 `{"text":"..."}`를 반환하며,
+명령은 기존 `POST /api/agent/sessions/{session_id}/voice-messages`로 보냅니다.
+명령/누락 정보 답변은 `{"text":"..."}`, 미리보기 승인/중단은
 `{"text":"승인", "confirmation_preview_id":"안내한 preview_id"}` 또는 `취소`를 보냅니다.
-음성 API는 각 요청 전 Spring 안전 상태에서 MOCK·LIVE 비활성화·kill switch 활성화를
+음성 API는 각 요청 전 Spring 안전 상태가 내부적으로 일관적인지
 확인하며, 승인/중단 시 미리보기 ID와 승인 대기 상태가 일치해야 합니다. `네/응` 등의
 텍스트 승인 별칭은 음성 API에서 승인으로 사용하지 않습니다. 잘못되거나 이미 처리된 ID는
 실행하지 않고 오류로 반환합니다. 기존 텍스트 API 계약은 유지합니다.
-두 API에 동일한 모바일 인증·세션 격리·사용자별 요청 제한이 적용됩니다. 주문은 여전히 MOCK 전용입니다.
+전사와 두 메시지 API에 동일한 모바일 인증·사용자별 요청 제한이 적용됩니다. 전사 WAV는
+최대 1,000,044바이트, JSON은 최대 8KiB로 제한됩니다. 기본 배포는 MOCK이며, 별도 LIVE
+배포에서도 Spring이 보고한 안전 상태가 일관적일 때만 음성 요청을 처리합니다. LIVE가 차단된
+상태에서는 조회만 계속 사용할 수 있고 주문 변경은 Spring의 중앙 안전정책에서 거절됩니다.
 실제 프로세스 전체 기능 검증은 루트에서 다음과 같이 실행합니다.
 
 ```bash
@@ -108,7 +113,8 @@ JUSIKA_AGENT_MOBILE_IP_REQUESTS_PER_MINUTE=60
 앱에서 HTTPS 서버 주소와 같은 토큰을 입력합니다. HTTP 개발은 loopback USB reverse만 가능합니다.
 서버는 `Authorization: Bearer <개인 토큰>`을 검사하고, 잘못된/누락 토큰은 401,
 외부 평문 연결·브라우저 Origin은 403, 분당 한도 초과는 429 (`Retry-After: 60`),
-8 KiB 초과 요청 본문은 413으로 차단합니다. 자동 재시도는 하지 않습니다.
+JSON 8KiB 또는 전사 WAV 1,000,044바이트 초과 요청 본문은 413으로 차단합니다.
+주문 POST는 자동 재시도하지 않습니다.
 인증 OFF는 환경 `local` + 실제 peer loopback만 허용합니다. **인증 OFF 서버를 reverse proxy로
 공개하지 마세요.** 운영에서는 인증을 반드시 켜고 Spring은 비공개 네트워크에 둡니다.
 
@@ -256,7 +262,7 @@ Spring은 강제 `mock`, LIVE 비활성화, kill switch 활성화로 실행되�
 
 ```dotenv
 JUSIKA_AGENT_COMMAND_INTERPRETER=openai
-JUSIKA_AGENT_OPENAI_MODEL=gpt-4o-mini
+JUSIKA_AGENT_OPENAI_MODEL=gpt-5.6-terra
 JUSIKA_AGENT_OPENAI_TIMEOUT_SECONDS=15
 JUSIKA_AGENT_OPENAI_MAX_OUTPUT_TOKENS=1000
 JUSIKA_AGENT_OPENAI_MAX_ATTEMPTS=3
@@ -268,6 +274,24 @@ OpenAI 해석기는 출력 토큰과 호출 시간을 제한하고, 연결 오�
 일시적인 서버 오류만 최대 설정 횟수까지 지수 간격으로 재시도합니다. 잘못된 요청이나
 구조화되지 않은 응답은 재시도하지 않으며, 해석 실패 시 주문 미리보기를 생성하지 않고
 사용자에게 다시 말해달라고 안내합니다.
+
+운영 배포는 `gpt-5.6-terra`와 reasoning effort `none`을 사용해 한국어 명령을 엄격한
+`ParsedIntent` 구조로만 변환합니다. 모델은 주문을 직접 실행하지 않으며, 모든 변경 요청은
+기존 Spring 미리보기·명시적 승인·실행 직전 재검증을 그대로 통과해야 합니다.
+
+## 버튼/Bixby 음성 전사
+
+명령 해석기를 `rules`로 두어도 Android 0.4.0 음성 전사에는 OpenAI 키가 필요합니다.
+
+```dotenv
+OPENAI_API_KEY=실제_비밀값
+JUSIKA_AGENT_OPENAI_TRANSCRIPTION_MODEL=gpt-transcribe
+JUSIKA_AGENT_OPENAI_TRANSCRIPTION_TIMEOUT_SECONDS=30
+```
+
+키는 서버에만 저장하고 APK·모바일 토큰·QR에 넣지 않습니다. 서버는 `audio/wav` 형식과
+크기를 확인한 뒤 한국어와 금융 용어 힌트를 포함해 전사하며, 원본이나 전사문을 애플리케이션
+로그에 기록하지 않습니다.
 
 ## 체크포인트
 

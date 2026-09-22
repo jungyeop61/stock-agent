@@ -43,7 +43,9 @@ class Settings(BaseSettings):
     spring_backend_url: str = "http://localhost:8080"
     port: int = Field(default=8000, ge=1, le=65535)
     command_interpreter: CommandInterpreterProvider = CommandInterpreterProvider.RULES
-    openai_model: str = "gpt-4o-mini"
+    openai_model: str = "gpt-5.6-terra"
+    openai_transcription_model: str = "gpt-transcribe"
+    openai_transcription_timeout_seconds: float = Field(default=30.0, gt=0, le=60)
     openai_timeout_seconds: float = Field(default=15.0, gt=0, le=60)
     openai_max_output_tokens: int = Field(default=1000, ge=256, le=4096)
     openai_max_attempts: int = Field(default=3, ge=1, le=5)

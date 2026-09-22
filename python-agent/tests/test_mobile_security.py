@@ -159,6 +159,23 @@ def test_body_and_browser_origin_rejected_before_graph() -> None:
         )
 
 
+def test_audio_has_a_separate_bounded_body_limit() -> None:
+    with client(settings()) as api:
+        headers = {
+            "Authorization": "Bearer " + ALICE,
+            "Content-Type": "audio/wav",
+        }
+        wave = b"RIFF" + b"\x00" * 4 + b"WAVE" + b"\x00" * 900_000
+        # Authentication/body middleware accepts the bounded turn; missing provider is then 503.
+        response = api.post("/api/agent/transcriptions", content=wave, headers=headers)
+        assert response.status_code == 503
+        assert api.post(
+            "/api/agent/transcriptions",
+            content=wave + b"\x00" * 110_000,
+            headers=headers,
+        ).status_code == 413
+
+
 @pytest.mark.parametrize(
     "values",
     [

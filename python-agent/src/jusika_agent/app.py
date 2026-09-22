@@ -7,7 +7,7 @@ from time import perf_counter
 from typing import Any
 from uuid import UUID
 
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, HTTPException, Request, Response
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from pydantic import BaseModel
@@ -37,6 +37,7 @@ from jusika_agent.observability import (
 from jusika_agent.readiness import ReadinessService
 from jusika_agent.service import AgentService
 from jusika_agent.spring_client import SpringBackendClient
+from jusika_agent.transcription import OpenAISpeechTranscriber, SpeechTranscriber
 
 
 class HealthResponse(BaseModel):
@@ -50,6 +51,10 @@ class ReadinessResponse(BaseModel):
     components: dict[str, str]
 
 
+class TranscriptionResponse(BaseModel):
+    text: str
+
+
 def create_app(
     *,
     settings: Settings | None = None,
@@ -57,6 +62,7 @@ def create_app(
     spring: SpringGateway | None = None,
     checkpointer: Any | None = None,
     session_guard: SessionConcurrencyGuard | None = None,
+    transcriber: SpeechTranscriber | None = None,
 ) -> FastAPI:
     """Create an app with overridable boundaries for deterministic tests."""
 
@@ -66,6 +72,14 @@ def create_app(
     owns_interpreter = interpreter is None
     resolved_interpreter = interpreter or _create_interpreter(resolved_settings)
     owns_spring = spring is None
+    owns_transcriber = transcriber is None
+    resolved_transcriber = transcriber
+    if resolved_transcriber is None and resolved_settings.openai_api_key.get_secret_value():
+        resolved_transcriber = OpenAISpeechTranscriber(
+            api_key=resolved_settings.openai_api_key.get_secret_value(),
+            model=resolved_settings.openai_transcription_model,
+            timeout_seconds=resolved_settings.openai_transcription_timeout_seconds,
+        )
     resolved_spring = spring or SpringBackendClient(
         base_url=resolved_settings.spring_backend_url,
         read_api_key=resolved_settings.spring_read_api_key.get_secret_value(),
@@ -93,7 +107,7 @@ def create_app(
             application.state.agent_service = AgentService(
                 graph,
                 session_guard=resolved_session_guard,
-                voice_safety_check=resolved_spring.check_mock_safety,
+                voice_safety_check=resolved_spring.check_voice_safety,
             )
             application.state.readiness_service = ReadinessService(
                 spring=resolved_spring,
@@ -108,6 +122,8 @@ def create_app(
             await resolved_spring.aclose()
         if owns_interpreter and isinstance(resolved_interpreter, OpenAICommandInterpreter):
             await resolved_interpreter.aclose()
+        if owns_transcriber and resolved_transcriber is not None:
+            await resolved_transcriber.aclose()
 
     application = FastAPI(
         title="Jusika Python Agent",
@@ -175,6 +191,28 @@ def create_app(
             status="READY" if report.ready else "NOT_READY",
             components=report.components,
         )
+
+    @application.post(
+        "/api/agent/transcriptions",
+        response_model=TranscriptionResponse,
+    )
+    async def transcribe_voice(request: Request) -> TranscriptionResponse:
+        if resolved_transcriber is None:
+            raise HTTPException(status_code=503, detail="음성 인식이 설정되지 않았습니다.")
+        if request.headers.get("content-type", "").split(";", 1)[0].strip() != "audio/wav":
+            raise HTTPException(status_code=415, detail="WAV 음성만 지원합니다.")
+        audio = await request.body()
+        if not (44 <= len(audio) <= 1_000_044) or audio[:4] != b"RIFF" or audio[8:12] != b"WAVE":
+            raise HTTPException(status_code=400, detail="음성 데이터가 올바르지 않습니다.")
+        try:
+            text = await resolved_transcriber.transcribe(audio)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail="음성을 인식하지 못했습니다.") from exc
+        except Exception as exc:
+            raise HTTPException(
+                status_code=502, detail="음성 인식 서비스에 연결하지 못했습니다."
+            ) from exc
+        return TranscriptionResponse(text=text)
 
     @application.post(
         "/api/agent/sessions/{session_id}/messages",

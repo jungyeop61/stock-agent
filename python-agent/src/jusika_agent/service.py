@@ -69,8 +69,8 @@ class AgentService:
                         session_id=session_id,
                         status=AgentStatus.ERROR,
                         message=(
-                            "음성 요청을 중단했습니다. MOCK 모드, LIVE 비활성화, "
-                            "긴급 차단 활성화와 금융 백엔드 연결을 확인해주세요."
+                            "음성 요청을 중단했습니다. 금융 백엔드 연결과 "
+                            "증권사 안전 상태를 확인해주세요."
                         ),
                     )
         except SessionBusyError:
